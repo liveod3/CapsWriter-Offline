@@ -245,7 +245,8 @@ class LLMProcessor:
         params = self._build_request_params(role_config, messages)
         params['stream'] = True
 
-        if not role_config.enable_thinking:
+        # 仅针对 deepseek 或 volcengine 平台在未启用思考时注入禁用思考的 extra_body，避免引起 gemini 等严格 API 的 400 报错
+        if not role_config.enable_thinking and role_config.provider in ['deepseek', 'volcengine']:
             params['extra_body'] = {"thinking": {"type": "disabled"}}
 
         stream = client.chat.completions.create(**params)
