@@ -150,7 +150,7 @@ def _is_window_visible(hwnd: int) -> bool:
     return user32.IsWindowVisible(hwnd) != 0
 
 
-def _create_icon(icon_path: Optional[str] = None):
+def _create_icon(icon_path: Optional[str] = None, recording: bool = False):
     """
     创建托盘图标
     
@@ -164,8 +164,8 @@ def _create_icon(icon_path: Optional[str] = None):
     """
     from PIL import Image, ImageDraw
     
-    # 如果图标文件存在，直接加载
-    if icon_path and os.path.exists(icon_path):
+    # 仅正常状态加载图标文件；录音状态始终动态生成（确保红点显示）
+    if not recording and icon_path and os.path.exists(icon_path):
         try:
             image = Image.open(icon_path)
             if image.mode != 'RGBA':
@@ -174,36 +174,58 @@ def _create_icon(icon_path: Optional[str] = None):
         except Exception:
             pass  # 加载失败则使用动态生成
 
-    # 动态生成图标
+    # 动态生成麦克风图标
     size = 64
     scale = 4
-    real_size = size * scale
+    S = size * scale  # 256px 工作分辨率（抗锯齿）
 
-    image = Image.new('RGBA', (real_size, real_size), (0, 0, 0, 0))
-    dc = ImageDraw.Draw(image)
+    img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
+    dc = ImageDraw.Draw(img)
 
-    blue = (55, 118, 171)
-    yellow = (255, 211, 67)
-    white = (255, 255, 255)
+    BG  = (28, 28, 30)      # 深色背景 #1C1C1E
+    MIC = (255, 255, 255)   # 白色麦克风
+    RED = (255, 59, 48)     # 录音状态红点 #FF3B30
 
-    # 蓝色圆角背景
-    m = 2 * scale
+    # ── 圆角背景 ────────────────────────────────────────────
+    m = 10
+    dc.rounded_rectangle([m, m, S - m, S - m], radius=S // 5, fill=BG)
+
+    cx = S // 2  # 水平中心 128
+
+    # ── 麦克风胶囊体：细长药丸形，宽高比 ≈ 1:2.2 ────────────
+    bw, bh = 46, 100
+    btop    = 20
+    bbottom = btop + bh           # 120
     dc.rounded_rectangle(
-        [m, m, real_size - m, real_size - m],
-        radius=real_size // 4,
-        fill=blue
+        [cx - bw // 2, btop, cx + bw // 2, bbottom],
+        radius=bw // 2,           # 完全圆角 = 药丸形
+        fill=MIC,
     )
 
-    # 黄色圆圈
-    center = real_size // 2
-    r = real_size // 3.5
-    dc.ellipse([center - r, center - r, center + r, center + r], fill=yellow)
+    # ── 颈部（极细，避免"肩膀"感）────────────────────────────
+    nw = 8
+    dc.rectangle([cx - nw // 2, bbottom - 2, cx + nw // 2, 152], fill=MIC)
 
-    # 白色圆点
-    r2 = r // 2
-    dc.ellipse([center - r2, center - r2, center + r2, center + r2], fill=white)
+    # ── U 形支架：宽度明显窄于胶囊，视觉上是"架子"而非肩膀 ──
+    aw = 36                       # < bw=46，支架比胶囊更窄
+    dc.arc(
+        [cx - aw, 132, cx + aw, 168],
+        start=180, end=360,
+        fill=MIC, width=9,
+    )
 
-    return image.resize((size, size), Image.Resampling.LANCZOS)
+    # ── 底部横杆 ────────────────────────────────────────────
+    dc.rectangle([cx - aw, 161, cx + aw, 171], fill=MIC)
+
+    # ── 录音状态红点（右下角）────────────────────────────────
+    if recording:
+        dr  = 24
+        dcx = S - m - dr - 4
+        dcy = S - m - dr - 4
+        dc.ellipse([dcx - dr - 4, dcy - dr - 4, dcx + dr + 4, dcy + dr + 4], fill=BG)
+        dc.ellipse([dcx - dr,     dcy - dr,     dcx + dr,     dcy + dr    ], fill=RED)
+
+    return img.resize((size, size), Image.Resampling.LANCZOS)
 
 
 class _TraySystem:
@@ -217,6 +239,7 @@ class _TraySystem:
         self.hwnd = _get_console_hwnd()
         self.should_exit = False
         self.title = name if name else (os.path.basename(sys.argv[0]) or "Console App")
+        self._icon_path = icon_path
 
         # 禁用关闭按钮
         if self.hwnd:
@@ -387,6 +410,22 @@ def stop_tray() -> None:
         except Exception:
             pass
     _tray_instance = None
+
+
+def set_recording_state(recording: bool) -> None:
+    """更新托盘图标录音状态（线程安全）"""
+    global _tray_instance
+    if _tray_instance is None:
+        return
+    try:
+        _tray_instance.icon.icon = _create_icon(
+            icon_path=_tray_instance._icon_path,
+            recording=recording,
+        )
+        suffix = ' · 录音中' if recording else ''
+        _tray_instance.icon.title = f"{_tray_instance.title}{suffix}"
+    except Exception as e:
+        logger.warning(f'更新托盘图标状态失败: {e}')
 
 
 if __name__ == "__main__":
