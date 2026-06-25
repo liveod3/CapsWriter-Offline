@@ -7,10 +7,10 @@ name = ''                           # 角色名称（留空表示默认）
 enabled = False                      # 是否启用此角色
 
 # ==================== API 配置 ====================
-provider = 'deepseek'                   # API 提供商：'ollama', 'openai', 'deepseek', 'moonshot', 'zhipu', 'claude', 'gemini'
+provider = 'gemini'                     # API 提供商：'ollama', 'openai', 'deepseek', 'moonshot', 'zhipu', 'claude', 'gemini'
 api_url = ''                            # 留空则自动使用 provider 对应的默认值
-api_key = 'sk-4c756***********************36fb' # API Key
-model = 'deepseek-v4-flash'             # 模型名称
+api_key = '' # API Key
+model = 'gemini-3.1-flash-lite'             # 模型名称
 
 # ==================== 上下文管理 ====================
 max_context_length = 4096               # 最大上下文长度（token 数）
@@ -28,15 +28,15 @@ output_mode = 'typing'                  # 输出方式：'typing' 直接打字, 
 # ==================== Toast 弹窗配置（仅在 output_mode='toast' 时有效） ====================
 toast_initial_width = 0.5               # 窗口初始宽度（0.5 = 50% 屏幕宽度）
 toast_initial_height = 0                # 窗口初始高度（0 表示自动计算）
-toast_font_family = '楷体'
+toast_font_family = 'Microsoft YaHei'   # 微软雅黑，现代无衬线风格
 toast_font_size = 23                    # 字体大小
-toast_font_color = 'white'              # 字体颜色
-toast_bg_color = '#075077'              # 背景颜色
+toast_font_color = '#FFFFFF'            # 纯白文字
+toast_bg_color = '#1E1E24'              # 更改为深曜灰，比原版的深蓝色更显沉稳和高级感
 toast_duration = 3000                   # 显示时长（毫秒）
 toast_editable = False                  # 是否可编辑（Markdown 渲染后）
 
 # ==================== 生成参数 ====================
-temperature = 0.7                       # 温度（0-2，越高越随机）
+temperature = 1.0                       # 温度（0-2，越高越随机）
 top_p = 0.9                             # Top-p 采样（0-1）
 max_tokens = 4096                       # 最大输出 token 数
 stop = ''                               # 停止序列
@@ -53,7 +53,7 @@ prompt_prefix_input = '用户输入：'       # 用户输入前缀
 system_prompt = '''
 # 角色
 
-你是一位高级智能复读机，你的任务是将用户提供的语音转录文本进行润色和整理和再输出。
+你是一个专门负责润色文本的编辑，你的任务是将用户提供的语音转录文本进行润色和整理和再输出。
 
 # 要求
 
