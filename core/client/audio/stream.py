@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import sys
 import time
 import threading
 from typing import TYPE_CHECKING, Optional
@@ -109,7 +108,7 @@ class AudioStreamManager:
             time.sleep(4.0)  # 每 4 秒检测一次硬件状态
             
             # 如果用户当前正在录音说话，绝对不要打断当前的音频流
-            if self.state.recording:
+            if self.state.recording or self.state.dictation_paused:
                 continue
                 
             try:
@@ -149,10 +148,10 @@ class AudioStreamManager:
             except Exception as e:
                 logger.debug(f"后台硬件监听循环异常: {e}")
                 # 确保在任何意外错误后，底层的录音流一定能够被拉起
-                if not self._running:
+                if (not self._running) and (not self.state.dictation_paused):
                     self.start(silent=True)
-    
-    def start(self, silent: bool = False) -> Optional[sd.InputStream]:
+
+    def start(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
         """
         启动音频流
         
@@ -165,6 +164,10 @@ class AudioStreamManager:
         if self._running:
             logger.debug("音频流已在运行，跳过启动")
             return self.state.stream
+
+        if self.state.dictation_paused and not force:
+            logger.debug("当前处于听写挂起状态，跳过启动音频流")
+            return None
             
         # 检测音频设备
         try:
@@ -183,8 +186,7 @@ class AudioStreamManager:
             logger.warning("无法获取音频设备名称（编码问题）")
         except sd.PortAudioError:
             logger.error("未找到麦克风设备")
-            input('按回车键退出')
-            sys.exit(1)
+            return None
         
         # 创建音频流
         try:

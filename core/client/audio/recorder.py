@@ -156,6 +156,15 @@ class AudioRecorder:
                     if self._cache:
                         data = np.concatenate(self._cache)
                         self._cache.clear()
+
+                        # 短录音可能在阈值前就结束，此时需要先创建文件再写入
+                        if Config.save_audio and self._file_manager and file_path is None:
+                            file_path, _ = self._file_manager.create(
+                                data.shape[1],
+                                self._start_time
+                            )
+                            self.state.register_audio_file(self.task_id, file_path)
+                            logger.debug(f"创建音频文件(短录音): {file_path}")
                         
                         self._duration += len(data) / 48000
                         if Config.save_audio and self._file_manager:
