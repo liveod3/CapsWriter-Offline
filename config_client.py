@@ -19,15 +19,15 @@ class ClientConfig:
         {
             'key': 'alt_gr',     # 监听大写锁定键
             'type': 'keyboard',     # 是键盘快捷键
-            'suppress': True,      # 阻塞按键（短按会补发）
-            'hold_mode': True,      # 长按模式
+            'suppress': False,      # 阻塞按键（短按会补发）
+            'hold_mode': False,      # 长按模式
             'enabled': True         # 启用此快捷键
         },
         {
             'key': 'x2',
             'type': 'mouse',
-            'suppress': True,
-            'hold_mode': True,
+            'suppress': False,
+            'hold_mode': False,
             'enabled': True
         },
     ]
