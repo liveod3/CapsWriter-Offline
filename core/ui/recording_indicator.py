@@ -138,6 +138,9 @@ class _RecordingIndicator:
         self._pulse_idx = 0
         self._start_pulse()
 
+        # 若状态提示已显示，录音浮窗出现后将提示重新布局到其上方，避免重叠。
+        self._relayout_hint_if_needed()
+
     def _hide_impl(self) -> None:
         self._stop_pulse()
         if self._win:
@@ -195,6 +198,18 @@ class _RecordingIndicator:
         mx, my, mw, mh = _get_active_monitor_workarea()
         x = mx + (mw - ww) // 2
         y = my + mh - wh - 120
+
+        # 如果录音浮窗正在显示，将提示放到录音浮窗上方，保证视觉不重叠。
+        if self._win and self._win.winfo_exists():
+            try:
+                self._win.update_idletasks()
+                rec_y = self._win.winfo_y()
+                y = min(y, rec_y - wh - 12)
+            except tk.TclError:
+                pass
+
+        # 给顶部留出最小边距，避免在小屏幕/高缩放下顶到屏幕边缘。
+        y = max(my + 16, y)
         win.geometry(f'+{x}+{y}')
 
         self._hint_win = win
@@ -208,6 +223,26 @@ class _RecordingIndicator:
                 pass
             self._hint_win = None
         self._hint_job = None
+
+    def _relayout_hint_if_needed(self) -> None:
+        """录音浮窗显示后，必要时将提示浮窗重新排到上方。"""
+        if not (self._hint_win and self._hint_win.winfo_exists() and self._win and self._win.winfo_exists()):
+            return
+
+        try:
+            self._hint_win.update_idletasks()
+            self._win.update_idletasks()
+
+            hw = self._hint_win.winfo_reqwidth()
+            hh = self._hint_win.winfo_reqheight()
+            mx, my, mw, mh = _get_active_monitor_workarea()
+
+            x = mx + (mw - hw) // 2
+            y = min(my + mh - hh - 120, self._win.winfo_y() - hh - 12)
+            y = max(my + 16, y)
+            self._hint_win.geometry(f'+{x}+{y}')
+        except tk.TclError:
+            pass
 
     def _start_pulse(self) -> None:
         self._pulse_job = self._root.after(_PULSE_INTERVAL_MS, self._pulse_step)
