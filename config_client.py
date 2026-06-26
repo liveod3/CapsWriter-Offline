@@ -17,7 +17,7 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'alt_gr',     # 监听大写锁定键
+            'key': 'ctrl_r',     # 监听大写锁定键
             'type': 'keyboard',     # 是键盘快捷键
             'suppress': False,      # 阻塞按键（短按会补发）
             'hold_mode': False,      # 长按模式
@@ -69,7 +69,7 @@ class ClientConfig:
     mic_seg_duration = 60       # 麦克风听写时分段长度：60秒
     mic_seg_overlap = 4         # 麦克风听写时分段重叠：4秒
     enable_idle_suspend = True  # 是否启用闲置自动挂起（释放麦克风，避免耳机长期通话模式）
-    idle_suspend_seconds = 30   # 空闲超过多少秒后自动挂起
+    idle_suspend_seconds = 20   # 空闲超过多少秒后自动挂起
 
     file_seg_duration = 60      # 转录文件时分段长度
     file_seg_overlap = 4        # 转录文件时分段重叠
