@@ -78,6 +78,8 @@ class _RecordingIndicator:
         self._dot: Optional[tk.Label] = None
         self._pulse_idx = 0
         self._pulse_job = None
+        self._hint_win: Optional[tk.Toplevel] = None
+        self._hint_job = None
 
     # ── 公共接口（线程安全，调度到 Tk 线程）──────────────────
 
@@ -86,6 +88,9 @@ class _RecordingIndicator:
 
     def hide(self) -> None:
         self._root.after(0, self._hide_impl)
+
+    def show_hint(self, text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
+        self._root.after(0, lambda: self._show_hint_impl(text, duration_ms, dot_color))
 
     # ── Tk 线程内部实现 ───────────────────────────────────────
 
@@ -142,6 +147,67 @@ class _RecordingIndicator:
                 pass
             self._win = None
             self._dot = None
+
+    def _show_hint_impl(self, text: str, duration_ms: int, dot_color: str) -> None:
+        # 覆盖旧提示，保证屏幕上最多只有一个状态提示
+        if self._hint_job:
+            try:
+                self._root.after_cancel(self._hint_job)
+            except Exception:
+                pass
+            self._hint_job = None
+
+        if self._hint_win and self._hint_win.winfo_exists():
+            try:
+                self._hint_win.destroy()
+            except tk.TclError:
+                pass
+            self._hint_win = None
+
+        win = tk.Toplevel(self._root)
+        win.overrideredirect(True)
+        win.attributes('-topmost', True)
+        win.attributes('-alpha', 0.9)
+        win.configure(bg='#1C1C1E')
+
+        frame = tk.Frame(win, bg='#1C1C1E', padx=18, pady=9)
+        frame.pack()
+
+        tk.Label(
+            frame,
+            text='●',
+            font=('', 10),
+            fg=dot_color,
+            bg='#1C1C1E',
+        ).pack(side='left', padx=(0, 8))
+
+        tk.Label(
+            frame,
+            text=text,
+            font=('Microsoft YaHei UI', 10),
+            fg='#EBEBF5',
+            bg='#1C1C1E',
+        ).pack(side='left')
+
+        win.update_idletasks()
+        ww = win.winfo_reqwidth()
+        wh = win.winfo_reqheight()
+        mx, my, mw, mh = _get_active_monitor_workarea()
+        x = mx + (mw - ww) // 2
+        y = my + mh - wh - 120
+        win.geometry(f'+{x}+{y}')
+
+        self._hint_win = win
+        self._hint_job = self._root.after(max(300, int(duration_ms)), self._hide_hint_impl)
+
+    def _hide_hint_impl(self) -> None:
+        if self._hint_win:
+            try:
+                self._hint_win.destroy()
+            except tk.TclError:
+                pass
+            self._hint_win = None
+        self._hint_job = None
 
     def _start_pulse(self) -> None:
         self._pulse_job = self._root.after(_PULSE_INTERVAL_MS, self._pulse_step)
@@ -211,3 +277,10 @@ def hide_recording_indicator() -> None:
         ind = _indicator
     if ind:
         ind.hide()
+
+
+def show_status_hint(text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
+    """显示短暂状态提示浮窗（线程安全）。"""
+    ind = _get_indicator()
+    if ind:
+        ind.show_hint(text=text, duration_ms=duration_ms, dot_color=dot_color)

@@ -106,6 +106,10 @@ class UDPController:
         state = self.manager.state
 
         if command == 'START':
+            if state.dictation_paused:
+                logger.debug("UDP 控制：忽略 START 命令（听写已暂停）")
+                return
+
             if not state.recording:
                 logger.info(f"UDP 控制：开始录音 (来自 {addr[0]}:{addr[1]})")
                 # 使用第一个可用的快捷键任务启动录音

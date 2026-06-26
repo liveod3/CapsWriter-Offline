@@ -38,8 +38,8 @@ def set_ui_logger(real_logger):
 # ============================================================
 
 from .toast import toast, toast_stream, ToastMessage, ToastMessageManager
-from .tray import enable_min_to_tray, stop_tray, set_recording_state
-from .recording_indicator import show_recording_indicator, hide_recording_indicator
+from .tray import enable_min_to_tray, stop_tray, set_recording_state, set_dictation_paused
+from .recording_indicator import show_recording_indicator, hide_recording_indicator, show_status_hint
 
 __all__ = [
     'logger',
@@ -51,6 +51,8 @@ __all__ = [
     'enable_min_to_tray',
     'stop_tray',
     'set_recording_state',
+    'set_dictation_paused',
     'show_recording_indicator',
     'hide_recording_indicator',
+    'show_status_hint',
 ]

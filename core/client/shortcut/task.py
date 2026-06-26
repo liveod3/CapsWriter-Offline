@@ -72,8 +72,16 @@ class ShortcutTask:
             self._recorder_class = AudioRecorder
         return self._recorder_class(self.app)
 
-    def launch(self) -> None:
+    def launch(self) -> bool:
         """启动录音任务"""
+        self.app.mark_user_activity()
+
+        if self.state.dictation_paused:
+            resumed = self.app.resume_dictation(show_hint=True, silent_stream=True)
+            if not resumed:
+                logger.warning(f"[{self.shortcut.key}] 恢复听写失败，跳过本次录音")
+                return False
+
         logger.info(f"[{self.shortcut.key}] 触发：开始录音")
 
         # 记录开始时间
@@ -102,10 +110,12 @@ class ShortcutTask:
             recorder.record_and_send(),
             self.app.loop,
         )
+        return True
 
     def cancel(self) -> None:
         """取消录音任务（时间过短）"""
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
+        self.app.mark_user_activity()
 
         self.is_recording = False
         self.state.stop_recording()
@@ -113,12 +123,14 @@ class ShortcutTask:
         hide_recording_indicator()
         set_recording_state(False)
 
-        self.task.cancel()
-        self.task = None
+        if self.task is not None:
+            self.task.cancel()
+            self.task = None
 
     def finish(self) -> None:
         """完成录音任务"""
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
+        self.app.mark_user_activity()
 
         self.is_recording = False
         self.state.stop_recording()

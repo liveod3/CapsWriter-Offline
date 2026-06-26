@@ -105,6 +105,8 @@ def _init_win_api():
 # 全局变量
 _tray_instance: Optional['_TraySystem'] = None
 _lock = threading.Lock()
+_tray_recording = False
+_tray_paused = False
 
 
 def _get_console_hwnd():
@@ -403,26 +405,47 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
 def stop_tray() -> None:
     """停止托盘图标"""
-    global _tray_instance
+    global _tray_instance, _tray_recording, _tray_paused
     if _tray_instance and _tray_instance.icon:
         try:
             _tray_instance.icon.stop()
         except Exception:
             pass
     _tray_instance = None
+    _tray_recording = False
+    _tray_paused = False
 
 
 def set_recording_state(recording: bool) -> None:
     """更新托盘图标录音状态（线程安全）"""
+    global _tray_recording
+    _tray_recording = recording
+    _refresh_tray_status()
+
+
+def set_dictation_paused(paused: bool) -> None:
+    """更新托盘图标听写暂停状态（线程安全）"""
+    global _tray_paused
+    _tray_paused = paused
+    _refresh_tray_status()
+
+
+def _refresh_tray_status() -> None:
+    """根据录音/暂停状态刷新托盘图标与标题"""
     global _tray_instance
     if _tray_instance is None:
         return
     try:
         _tray_instance.icon.icon = _create_icon(
             icon_path=_tray_instance._icon_path,
-            recording=recording,
+            recording=_tray_recording,
         )
-        suffix = ' · 录音中' if recording else ''
+        if _tray_recording:
+            suffix = ' · 录音中'
+        elif _tray_paused:
+            suffix = ' · 已暂停'
+        else:
+            suffix = ''
         _tray_instance.icon.title = f"{_tray_instance.title}{suffix}"
     except Exception as e:
         logger.warning(f'更新托盘图标状态失败: {e}')

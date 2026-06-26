@@ -36,6 +36,7 @@ class TrayManager:
             icon_path,
             exit_callback=self.app.stop,
             more_options=[
+                ('⏯️ 暂停/恢复听写', self._toggle_dictation_pause),
                 ('📋 复制结果', self._copy_last_result),
                 ('📝 上下文', self._add_context),
                 ('✨ 热词', self._add_hotword),
@@ -62,6 +63,10 @@ class TrayManager:
         if hasattr(self.app, 'stream') and self.app.stream:
             self.app.stream.reopen()
             logger.info("用户请求重启音频")
+
+    def _toggle_dictation_pause(self):
+        """暂停/恢复听写回调"""
+        self.app.toggle_dictation_pause()
 
     def _clear_memory(self):
         """清除 LLM 对话历史回调"""

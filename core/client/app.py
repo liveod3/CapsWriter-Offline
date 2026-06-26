@@ -9,6 +9,8 @@ CapsWriter Offline 客户端主程序门面类 (Facade)
 import os
 import sys
 import asyncio
+import threading
+import time
 from pathlib import Path
 
 from .state import ClientState
@@ -34,6 +36,7 @@ from .output.text_output import TextOutput
 from .diary.diary_writer import DiaryWriter
 from core.tools.empty_working_set import empty_current_working_set
 from platform import system
+from core.ui import set_dictation_paused, show_status_hint
 
 
 
@@ -80,6 +83,102 @@ class CapsWriterClient:
         # 内存清理
         empty_current_working_set()
 
+        # 闲置自动挂起监控
+        self._idle_suspend_running = False
+        self._idle_suspend_thread = None
+
+    def mark_user_activity(self) -> None:
+        """标记用户活跃时间，用于闲置自动挂起判断。"""
+        self.state.last_activity_time = time.time()
+
+    def start_idle_suspend_monitor(self) -> None:
+        """启动闲置自动挂起监控线程。"""
+        if not Config.enable_idle_suspend:
+            return
+        if self._idle_suspend_running:
+            return
+
+        self._idle_suspend_running = True
+        self._idle_suspend_thread = threading.Thread(
+            target=self._idle_suspend_loop,
+            daemon=True,
+            name='IdleSuspendMonitor'
+        )
+        self._idle_suspend_thread.start()
+        logger.info(f"闲置自动挂起已启用: {Config.idle_suspend_seconds}s")
+
+    def stop_idle_suspend_monitor(self) -> None:
+        """停止闲置自动挂起监控线程。"""
+        self._idle_suspend_running = False
+        self._idle_suspend_thread = None
+
+    def _idle_suspend_loop(self) -> None:
+        """闲置检测循环：超过阈值后自动挂起听写。"""
+        while self._idle_suspend_running:
+            time.sleep(1.0)
+
+            if not Config.enable_idle_suspend:
+                continue
+            if Config.idle_suspend_seconds <= 0:
+                continue
+            if self.state.dictation_paused or self.state.recording:
+                continue
+
+            idle_for = time.time() - self.state.last_activity_time
+            if idle_for < Config.idle_suspend_seconds:
+                continue
+
+            paused = self.pause_dictation(show_hint=False)
+            if paused:
+                show_status_hint('听写已闲置挂起', duration_ms=1800, dot_color='#F59E0B')
+                self.state.last_activity_time = time.time()
+
+    def pause_dictation(self, show_hint: bool = True) -> bool:
+        """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
+        if self.state.recording:
+            if show_hint:
+                show_status_hint('当前正在录音，稍后再暂停', duration_ms=1600, dot_color='#F59E0B')
+            return False
+
+        if self.state.dictation_paused:
+            return True
+
+        self.stream.stop()
+        self.state.dictation_paused = True
+        set_dictation_paused(True)
+        logger.info("听写已暂停：音频流已释放")
+
+        if show_hint:
+            show_status_hint('听写已暂停', duration_ms=1400, dot_color='#7DD3FC')
+        return True
+
+    def resume_dictation(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
+        """恢复听写并重新打开麦克风流。"""
+        if not self.state.dictation_paused:
+            return True
+
+        stream = self.stream.start(silent=silent_stream, force=True)
+        if stream is None:
+            logger.warning("恢复听写失败：音频流启动失败")
+            if show_hint:
+                show_status_hint('恢复听写失败：无法打开麦克风', duration_ms=2000, dot_color='#EF4444')
+            return False
+
+        self.state.dictation_paused = False
+        set_dictation_paused(False)
+        logger.info("听写已恢复：音频流已重新打开")
+        self.mark_user_activity()
+
+        if show_hint:
+            show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
+        return True
+
+    def toggle_dictation_pause(self) -> bool:
+        """切换听写暂停状态。"""
+        if self.state.dictation_paused:
+            return self.resume_dictation(show_hint=True, silent_stream=False)
+        return self.pause_dictation(show_hint=True)
+
     def stop(self):
         """
         统一释放所有资源（清理顺序：硬件 -> 托盘 -> WebSocket -> State）
@@ -87,6 +186,7 @@ class CapsWriterClient:
         logger.info("正在执行 CapsWriterClient 资源释放...")
 
         # 1. 停止核心运行组件
+        self.stop_idle_suspend_monitor()
         self.udp.stop()
         self.shortcut.stop()
         self.stream.stop()

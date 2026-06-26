@@ -88,9 +88,13 @@ class ShortcutEventHandler:
     def _manage_task(self, task) -> None:
         """管理录音任务（单击模式）"""
         was_recording = task.is_recording
+        launched = True
 
         if not was_recording:
-            task.launch()
+            launched = task.launch()
+
+        if not launched:
+            return
 
         if task.event.wait(timeout=task.threshold * 0.8):
             if task.is_recording and was_recording:
