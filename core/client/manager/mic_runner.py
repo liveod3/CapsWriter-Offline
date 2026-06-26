@@ -45,6 +45,9 @@ class MicRunner:
         self.app.hotword.start()
         self.app.llm.start()
 
+        # 6. 开启闲置自动挂起监控
+        self.app.start_idle_suspend_monitor()
+
     async def run(self):
         """麦克风模式主入口"""
         
