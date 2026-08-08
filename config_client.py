@@ -80,6 +80,9 @@ class ClientConfig:
 
     mic_seg_duration = 60       # 麦克风听写时分段长度：60秒
     mic_seg_overlap = 4         # 麦克风听写时分段重叠：4秒
+    # 输入设备：None/'' 跟随系统默认；也可填写数字索引或唯一名称（Windows 重名时加 Host API）
+    # 示例：'Microphone (Realtek(R) Audio), Windows WASAPI'
+    input_device = None
     enable_idle_suspend = True  # 是否启用闲置自动挂起（释放麦克风，避免耳机长期通话模式）
     idle_suspend_seconds = 20   # 空闲超过多少秒后自动挂起
 

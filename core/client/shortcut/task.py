@@ -8,12 +8,13 @@
 from __future__ import annotations
 import asyncio
 import time
-from threading import Event
+from threading import Event, Thread
 from typing import TYPE_CHECKING, Optional
 
 from . import logger
+from core.client.state import console
 from core.tools.my_status import Status
-from core.ui.recording_indicator import show_recording_indicator, hide_recording_indicator
+from core.ui.recording_indicator import show_recording_indicator, hide_recording_indicator, show_status_hint
 from core.ui.tray import set_recording_state
  
 if TYPE_CHECKING:
@@ -30,6 +31,8 @@ class ShortcutTask:
 
     跟踪每个快捷键独立的录音状态，防止互相干扰。
     """
+
+    AUDIO_READY_TIMEOUT = 5.0
 
     def __init__(self, app: CapsWriterClient, shortcut: Shortcut, recorder_class=None):
         """
@@ -48,6 +51,7 @@ class ShortcutTask:
         self.task: Optional[asyncio.Future] = None
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
+        self._launch_generation: int = 0
 
         # hold_mode 状态跟踪
         self.pressed: bool = False
@@ -72,12 +76,41 @@ class ShortcutTask:
             self._recorder_class = AudioRecorder
         return self._recorder_class(self.app)
 
+    def _show_recording_ready(self, generation: int, show_ready_hint: bool) -> None:
+        """仅为当前仍在进行的录音显示就绪状态。"""
+        if generation != self._launch_generation or not self.is_recording:
+            return
+
+        if show_ready_hint:
+            message = '麦克风已就绪，可以说话'
+            logger.info(f"[{self.shortcut.key}] {message}")
+            console.print(f'\n[bold green]● {message}[/]')
+            show_status_hint(message, duration_ms=1000, dot_color='#34D399')
+        self._status.start()
+        show_recording_indicator()
+        set_recording_state(True)
+
+    def _wait_for_audio_ready(self, ready_event: Event, generation: int) -> None:
+        """在后台等待首个音频回调，不阻塞快捷键线程。"""
+        if not ready_event.wait(timeout=self.AUDIO_READY_TIMEOUT):
+            if generation == self._launch_generation and self.is_recording:
+                message = '麦克风准备超时，请重试'
+                logger.info(f"[{self.shortcut.key}] {message}")
+                console.print(f'\n[bold red]● {message}[/]')
+                show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
+            return
+
+        if self.app.stream.is_ready(ready_event):
+            self._show_recording_ready(generation, show_ready_hint=True)
+
     def launch(self) -> bool:
         """启动录音任务"""
         self.app.mark_user_activity()
+        self._launch_generation += 1
+        generation = self._launch_generation
 
         if self.state.dictation_paused:
-            resumed = self.app.resume_dictation(show_hint=True, silent_stream=True)
+            resumed = self.app.resume_dictation(show_hint=False, silent_stream=True)
             if not resumed:
                 logger.warning(f"[{self.shortcut.key}] 恢复听写失败，跳过本次录音")
                 return False
@@ -97,12 +130,21 @@ class ShortcutTask:
         # 更新录音状态
         self.state.start_recording(self.recording_start_time)
 
-        # 打印动画：正在录音
-        self._status.start()
-
-        # 显示录音状态指示
-        show_recording_indicator()
-        set_recording_state(True)
+        # stream.start() 后硬件可能仍在唤醒；只在首个音频块到达后提示可以说话。
+        ready_event = self.app.stream.get_ready_event()
+        if self.app.stream.is_ready(ready_event):
+            self._show_recording_ready(generation, show_ready_hint=False)
+        else:
+            message = '正在准备麦克风，请稍候'
+            logger.info(f"[{self.shortcut.key}] {message}")
+            console.print(f'\n[bold yellow]● {message}[/]')
+            show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
+            Thread(
+                target=self._wait_for_audio_ready,
+                args=(ready_event, generation),
+                daemon=True,
+                name=f'audio-ready-{self.shortcut.key}',
+            ).start()
 
         # 启动识别任务
         recorder = self._get_recorder()
@@ -117,6 +159,7 @@ class ShortcutTask:
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
         self.app.mark_user_activity()
 
+        self._launch_generation += 1
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()
@@ -132,6 +175,7 @@ class ShortcutTask:
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
         self.app.mark_user_activity()
 
+        self._launch_generation += 1
         self.is_recording = False
         self.state.stop_recording()
         self._status.stop()

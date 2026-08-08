@@ -10,12 +10,15 @@ from __future__ import annotations
 
 import time
 import threading
+from functools import partial
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 import sounddevice as sd
 
+from config_client import ClientConfig as Config
 from core.client.state import console
+from core.ui.recording_indicator import show_status_hint
 from . import logger
 
 if TYPE_CHECKING:
@@ -54,9 +57,10 @@ class AudioStreamManager:
         self.app = app
         # 生命周期操作可能嵌套调用（例如 reopen() 内部调用 stop()/start()）。
         self._stream_lock = threading.RLock()
+        self._ready_event = threading.Event()
         self._channels = 1
         self._running = False  # 标志是否应该运行
-        self._last_default_device = None
+        self._last_input_device = None
         self._monitor_thread = None
         self._monitor_running = False
 
@@ -64,19 +68,93 @@ class AudioStreamManager:
     def state(self) -> ClientState:
         """快捷访问状态单例"""
         return self.app.state
+
+    @staticmethod
+    def _get_input_device_selector():
+        """获取输入设备配置；空字符串与旧配置均回退到系统默认设备。"""
+        selector = getattr(Config, 'input_device', None)
+        if isinstance(selector, str):
+            selector = selector.strip()
+            return selector or None
+        return selector
+
+    def get_ready_event(self) -> threading.Event:
+        """返回当前音频流的就绪事件，供非阻塞 UI 等待使用。"""
+        return self._ready_event
+
+    def is_ready(self, ready_event: Optional[threading.Event] = None) -> bool:
+        """当前音频流是否已收到首个音频回调。"""
+        event = ready_event or self._ready_event
+        return self._running and event is self._ready_event and event.is_set()
+
+    def _commit_input_device(self, device_name: str) -> None:
+        """记录成功选择的输入设备，并在发生切换时统一提示。"""
+        previous_device = self._last_input_device
+        self._last_input_device = device_name
+        if not previous_device or previous_device == device_name:
+            return
+
+        message = f'输入设备已切换：{device_name}'
+        logger.info(f"输入音频设备已切换: {previous_device} -> {device_name}")
+        console.print(
+            f'\n[bold yellow]● 输入设备已切换：[/]'
+            f'[cyan]{previous_device}[/] [yellow]→[/] [green]{device_name}[/]'
+        )
+        show_status_hint(message, duration_ms=2600, dot_color='#F59E0B')
+
+    def _handle_monitored_device(self, device_name: str) -> None:
+        """处理监控线程观察到的设备，挂起时只更新状态，不重新占用麦克风。"""
+        if not device_name:
+            return
+
+        if self._last_input_device and device_name != self._last_input_device:
+            if self.state.dictation_paused:
+                self._commit_input_device(device_name)
+            else:
+                logger.info(
+                    f"监控线程检测到输入音频设备变更，准备重开音频流: "
+                    f"{self._last_input_device} -> {device_name}"
+                )
+                self.reopen()
+            return
+
+        # 先前重开失败时，在设备重新可用后继续尝试恢复音频流。
+        if not self._running and not self.state.dictation_paused:
+            self.start(silent=True)
+
+    def _query_monitored_input_device(self):
+        """查询监控目标；挂起且无流时先刷新 PortAudio 的设备枚举缓存。"""
+        if self.state.dictation_paused and not self._running:
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception as e:
+                logger.debug(f"挂起期间刷新 PortAudio 设备枚举失败: {e}")
+
+        return sd.query_devices(
+            device=self._get_input_device_selector(),
+            kind='input'
+        )
     
     def _audio_callback(
         self,
         indata: np.ndarray,
         frames: int,
         time_info,
-        status: sd.CallbackFlags
+        status: sd.CallbackFlags,
+        ready_event: Optional[threading.Event] = None,
     ) -> None:
         """
         音频数据回调函数
         
         当音频流接收到新数据时调用，将数据放入异步队列中。
         """
+        # stream.start() 返回不代表硬件已经开始交付数据；首个回调才是真正就绪。
+        event = ready_event or self._ready_event
+        if not event.is_set():
+            event.set()
+            logger.info("音频设备已就绪：收到首个音频数据块")
+
         # 只在录音状态时处理数据
         if not self.state.recording:
             return
@@ -112,25 +190,17 @@ class AudioStreamManager:
         while self._monitor_running:
             time.sleep(4.0)  # 每 4 秒检测一次硬件状态
             
-            # 如果用户当前正在录音说话，绝对不要打断当前的音频流
-            if self.state.recording or self.state.dictation_paused:
+            # 如果用户当前正在录音说话，绝对不要打断当前的音频流。
+            # 挂起期间仍可只读查询默认设备，但不会重新打开麦克风。
+            if self.state.recording:
                 continue
                 
             try:
                 # 持锁查询，防止与 reopen() 内的 PortAudio 重初始化并发访问
                 with self._stream_lock:
-                    device = sd.query_devices(kind='input')
+                    device = self._query_monitored_input_device()
                 current_device_name = device.get('name')
-
-                if current_device_name and self._last_default_device and current_device_name != self._last_default_device:
-                    # 侦测到系统默认设备发生了真实物理改变（例如插回了蓝牙/有线耳机）
-                    logger.info(f"监控线程检测到系统默认音频设备变更: {self._last_default_device} -> {current_device_name}")
-                    console.print(
-                        f'\n[yellow]检测到默认音频设备变更，已自动切回：{current_device_name}[/yellow]',
-                        end='\n\n'
-                    )
-                    self._last_default_device = current_device_name
-                    self.reopen()
+                self._handle_monitored_device(current_device_name)
 
             except Exception as e:
                 logger.debug(f"后台硬件监听循环异常: {e}")
@@ -139,6 +209,11 @@ class AudioStreamManager:
                     self.start(silent=True)
 
     def start(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
+        """在线程安全的生命周期锁内启动音频流。"""
+        with self._stream_lock:
+            return self._start_locked(silent=silent, force=force)
+
+    def _start_locked(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
         """
         启动音频流
         
@@ -157,39 +232,49 @@ class AudioStreamManager:
             return None
             
         # 检测音频设备
+        device_selector = self._get_input_device_selector()
         try:
-            device = sd.query_devices(kind='input')
+            device = sd.query_devices(device=device_selector, kind='input')
             self._channels = min(2, device['max_input_channels'])
             device_name = device.get('name', '未知设备')
-            self._last_default_device = device_name
+            selection_mode = '系统默认' if device_selector is None else '指定配置'
             
             if not silent:
                 console.print(
-                    f'使用默认音频设备：[italic]{device_name}，声道数：{self._channels}',
+                    f'使用{selection_mode}音频设备：[italic]{device_name}，声道数：{self._channels}',
                     end='\n\n'
                 )
-            logger.info(f"找到音频设备: {device_name}, 声道数: {self._channels}")
+            logger.info(
+                f"找到音频设备: {device_name}, 声道数: {self._channels}, "
+                f"选择方式: {selection_mode}"
+            )
         except UnicodeDecodeError:
             logger.warning("无法获取音频设备名称（编码问题）")
-        except sd.PortAudioError:
-            logger.error("未找到麦克风设备")
+        except (ValueError, sd.PortAudioError) as e:
+            if device_selector is None:
+                logger.error(f"未找到系统默认麦克风设备: {e}")
+            else:
+                logger.error(f"未找到指定麦克风设备 {device_selector!r}: {e}")
             return None
         
         # 创建音频流
         try:
+            ready_event = threading.Event()
+            self._ready_event = ready_event
             stream = sd.InputStream(
                 samplerate=self.SAMPLE_RATE,
                 blocksize=int(self.BLOCK_DURATION * self.SAMPLE_RATE),
-                device=None,
+                device=device_selector,
                 dtype="float32",
                 channels=self._channels,
-                callback=self._audio_callback,
+                callback=partial(self._audio_callback, ready_event=ready_event),
                 finished_callback=self._on_stream_finished,
             )
             stream.start()
             
             self.state.stream = stream
             self._running = True
+            self._commit_input_device(device_name)
             logger.debug(
                 f"音频流已启动: 采样率={self.SAMPLE_RATE}, "
                 f"块大小={int(self.BLOCK_DURATION * self.SAMPLE_RATE)}"
@@ -208,6 +293,11 @@ class AudioStreamManager:
             return None
     
     def stop(self, keep_monitor: bool = False) -> None:
+        """在线程安全的生命周期锁内停止音频流。"""
+        with self._stream_lock:
+            self._stop_locked(keep_monitor=keep_monitor)
+
+    def _stop_locked(self, keep_monitor: bool = False) -> None:
         """
         停止音频流
         
@@ -215,6 +305,9 @@ class AudioStreamManager:
             keep_monitor: 是否保持监控线程的运行标志。在重载驱动重建流时，应设为 True。
         """
         if not self._running:
+            if not keep_monitor:
+                self._monitor_running = False
+                self._monitor_thread = None
             return
             
         self._running = False  # 标记为停止

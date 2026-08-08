@@ -130,6 +130,9 @@ class CapsWriterClient:
 
             paused = self.pause_dictation(show_hint=False)
             if paused:
+                message = '听写已闲置挂起：麦克风已释放'
+                logger.info(message)
+                console.print(f'\n[bold yellow]● {message}[/]')
                 show_status_hint('听写已闲置挂起', duration_ms=1800, dot_color='#F59E0B')
                 self.state.last_activity_time = time.time()
 
@@ -137,18 +140,23 @@ class CapsWriterClient:
         """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
         if self.state.recording:
             if show_hint:
-                show_status_hint('当前正在录音，稍后再暂停', duration_ms=1600, dot_color='#F59E0B')
+                message = '当前正在录音，稍后再暂停'
+                logger.info(message)
+                console.print(f'\n[bold yellow]● {message}[/]')
+                show_status_hint(message, duration_ms=1600, dot_color='#F59E0B')
             return False
 
         if self.state.dictation_paused:
             return True
 
-        self.stream.stop()
         self.state.dictation_paused = True
+        # 先发布挂起状态，再释放录音流并保留只读设备监控，避免监控线程误重开麦克风。
+        self.stream.stop(keep_monitor=True)
         set_dictation_paused(True)
         logger.info("听写已暂停：音频流已释放")
 
         if show_hint:
+            console.print('\n[cyan]● 听写已暂停：麦克风已释放[/]')
             show_status_hint('听写已暂停', duration_ms=1400, dot_color='#7DD3FC')
         return True
 
@@ -166,12 +174,44 @@ class CapsWriterClient:
 
         self.state.dictation_paused = False
         set_dictation_paused(False)
-        logger.info("听写已恢复：音频流已重新打开")
+        logger.info("听写恢复流程已启动：音频流已重新打开，等待设备就绪")
         self.mark_user_activity()
 
         if show_hint:
-            show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
+            ready_event = self.stream.get_ready_event()
+            if self.stream.is_ready(ready_event):
+                message = '听写已恢复：麦克风已就绪'
+                logger.info(message)
+                console.print(f'\n[bold green]● {message}[/]')
+                show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
+            else:
+                message = '正在准备麦克风，请稍候'
+                logger.info(message)
+                console.print(f'\n[bold yellow]● {message}[/]')
+                show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
+                threading.Thread(
+                    target=self._show_resume_hint_when_ready,
+                    args=(ready_event,),
+                    daemon=True,
+                    name='dictation-ready-hint',
+                ).start()
         return True
+
+    def _show_resume_hint_when_ready(self, ready_event: threading.Event) -> None:
+        """托盘恢复时，等设备真正交付音频后再提示恢复完成。"""
+        if not ready_event.wait(timeout=5.0):
+            if not self.state.dictation_paused and ready_event is self.stream.get_ready_event():
+                message = '麦克风准备超时，请重试'
+                logger.info(message)
+                console.print(f'\n[bold red]● {message}[/]')
+                show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
+            return
+
+        if not self.state.dictation_paused and self.stream.is_ready(ready_event):
+            message = '听写已恢复：麦克风已就绪'
+            logger.info(message)
+            console.print(f'\n[bold green]● {message}[/]')
+            show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
 
     def toggle_dictation_pause(self) -> bool:
         """切换听写暂停状态。"""
@@ -237,5 +277,3 @@ class CapsWriterClient:
             self.loop.run_until_complete(runner.run())
         except RuntimeError:
             ...
-
-
