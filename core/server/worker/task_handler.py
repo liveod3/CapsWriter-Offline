@@ -12,6 +12,7 @@ from collections import OrderedDict, deque
 from multiprocessing import Queue
 from multiprocessing.managers import ListProxy
 import queue
+from config_server import ServerConfig as Config
 from .pipeline import TaskPipeline
 from ..state import WorkerState
 from .gpu_boost import GpuBoostManager
@@ -57,6 +58,11 @@ class TaskBuffer:
     def is_empty(self) -> bool:
         return len(self._buffers) == 0
 
+    @property
+    def task_count(self) -> int:
+        """当前进程内尚未处理的任务片段总数。"""
+        return sum(len(buffer) for buffer in self._buffers.values())
+
 
 class TaskHandler:
     """
@@ -77,6 +83,13 @@ class TaskHandler:
         self.pipeline = None
 
         self.buffer = TaskBuffer(state)
+        try:
+            self.max_buffer_tasks = max(
+                1,
+                int(getattr(Config, 'worker_buffer_max_tasks', 64)),
+            )
+        except (TypeError, ValueError):
+            self.max_buffer_tasks = 64
         self.gpu_boost = GpuBoostManager(state)
 
     def set_engine(self, recognizer, punc_model=None, aligner=None):
@@ -89,6 +102,11 @@ class TaskHandler:
     def drain_queue(self) -> bool:
         """Drain 队列中所有任务到缓冲区。Returns: False = 退出信号。"""
         while True:
+            # 多进程队列虽有界，但持续 drain 会把压力转移到本进程内存；
+            # 达到上限后先处理一个片段，再继续接收。
+            if self.buffer.task_count >= self.max_buffer_tasks:
+                return True
+
             # 获取任务
             try:
                 if self.buffer.is_empty:
@@ -134,7 +152,15 @@ class TaskHandler:
     def handle_audio_task(self, task):
         """处理音频识别任务。"""
         result = self.pipeline.process(task)
-        self.queue_out.put(result)
+        while task.socket_id in self.sockets_id:
+            try:
+                self.queue_out.put(result, timeout=0.5)
+                break
+            except queue.Full:
+                # 有界输出队列通过短时阻塞提供背压，同时允许断连后退出。
+                continue
+        else:
+            logger.debug(f"客户端已断连，丢弃待发送结果: {task.task_id[:8]}")
         if result.is_final:
             self.state.sessions.pop(task.task_id, None)
 

@@ -9,6 +9,7 @@ CapsWriter Offline 服务端主程序门面类 (Facade)
 
 import os
 import asyncio
+import queue
 from pathlib import Path
 from config_server import ServerConfig as Config, __version__
 from .state import ServerState, console
@@ -65,7 +66,10 @@ class CapsWriterServer:
         logger.info("=" * 50)
         logger.info("开始清理服务端资源...")
 
-        self.state.queue_out.put(None)
+        try:
+            self.state.queue_out.put_nowait(None)
+        except queue.Full:
+            logger.debug('输出队列已满，事件循环将直接停止')
 
         # 1. 关闭 WebSocket 服务（立即释放端口）
         self.socket_manager.stop()

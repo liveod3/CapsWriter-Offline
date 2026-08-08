@@ -21,6 +21,11 @@ class ClientConfig:
     use_tls = False
     tls_ca_file = ''
 
+    # 限制服务端响应在客户端的单消息大小与待消费数量。
+    websocket_max_message_bytes = 16 * 1024 * 1024
+    websocket_max_queue = 16
+    file_max_inflight_chunks = 4
+
     # 快捷键配置列表
     shortcuts = [
         {

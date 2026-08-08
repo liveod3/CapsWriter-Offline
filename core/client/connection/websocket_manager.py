@@ -100,8 +100,8 @@ class WebSocketManager:
             kwargs = dict(
                 uri=url,
                 subprotocols=["binary"],
-                max_size=None,
-                max_queue=None,  # 防止文件过大时，只发送，来不及消费结果，接收队列填满导致 pause_reading
+                max_size=int(getattr(Config, 'websocket_max_message_bytes', 16 * 1024 * 1024)),
+                max_queue=int(getattr(Config, 'websocket_max_queue', 16)),
             )
 
             auth_token = str(getattr(Config, 'auth_token', '')).strip()
@@ -157,9 +157,10 @@ class WebSocketManager:
             await self.state.websocket.send(message.to_json())
             return True
             
-        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
+        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as exc:
             self.state.websocket = None
-            raise CommunicationError("发送失败：连接已断开")
+            detail = exc.reason or f'关闭代码 {exc.code}'
+            raise CommunicationError(f"发送失败：服务端已关闭连接（{detail}）")
             
         except Exception as e:
             raise CommunicationError(f"发送消息时发生未知错误: {e}")
@@ -180,9 +181,10 @@ class WebSocketManager:
             data = json.loads(raw_message)
             return RecognitionMessage.from_dict(data)
             
-        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK):
+        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as exc:
             self.state.websocket = None
-            raise CommunicationError("接收失败：连接已断开")
+            detail = exc.reason or f'关闭代码 {exc.code}'
+            raise CommunicationError(f"接收失败：服务端已关闭连接（{detail}）")
             
         except json.JSONDecodeError as e:
             raise CommunicationError(f"消息解析失败: {e}")

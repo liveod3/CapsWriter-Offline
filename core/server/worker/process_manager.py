@@ -114,11 +114,13 @@ class ProcessManager:
             logger.info(f"正在终止识别子进程 (PID: {self._process.pid})...")
             # 发送 None 任务通知优雅退出 (作为兜底)
 
-            self.app.state.queue_in.put(None)
+            try:
+                self.app.state.queue_in.put(None, timeout=0.5)
+            except queue.Full:
+                logger.debug('输入队列已满，将通过进程终止兜底退出')
             
             # 如果 2 秒内没退，则强制 kill
             self._process.join(timeout=2)
             if self._process.is_alive():
                 logger.debug("子进程未响应优雅退出，执行强制终止")
                 self._process.terminate()
-            

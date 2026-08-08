@@ -1,5 +1,6 @@
 import json
 import asyncio
+import time
 from multiprocessing import Queue
 
 from ..state import console
@@ -54,6 +55,7 @@ async def ws_send(app):
 
             # 发送消息
             await websocket.send(msg.to_json())
+            state.socket_last_activity[result.socket_id] = time.monotonic()
             logger.debug(f"发送识别结果，任务ID: {result.task_id}, 文本长度: {len(result.text)}")
 
             if result.type == 'mic':
@@ -68,5 +70,4 @@ async def ws_send(app):
         except Exception as e:
             logger.error(f"发送结果时发生错误: {e}", exc_info=True)
             print(e)
-
 

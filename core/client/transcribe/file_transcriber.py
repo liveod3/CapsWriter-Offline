@@ -52,6 +52,11 @@ class FileTranscriber:
         self.file = file
         self.task_id: Optional[str] = None
         self._audio_duration: float = 0.0
+        try:
+            max_inflight = max(1, int(getattr(Config, 'file_max_inflight_chunks', 4)))
+        except (TypeError, ValueError):
+            max_inflight = 4
+        self._send_window = asyncio.BoundedSemaphore(max_inflight)
 
     @property
     def state(self) -> ClientState:
@@ -82,7 +87,7 @@ class FileTranscriber:
         
         return True
     
-    async def send(self) -> None:
+    async def send(self) -> bool:
         """发送音频数据到服务端 (异步流式处理)"""
         
         self.task_id = str(uuid.uuid1())
@@ -95,6 +100,7 @@ class FileTranscriber:
             console.print(f'    音频长度：{self._audio_duration:.2f}s')
         
         logger.info(f"开始转录文件: {self.file}, 任务ID: {self.task_id}")
+        time_start = time.time()
         
         # 2. 启动 FFmpeg 进程
         ffmpeg_cmd = MediaTool.build_ffmpeg_cmd(self.file)
@@ -109,6 +115,7 @@ class FileTranscriber:
             # 分块大小：1分钟音频 (16000 * 4 * 60 bytes)
             chunk_size = 16000 * 4 * 60
             bytes_sent = 0
+            progress = 0.0
             
             while True:
                 data = await process.stdout.read(chunk_size)
@@ -128,14 +135,19 @@ class FileTranscriber:
                     source='file',
                     data=base64.b64encode(data).decode('utf-8'),
                     is_final=False,
-                    time_start=time.time(),
+                    time_start=time_start,
                     seg_duration=Config.file_seg_duration,
                     seg_overlap=Config.file_seg_overlap,
                     context=Config.context,
                     language=Config.language,
                 )
-                if not await self._ws_manager.send(message):
-                    raise ConnectionError("消息发送失败，连接可能已断开")
+                await self._send_window.acquire()
+                try:
+                    if not await self._ws_manager.send(message):
+                        raise ConnectionError("消息发送失败，连接可能已断开")
+                except Exception:
+                    self._send_window.release()
+                    raise
 
             # 发送结束标志
             final_message = AudioMessage(
@@ -143,7 +155,7 @@ class FileTranscriber:
                 source='file',
                 data='',
                 is_final=True,
-                time_start=time.time(),
+                time_start=time_start,
                 seg_duration=Config.file_seg_duration,
                 seg_overlap=Config.file_seg_overlap,
                 context=Config.context,
@@ -158,26 +170,38 @@ class FileTranscriber:
                 console.print(f'    音频长度：{self._audio_duration:.2f}s')
 
             logger.debug("音频数据发送完成")
+            return True
             
+        except asyncio.CancelledError:
+            if 'process' in locals() and process.returncode is None:
+                process.terminate()
+                await process.wait()
+            raise
         except ConnectionError as e:
             logger.error(f"发送数据失败: {e}, 文件: {self.file}")
             if 'process' in locals() and process.returncode is None:
                 process.terminate()
-            return
+            return False
         except Exception as e:
             logger.error(f"转录发送异常: {e}", exc_info=True)
             if 'process' in locals() and process.returncode is None:
                 process.terminate()
-            return
+            return False
     
-    async def receive(self) -> None:
+    async def receive(self) -> bool:
         """接收转录结果"""
-        
+        message = None
         try:
             while True:
                 msg = await self._ws_manager.receive()
                 if not msg:
-                    break
+                    return False
+
+                try:
+                    self._send_window.release()
+                except ValueError:
+                    # 最终空片段不占发送窗口，结果数偶尔可能比数据块多一个。
+                    pass
                 
                 console.print(f'    转录进度: {msg.duration:.2f}s', end='\r')
                 if msg.is_final:
@@ -185,10 +209,13 @@ class FileTranscriber:
                     break
         except ConnectionError as e:
             logger.error(f"{e}, 文件: {self.file}")
-            return
+            return False
         except Exception as e:
             logger.error(f"接收消息错误: {e}")
-            return
+            return False
+
+        if message is None:
+            return False
 
         # 应用热词并同步 tokens
         self._apply_hotwords(message)
@@ -204,6 +231,7 @@ class FileTranscriber:
             f"转录完成: {self.file}, 处理耗时: {process_duration:.2f}s, "
             f"文本长度: {len(text_display)}"
         )
+        return True
 
     def _apply_hotwords(self, message: RecognitionMessage) -> None:
         """对识别结果应用热词替换并同步 tokens"""

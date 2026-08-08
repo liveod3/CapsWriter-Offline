@@ -90,10 +90,10 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 | --- | --- | --- | --- |
 | AUD-01 | 高 | 当前未提交代码使用未初始化的 `self._stream_lock` | 默认设备监控持续报错，异常流无法自动重启 |
 | AUD-02 | 高 | 服务端默认 `0.0.0.0`，WebSocket 无认证、无 TLS | 同网段主机可连接、上传音频并消耗推理资源 |
-| AUD-03 | 高 | `max_size=None`、缓存和多进程队列无上限，协议参数未校验 | 恶意/异常客户端可造成内存耗尽、死循环或长时间占用 |
+| AUD-03 | 高（已修复） | WebSocket、缓存和多进程队列已设上限，协议参数已校验 | 超限或非法输入会被拒绝，队列满时返回服务器繁忙 |
 | AUD-04 | 高 | “公平调度”实现总取最新 task，而不是轮转 | 旧任务在持续新任务下可能饥饿，实时/文件任务延迟不可控 |
-| AUD-05 | 高 | 没有正式测试、CI、lint/type check，且 `.gitignore` 忽略 `test_*.py` | 高并发/音频改动缺少回归保护，常规 pytest 文件难以提交 |
-| AUD-06 | 中 | 每个 WebSocket 仅有一个 `AudioCache`，不是每个 `task_id` 一个 | 同连接并发或交错任务会混合音频与元数据 |
+| AUD-05 | 高 | 仅有少量协议边界测试，仍没有系统性测试、CI、lint/type check | 高并发/音频改动仍缺少完整回归保护 |
+| AUD-06 | 中（已修复） | WebSocket 缓存已按 `task_id` 隔离并限制并发数 | 同连接并发或交错任务不再混合音频与元数据 |
 | AUD-07 | 中 | 依赖全部未固定版本，也没有 Python 版本/锁文件 | websockets、onnxruntime、NumPy 等升级可能直接破坏运行或打包 |
 | AUD-08 | 中 | LLM 角色文件直接保存 `api_key` 字段，已跟踪文件含类似 Key 的掩码值 | 易误提交真实密钥；当前掩码值也会导致角色认证失败 |
 | AUD-09 | 中 | 日志、日记、原始音频和云 LLM 数据边界缺少统一控制面 | 敏感识别文本长期落盘或被角色发送到外部 Provider |
@@ -128,7 +128,9 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 ### AUD-03：输入、缓存和队列无资源上限（高）
 
-证据：服务端和客户端 WebSocket 均设置 `max_size=None`，客户端还设置 `max_queue=None`。服务端 `AudioCache.chunks += data` 可无限增长，`multiprocessing.Queue` 默认无界。`AudioMessage.from_dict()` 没有运行时校验 `source`、字段类型、Base64、`seg_duration`、`seg_overlap`、context 长度或音频字节对齐。
+修复状态：已完成。当前实现对 WebSocket 消息/接收队列、并发连接、单连接任务数、单消息与单任务音频、context、空闲连接、任务时长、多进程队列及 Worker 内部缓冲设置了可配置上限；协议入口严格校验字段类型、有限数值、来源枚举、Base64 和 float32 字节对齐。音频缓存已改为按 `task_id` 隔离的 `bytearray`，队列满时以 WebSocket 1013 明确通知“服务器繁忙”，文件转录通过有限在途窗口并发收发以承接背压。
+
+原始证据（修复前）：服务端和客户端 WebSocket 均设置 `max_size=None`，客户端还设置 `max_queue=None`。服务端 `AudioCache.chunks += data` 可无限增长，`multiprocessing.Queue` 默认无界。`AudioMessage.from_dict()` 没有运行时校验 `source`、字段类型、Base64、`seg_duration`、`seg_overlap`、context 长度或音频字节对齐。
 
 影响：过大消息、永不发送 final、极端切片参数或消息洪泛可造成内存持续增长。负数/零切片参数还可能使循环和切片逻辑进入不可预测状态。
 
@@ -150,7 +152,7 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 ### AUD-05：缺少工程质量门禁（高）
 
-证据：仓库没有 `tests/`、GitHub Actions、`pyproject.toml`、pytest/coverage、ruff、mypy 或 pre-commit 配置。`.gitignore` 末尾还会忽略常规的 `test_*.py`。
+证据：修复 AUD-03 时已增加首批协议与资源边界测试，并允许跟踪 `tests/test_*.py`；仓库仍没有 GitHub Actions、`pyproject.toml`、pytest/coverage、ruff、mypy 或 pre-commit 配置。
 
 影响：13 个本地定制提交横跨音频线程、快捷键、Tk UI 和生命周期，但无法自动验证。AUD-01 这类确定性错误只需一个构造/重开单元测试就能发现。
 
@@ -163,7 +165,9 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 ### AUD-06：音频缓存没有按 task 隔离（中）
 
-证据：`ws_recv()` 为整个 WebSocket 创建单个 `AudioCache()`，之后所有消息都写入该缓存；缓存自身不保存 task_id/source/context。
+修复状态：已随 AUD-03 完成。`ws_recv()` 现在维护有数量上限的 `dict[task_id, AudioCache]`，会话内固定 source、切片参数、context 和 language，并在 final、超时或断线时清理。
+
+原始证据（修复前）：`ws_recv()` 为整个 WebSocket 创建单个 `AudioCache()`，之后所有消息都写入该缓存；缓存自身不保存 task_id/source/context。
 
 影响：当前客户端通常串行工作，所以问题可能长期隐藏；一旦同连接并行文件转录、快速切换任务或消息重试交错，最终片段可能包含另一个 task 的音频，结果和归档也会错配。
 

@@ -23,6 +23,22 @@ class ServerConfig:
     tls_certfile = ''
     tls_keyfile = ''
 
+    # 网络输入与资源上限。默认值兼容客户端每次发送约 1 分钟 float32 音频。
+    websocket_max_message_bytes = 6 * 1024 * 1024
+    websocket_max_queue = 16
+    max_connections = 8
+    connection_idle_timeout = 300
+
+    # 单任务与推理队列上限，防止异常客户端无限占用内存或推理资源。
+    max_message_audio_bytes = 4 * 1024 * 1024
+    max_task_audio_bytes = 4 * 60 * 60 * 16000 * 4  # 最多 4 小时音频
+    max_task_duration = 6 * 60 * 60                  # 最多保持 6 小时
+    max_context_length = 4096
+    max_tasks_per_connection = 4
+    queue_in_maxsize = 32
+    queue_out_maxsize = 32
+    worker_buffer_max_tasks = 64
+
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
     model_type = 'qwen_asr'
 

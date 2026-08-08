@@ -7,8 +7,8 @@ WebSocket 管理器 (SocketManager)
 """
 
 import asyncio
-import functools
 import ipaddress
+import math
 import secrets
 import ssl
 from http import HTTPStatus
@@ -72,6 +72,10 @@ class SocketManager:
         self._auth_token = ''
         self._ssl_context = None
         self._prepared = False
+        self._active_connections = 0
+        self._max_connections = 8
+        self._max_message_size = 6 * 1024 * 1024
+        self._max_queue = 16
 
     def prepare(self):
         """在启动托盘、模型进程和监听器前校验安全配置。"""
@@ -80,6 +84,47 @@ class SocketManager:
         auth_token = str(getattr(Config, 'auth_token', '')).strip()
         certfile = str(getattr(Config, 'tls_certfile', '')).strip()
         keyfile = str(getattr(Config, 'tls_keyfile', '')).strip()
+
+        integer_limits = {
+            'websocket_max_message_bytes': 6 * 1024 * 1024,
+            'websocket_max_queue': 16,
+            'max_connections': 8,
+            'max_message_audio_bytes': 4 * 1024 * 1024,
+            'max_task_audio_bytes': 4 * 60 * 60 * 16000 * 4,
+            'max_context_length': 4096,
+            'max_tasks_per_connection': 4,
+            'queue_in_maxsize': 32,
+            'queue_out_maxsize': 32,
+            'worker_buffer_max_tasks': 64,
+        }
+        parsed_limits = {}
+        for name, default in integer_limits.items():
+            try:
+                value = int(getattr(Config, name, default))
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f'ServerConfig.{name} 必须是正整数') from exc
+            if value <= 0:
+                raise ValueError(f'ServerConfig.{name} 必须是正整数')
+            parsed_limits[name] = value
+
+        try:
+            idle_timeout = float(getattr(Config, 'connection_idle_timeout', 300))
+            task_duration = float(getattr(Config, 'max_task_duration', 6 * 60 * 60))
+        except (TypeError, ValueError) as exc:
+            raise ValueError('连接空闲和任务时限必须是正数') from exc
+        if (
+            not math.isfinite(idle_timeout)
+            or not math.isfinite(task_duration)
+            or idle_timeout <= 0
+            or task_duration <= 0
+        ):
+            raise ValueError('连接空闲和任务时限必须是正数')
+
+        encoded_audio_size = (parsed_limits['max_message_audio_bytes'] + 2) // 3 * 4
+        if parsed_limits['websocket_max_message_bytes'] < encoded_audio_size + 65536:
+            raise ValueError(
+                'websocket_max_message_bytes 太小，必须容纳 Base64 音频消息'
+            )
 
         if network_mode not in {'local', 'lan'}:
             raise ValueError("ServerConfig.network_mode 必须为 'local' 或 'lan'")
@@ -111,7 +156,23 @@ class SocketManager:
         self._network_mode = network_mode
         self._auth_token = auth_token
         self._ssl_context = ssl_context
+        self._max_connections = parsed_limits['max_connections']
+        self._max_message_size = parsed_limits['websocket_max_message_bytes']
+        self._max_queue = parsed_limits['websocket_max_queue']
         self._prepared = True
+
+    async def _handle_connection(self, websocket):
+        """拒绝超过并发上限的连接，不让其在服务器中排队等待。"""
+        if self._active_connections >= self._max_connections:
+            logger.warning('拒绝超出并发上限的 WebSocket 连接: %s', websocket.remote_address)
+            await websocket.close(code=1013, reason='服务器连接数已达上限')
+            return
+
+        self._active_connections += 1
+        try:
+            await ws_recv(websocket, self.app)
+        finally:
+            self._active_connections -= 1
 
     def _build_auth_process_request(self):
         """按 websockets 版本生成握手阶段的令牌认证回调。"""
@@ -174,9 +235,6 @@ class SocketManager:
         from core.tools.daemon_executor import SimpleDaemonExecutor
         loop.set_default_executor(SimpleDaemonExecutor())
 
-        # 2. 准备连接处理器 (注入 app 引用)
-        handler = functools.partial(ws_recv, app=self.app)
-
         # 3. 启动服务
         scheme = 'wss' if self._ssl_context else 'ws'
         logger.info(
@@ -187,14 +245,15 @@ class SocketManager:
             logger.warning('LAN 模式当前未启用 TLS，仅应在可信局域网内使用')
         
         async with websockets.serve(
-            handler,
+            self._handle_connection,
             Config.addr,
             Config.port,
             subprotocols=["binary"],
             origins=[None],
             process_request=self._build_auth_process_request(),
             ssl=self._ssl_context,
-            max_size=None
+            max_size=self._max_message_size,
+            max_queue=self._max_queue,
         ) as server:
             self._server = server  # 保存 server 引用，用于外部关闭
 

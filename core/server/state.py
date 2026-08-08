@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Dict, Optional
 
 import websockets
 from rich.console import Console
+from config_server import ServerConfig as Config
 
 from core.server.schema import Result, RecognitionSession
 
@@ -21,6 +22,15 @@ if TYPE_CHECKING:
 
 # Rich console 用于控制台输出（服务端统一使用此实例）
 console = Console(highlight=False)
+
+
+def _bounded_queue(config_name: str, default: int) -> Queue:
+    """使用安全默认值创建有界多进程队列。"""
+    try:
+        maxsize = int(getattr(Config, config_name, default))
+    except (TypeError, ValueError):
+        maxsize = default
+    return Queue(maxsize=max(1, maxsize))
 
 
 @dataclass
@@ -39,13 +49,14 @@ class ServerState:
 
     # WebSocket 连接池
     sockets: Dict[str, websockets.WebSocketServerProtocol] = field(default_factory=dict)
+    socket_last_activity: Dict[str, float] = field(default_factory=dict)
     
     # 跨进程共享的 socket ID 列表（需要用 Manager().list() 初始化）
     sockets_id: Optional[ListProxy] = None
     
     # 消息队列
-    queue_in: Queue = field(default_factory=Queue)
-    queue_out: Queue = field(default_factory=Queue)
+    queue_in: Queue = field(default_factory=lambda: _bounded_queue('queue_in_maxsize', 32))
+    queue_out: Queue = field(default_factory=lambda: _bounded_queue('queue_out_maxsize', 32))
 
     # 识别子进程
     recognize_process: Optional[Process] = None
@@ -86,4 +97,3 @@ class WorkerState:
             from . import logger
             logger.debug(f"清理了 {len(stale_ids)} 个已断开连接的 session")
         return len(stale_ids)
-

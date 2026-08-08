@@ -1,5 +1,6 @@
 # coding: utf-8
 from __future__ import annotations
+import asyncio
 from pathlib import Path
 from . import logger
 from config_client import ClientConfig as Config, __version__
@@ -48,9 +49,20 @@ class FileRunner:
                 else:
                     transcriber = FileTranscriber(self.app, file)
                     if await transcriber.check():
-                        await transcriber.send()
-                        await transcriber.receive()
-                        await transcriber.close()
+                        send_task = asyncio.create_task(transcriber.send())
+                        receive_task = asyncio.create_task(transcriber.receive())
+                        try:
+                            done, pending = await asyncio.wait(
+                                {send_task, receive_task},
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                            failed = any(task.result() is False for task in done)
+                            if failed:
+                                for task in pending:
+                                    task.cancel()
+                            await asyncio.gather(send_task, receive_task, return_exceptions=True)
+                        finally:
+                            await transcriber.close()
                 
                 logger.info(f"文件处理完成: {file}")
             
