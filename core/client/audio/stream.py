@@ -52,6 +52,8 @@ class AudioStreamManager:
             app: 客户端 App 实例
         """
         self.app = app
+        # 生命周期操作可能嵌套调用（例如 reopen() 内部调用 stop()/start()）。
+        self._stream_lock = threading.RLock()
         self._channels = 1
         self._running = False  # 标志是否应该运行
         self._last_default_device = None
@@ -100,7 +102,10 @@ class AudioStreamManager:
             return
         
         logger.info("音频流意外结束，正在尝试重启...")
-        self.reopen()
+        # PortAudio 的 finished_callback 运行在 PortAudio 内部线程上，
+        # 禁止在此线程内直接调用 stream.close()（会死锁）。
+        # 改为新建守护线程异步执行重启，立即返回回调。
+        threading.Thread(target=self.reopen, daemon=True, name="stream-reopen").start()
 
     def _device_monitor_loop(self) -> None:
         """后台静默监控系统默认输入设备变化的循环"""
@@ -112,25 +117,11 @@ class AudioStreamManager:
                 continue
                 
             try:
-                # 1. 临时停止当前的流，以便释放 PortAudio 锁进行重载
-                self.stop(keep_monitor=True)
-                
-                # 2. 彻底重载 PortAudio 驱动，迫使底层重新扫描物理插槽以绕过设备缓存限制
-                try:
-                    sd._terminate()
-                    sd._ffi.dlclose(sd._lib)
-                    sd._lib = sd._ffi.dlopen(sd._libname)
-                    sd._initialize()
-                except Exception as e:
-                    logger.debug(f"设备监控重载 PortAudio 失败: {e}")
-                    # 容错恢复：静默重启旧流
-                    self.start(silent=True)
-                    continue
-                
-                # 3. 重新获取系统当前的默认输入设备
-                device = sd.query_devices(kind='input')
+                # 持锁查询，防止与 reopen() 内的 PortAudio 重初始化并发访问
+                with self._stream_lock:
+                    device = sd.query_devices(kind='input')
                 current_device_name = device.get('name')
-                
+
                 if current_device_name and self._last_default_device and current_device_name != self._last_default_device:
                     # 侦测到系统默认设备发生了真实物理改变（例如插回了蓝牙/有线耳机）
                     logger.info(f"监控线程检测到系统默认音频设备变更: {self._last_default_device} -> {current_device_name}")
@@ -139,12 +130,8 @@ class AudioStreamManager:
                         end='\n\n'
                     )
                     self._last_default_device = current_device_name
-                    # 重新拉起音频流（非静默模式，打印设备通道信息）
-                    self.start(silent=False)
-                else:
-                    # 设备无变动，静默重启音频流，保障后台监听无缝续接
-                    self.start(silent=True)
-                    
+                    self.reopen()
+
             except Exception as e:
                 logger.debug(f"后台硬件监听循环异常: {e}")
                 # 确保在任何意外错误后，底层的录音流一定能够被拉起
@@ -255,20 +242,23 @@ class AudioStreamManager:
         """
         logger.info("正在重启音频流...")
         
-        # 停止旧流，但指示监控线程保持运行，防止其被销毁
-        self.stop(keep_monitor=True)
-        
-        # 重载 PortAudio，更新设备列表
-        try:
-            sd._terminate()
-            sd._ffi.dlclose(sd._lib)
-            sd._lib = sd._ffi.dlopen(sd._libname)
-            sd._initialize()
-        except Exception as e:
-            logger.warning(f"重载 PortAudio 时发生警告: {e}")
-        
-        # 等待设备稳定
-        time.sleep(0.1)
-        
-        # 启动新流
-        return self.start()
+        with self._stream_lock:
+            # 停止旧流，但指示监控线程保持运行，防止其被销毁
+            self.stop(keep_monitor=True)
+
+            # 重载 PortAudio，更新设备列表
+            # 注意：不使用 sd._ffi.dlclose/dlopen 手动卸载/重载 DLL——
+            # 这是私有 API，在 Windows 上行为不可靠，且存在与监控线程的竞态，
+            # 可导致 access violation 崩溃（进程直接退出，无任何 Python 异常记录）。
+            # sd._terminate() + sd._initialize() 足以刷新设备枚举。
+            try:
+                sd._terminate()
+                sd._initialize()
+            except Exception as e:
+                logger.warning(f"重载 PortAudio 时发生警告: {e}")
+
+            # 等待设备稳定
+            time.sleep(0.1)
+
+            # 启动新流
+            return self.start()
