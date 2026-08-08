@@ -78,6 +78,8 @@ CapsWriter 的特别之处在于追求：
 4.  **启动听写**：双击 `start_client.exe`，**它会自动最小化到托盘菜单**。
 5.  **开始录音**：按住 `CapsLock键` 或 `鼠标侧键X2` 就可以说话了！
 
+从源码测试时，可在 PowerShell 中运行 `./start_capswriter.ps1`，脚本会自动定位 `capswriter` Conda 环境，并分别打开服务端和客户端终端。使用 `-ServerOnly` 或 `-ClientOnly` 可只启动一端，使用 `-WhatIf` 可只预览启动操作。
+
 
 ## ⚙️ 个性化配置
 
