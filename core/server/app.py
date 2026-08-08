@@ -91,6 +91,15 @@ class CapsWriterServer:
         """
         # 防连续触发
         if self.is_alive: return
+
+        # 安全配置必须在启动托盘和模型子进程前通过校验
+        try:
+            self.socket_manager.prepare()
+        except ValueError as exc:
+            logger.critical(f"服务端网络配置无效: {exc}")
+            console.print(f'[bold red]服务端网络配置无效：{exc}[/bold red]')
+            return
+
         self.is_alive = True
 
         # 注册退出信号处理

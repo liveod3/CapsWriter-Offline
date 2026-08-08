@@ -10,8 +10,18 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 服务端配置
 class ServerConfig:
-    addr = '0.0.0.0'
+    # 网络模式：'local' 仅允许本机访问；'lan' 允许局域网访问并强制令牌认证
+    network_mode = 'local'
+    addr = '127.0.0.1'
     port = '6016'
+
+    # LAN 模式令牌从环境变量读取，服务端与客户端必须使用相同值。
+    # 可用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成随机令牌。
+    auth_token = os.environ.get('CAPSWRITER_AUTH_TOKEN', '')
+
+    # 可选 TLS。跨不可信网络时必须同时配置证书与私钥，并在客户端启用 TLS。
+    tls_certfile = ''
+    tls_keyfile = ''
 
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
     model_type = 'qwen_asr'
@@ -173,4 +183,3 @@ class ForceAlignerGGUFArgs:
     # 对齐细节
     n_ctx = 3072                # 上下文窗口大小
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
-

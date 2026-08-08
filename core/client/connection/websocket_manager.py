@@ -9,6 +9,7 @@ WebSocket 连接管理模块
 from __future__ import annotations
 
 import json
+import ssl
 from typing import TYPE_CHECKING, Optional
 
 import websockets
@@ -24,6 +25,14 @@ import asyncio
 if TYPE_CHECKING:
     from core.client.state import ClientState
     from ..app import CapsWriterClient
+
+
+def _websockets_major_version() -> int:
+    """返回 websockets 主版本号，无法识别时按旧版 API 处理。"""
+    try:
+        return int(websockets.__version__.split('.', 1)[0])
+    except (AttributeError, TypeError, ValueError):
+        return 0
 
 
 class CommunicationError(Exception):
@@ -80,7 +89,9 @@ class WebSocketManager:
         if self.state.websocket is not None:
             self.state.websocket = None
 
-        url = f"ws://{Config.addr}:{Config.port}"
+        use_tls = bool(getattr(Config, 'use_tls', False))
+        scheme = 'wss' if use_tls else 'ws'
+        url = f"{scheme}://{Config.addr}:{Config.port}"
 
         try:
             if not self._connect_fail_logged:
@@ -93,8 +104,21 @@ class WebSocketManager:
                 max_queue=None,  # 防止文件过大时，只发送，来不及消费结果，接收队列填满导致 pause_reading
             )
 
+            auth_token = str(getattr(Config, 'auth_token', '')).strip()
+            if auth_token:
+                header_name = (
+                    'additional_headers'
+                    if _websockets_major_version() >= 14
+                    else 'extra_headers'
+                )
+                kwargs[header_name] = {'Authorization': f'Bearer {auth_token}'}
+
+            if use_tls:
+                ca_file = str(getattr(Config, 'tls_ca_file', '')).strip() or None
+                kwargs['ssl'] = ssl.create_default_context(cafile=ca_file)
+
             # websockets>=16.0 默认走代理，本地连接需显式禁用，但 14 才引入这个参数
-            if tuple(int(v) for v in websockets.__version__.split(".")) >= (14,):
+            if _websockets_major_version() >= 14:
                 kwargs["proxy"] = None  
             
             self.state.websocket = await websockets.connect(**kwargs)

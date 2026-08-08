@@ -14,6 +14,13 @@ class ClientConfig:
     addr = '127.0.0.1'          # Server 地址
     port = '6016'               # Server 端口
 
+    # 连接远程 LAN 服务端时，通过环境变量配置与服务端相同的令牌
+    auth_token = os.environ.get('CAPSWRITER_AUTH_TOKEN', '')
+
+    # 服务端配置 TLS 后设为 True；自签名证书可通过 tls_ca_file 指定受信 CA/证书
+    use_tls = False
+    tls_ca_file = ''
+
     # 快捷键配置列表
     shortcuts = [
         {
@@ -132,4 +139,3 @@ r"""
   {'key': 'f12', 'type': 'keyboard', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
   {'key': 'x2', 'type': 'mouse', 'suppress': True, 'hold_mode': True, 'enabled': True}, 
 """
-
