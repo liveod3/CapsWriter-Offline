@@ -4,8 +4,8 @@
 
 负责监听任务队列、执行识别流水线并将结果返回主进程。
 
-公平调度：从不同客户端（socket）轮转取任务处理，防止文件转录淹没队列。
-同 socket 内保持 FIFO 顺序，跨 socket 间轮转调度。
+公平调度：按 task_id 轮转取任务处理，防止单个持续生产的任务淹没队列。
+同 task 内保持 FIFO 顺序，跨 task 间轮转调度。
 """
 
 from collections import OrderedDict, deque
@@ -35,14 +35,16 @@ class TaskBuffer:
         self._buffers[tid].append(task)
 
     def pop(self):
-        """取出最新 session 的下一个任务。没有待处理任务时返回 None。"""
+        """轮转取出一个 session 的下一个任务。没有待处理任务时返回 None。"""
         if not self._buffers:
             return None
 
-        tid, buf = next(reversed(self._buffers.items()))
+        tid, buf = next(iter(self._buffers.items()))
         task = buf.popleft()
 
-        if not buf:
+        if buf:
+            self._buffers.move_to_end(tid)
+        else:
             del self._buffers[tid]
 
         return task
@@ -69,7 +71,7 @@ class TaskHandler:
     任务处理器
 
     协调输入输出队列与识别引擎之间的任务流。
-    支持跨 socket 公平轮转调度。
+    支持跨 task 公平轮转调度。
     """
     def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy, state: WorkerState):
         self.queue_in = queue_in

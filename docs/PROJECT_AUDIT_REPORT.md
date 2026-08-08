@@ -91,7 +91,7 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 | AUD-01 | 高 | 当前未提交代码使用未初始化的 `self._stream_lock` | 默认设备监控持续报错，异常流无法自动重启 |
 | AUD-02 | 高 | 服务端默认 `0.0.0.0`，WebSocket 无认证、无 TLS | 同网段主机可连接、上传音频并消耗推理资源 |
 | AUD-03 | 高（已修复） | WebSocket、缓存和多进程队列已设上限，协议参数已校验 | 超限或非法输入会被拒绝，队列满时返回服务器繁忙 |
-| AUD-04 | 高 | “公平调度”实现总取最新 task，而不是轮转 | 旧任务在持续新任务下可能饥饿，实时/文件任务延迟不可控 |
+| AUD-04 | 高（已修复） | Worker 已按 task 实现 round-robin，并保持同 task FIFO | 持续生产的新任务不会再饿死已有任务 |
 | AUD-05 | 高 | 仅有少量协议边界测试，仍没有系统性测试、CI、lint/type check | 高并发/音频改动仍缺少完整回归保护 |
 | AUD-06 | 中（已修复） | WebSocket 缓存已按 `task_id` 隔离并限制并发数 | 同连接并发或交错任务不再混合音频与元数据 |
 | AUD-07 | 中 | 依赖全部未固定版本，也没有 Python 版本/锁文件 | websockets、onnxruntime、NumPy 等升级可能直接破坏运行或打包 |
@@ -144,7 +144,9 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 ### AUD-04：调度算法与“公平”声明不一致（高）
 
-证据：`TaskBuffer` 文档写“跨 session 轮转”，但 `pop()` 使用 `next(reversed(self._buffers.items()))`，每次都选择最后插入的 task_id，且没有 `move_to_end()` 轮转。
+修复状态：已完成。`TaskBuffer.pop()` 现在从 `OrderedDict` 头部取出一个 task 的最早片段；该 task 仍有积压时将其移至尾部，没有积压时删除缓冲，从而实现跨 task 的 round-robin，同时保持同 task FIFO。测试已覆盖 3 个 task 轮转、持续生产者、断线清理和单 task FIFO。
+
+原始证据（修复前）：`TaskBuffer` 文档写“跨 session 轮转”，但 `pop()` 使用 `next(reversed(self._buffers.items()))`，每次都选择最后插入的 task_id，且没有 `move_to_end()` 轮转。
 
 影响：最新任务只要持续有分片，旧 task 就可能长期得不到处理。多个文件转录和实时听写同时存在时，延迟与提交先后相关，难以预测。
 
