@@ -46,7 +46,8 @@ class AudioFileManager:
         self.file_path: Optional[Path] = None
         self.file_handle: Optional[AudioWriter] = None
         self.channels: int = 1
-        self._has_ffmpeg = shutil.which('ffmpeg') is not None
+        self._ffmpeg_path = shutil.which('ffmpeg')
+        self._has_ffmpeg = self._ffmpeg_path is not None
         
         if self._has_ffmpeg:
             logger.debug("检测到 FFmpeg，将使用 MP3 格式保存录音")
@@ -79,11 +80,11 @@ class AudioFileManager:
         file_path = tempfile.mktemp(prefix=f'({time_ymdhms})', dir=folder_path)
         file_path = Path(file_path)
         
-        if self._has_ffmpeg:
+        if self._ffmpeg_path:
             # 使用 FFmpeg 输出 MP3
             file_path = file_path.with_suffix('.mp3')
             ffmpeg_command = [
-                'ffmpeg', '-y',
+                self._ffmpeg_path, '-y',
                 '-f', 'f32le',
                 '-ar', str(self.SAMPLE_RATE),
                 '-ac', str(channels),
@@ -91,9 +92,20 @@ class AudioFileManager:
                 '-b:a', '192k',
                 str(file_path),
             ]
-            file_handle = Popen(ffmpeg_command, stdin=PIPE, stdout=DEVNULL, stderr=DEVNULL)
-            logger.debug(f"创建 MP3 文件: {file_path}")
-        else:
+            try:
+                file_handle = Popen(
+                    ffmpeg_command,
+                    stdin=PIPE,
+                    stdout=DEVNULL,
+                    stderr=DEVNULL,
+                )
+                logger.debug(f"创建 MP3 文件: {file_path}")
+            except OSError as exc:
+                logger.warning(f"FFmpeg 启动失败，将降级为 WAV 格式: {exc}")
+                self._ffmpeg_path = None
+                self._has_ffmpeg = False
+
+        if not self._ffmpeg_path:
             # 使用 wave 模块输出 WAV
             file_path = file_path.with_suffix('.wav')
             file_handle = wave.open(str(file_path), 'w')
