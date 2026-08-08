@@ -1,0 +1,79 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-ra",
+    "--strict-config",
+    "--strict-markers",
+    "-m",
+    "not integration and not windows and not manual",
+]
+markers = [
+    "integration: 需要多个组件协作的集成测试",
+    "windows: 需要真实 Windows 桌面、设备或系统 API 的测试",
+    "manual: 需要模型、GPU、麦克风、网络或人工观察的测试",
+]
+
+[tool.coverage.run]
+branch = true
+include = [
+    "core/protocol.py",
+    "core/server/connection/ws_recv.py",
+    "core/server/worker/task_handler.py",
+    "core/server/merger/*.py",
+    "core/client/hotword/hot_rule.py",
+    "core/tools/format_tools.py",
+]
+omit = [
+    "core/server/engines/*/export/*",
+    "core/server/engines/*/gguf/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+cache-dir = ".cache/ruff"
+extend-exclude = [
+    "build",
+    "dist",
+    "models",
+    "core/server/engines",
+    "core/server/engines/*/export",
+    "core/server/engines/*/gguf",
+    "*.ipynb",
+]
+
+[tool.ruff.lint]
+# 先把语法错误、未定义名称和明显的导入问题设为硬门禁；扩大规则集时单独清债。
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.ruff.lint.per-file-ignores]
+"LLM/*.py" = ["F401"]
+"tests/**/*.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_any_generics = false
+follow_imports = "skip"
+ignore_missing_imports = true
+no_implicit_optional = true
+show_error_codes = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+exclude = [
+    "build/",
+    "dist/",
+    "models/",
+    "core/server/engines/.*/export/",
+    "core/server/engines/.*/gguf/",
+]

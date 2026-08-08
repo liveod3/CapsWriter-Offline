@@ -157,8 +157,8 @@ def _clean_repeated_punct(
 ) -> Tuple[List[str], List[float]]:
     """清理连续重复标点"""
     puncs = set(Punctuation.ALL + " ")
-    clean_tokens = []
-    clean_timestamps = []
+    clean_tokens: List[str] = []
+    clean_timestamps: List[float] = []
     for token, ts in zip(tokens, timestamps):
         if clean_tokens and token in puncs and clean_tokens[-1] == token:
             continue

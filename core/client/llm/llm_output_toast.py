@@ -8,6 +8,7 @@ import logging
 
 from core.client.output.text_output import TextOutput
 from core.tools.asyncio_to_thread import to_thread
+from .llm_role_config import RoleConfig
 
 logger = logging.getLogger(__name__)
 

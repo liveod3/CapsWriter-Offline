@@ -11,7 +11,7 @@ import base64
 import binascii
 from dataclasses import dataclass, field, asdict
 import math
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, cast
 import json
 
 
@@ -166,7 +166,7 @@ class AudioMessage:
 
         message = cls(
             task_id=task_id,
-            source=source,
+            source=cast(Literal['mic', 'file'], source),
             data=encoded_audio,
             is_final=is_final,
             time_start=time_start,
@@ -176,7 +176,7 @@ class AudioMessage:
             language=language,
         )
         # 避免服务端在校验后再次解码；动态属性不会进入 asdict()/线协议。
-        message._audio_bytes = audio_data
+        setattr(message, '_audio_bytes', audio_data)
         return message
 
     def decode_audio(self) -> bytes:

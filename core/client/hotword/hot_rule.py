@@ -97,25 +97,12 @@ if __name__ == '__main__':
         (艾特)\\s*(\\w+)\\s*(点)\\s*(\\w+)    =    @$2.$4
     '''
 
-    # 新接口
-    corrector = CorrectorRule()
+    corrector = RuleCorrector()
     corrector.update_rules(rules)
 
-    print("\n=== 新接口测试 ===")
+    print("\n=== 规则纠错测试 ===")
     print(f"输入: '这款手机有5000毫安时的大电池'")
-    print(f"输出: {corrector.correct('这款手机有5000毫安时的大电池')}")
+    print(f"输出: {corrector.substitute('这款手机有5000毫安时的大电池')}")
 
     print(f"\n输入: '国内交流电一般是50赫兹'")
-    print(f"输出: {corrector.correct('国内交流电一般是50赫兹')}")
-
-    # 旧接口（向后兼容）
-    print("\n=== 旧接口测试（向后兼容）===")
-    更新热词词典(rules)
-
-    res = 热词替换('这款手机有5000毫安时的大电池')
-    print(f"输入: '这款手机有5000毫安时的大电池'")
-    print(f"输出: {res}")
-
-    res2 = 热词替换('国内交流电一般是50赫兹')
-    print(f"输入: '国内交流电一般是50赫兹'")
-    print(f"输出: {res2}")
+    print(f"输出: {corrector.substitute('国内交流电一般是50赫兹')}")

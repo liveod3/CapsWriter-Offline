@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from core.client.app import CapsWriterClient
     from core.client.hotword.manager import HotwordManager
     from core.client.diary.diary_writer import DiaryWriter
+    from core.client.connection.websocket_manager import WebSocketManager
 
 
 

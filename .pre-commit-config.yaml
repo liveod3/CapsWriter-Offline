@@ -1,0 +1,31 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: python -m ruff check --force-exclude
+        language: system
+        types: [python]
+      - id: mypy-critical-paths
+        name: mypy（关键纯 Python 模块）
+        entry: >-
+          python -m mypy core/protocol.py core/server/schema.py
+          core/server/merger core/client/hotword/hot_rule.py
+          core/tools/format_tools.py
+        language: system
+        pass_filenames: false
+        types: [python]
+      - id: pytest-unit
+        name: pytest（快速单元测试）
+        entry: python -m pytest -q
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+      - id: compileall
+        name: compileall
+        entry: >-
+          python -m compileall -q start_client.py start_server.py
+          config_client.py config_server.py core LLM
+        language: system
+        pass_filenames: false
+        types: [python]

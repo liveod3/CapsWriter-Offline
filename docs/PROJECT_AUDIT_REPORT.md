@@ -92,7 +92,7 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 | AUD-02 | 高 | 服务端默认 `0.0.0.0`，WebSocket 无认证、无 TLS | 同网段主机可连接、上传音频并消耗推理资源 |
 | AUD-03 | 高（已修复） | WebSocket、缓存和多进程队列已设上限，协议参数已校验 | 超限或非法输入会被拒绝，队列满时返回服务器繁忙 |
 | AUD-04 | 高（已修复） | Worker 已按 task 实现 round-robin，并保持同 task FIFO | 持续生产的新任务不会再饿死已有任务 |
-| AUD-05 | 高 | 仅有少量协议边界测试，仍没有系统性测试、CI、lint/type check | 高并发/音频改动仍缺少完整回归保护 |
+| AUD-05 | 高（已修复） | 已建立分层测试、Windows CI、覆盖率、ruff、mypy 与 pre-commit 门禁 | 关键协议、调度、文本处理和音频生命周期已有自动回归保护 |
 | AUD-06 | 中（已修复） | WebSocket 缓存已按 `task_id` 隔离并限制并发数 | 同连接并发或交错任务不再混合音频与元数据 |
 | AUD-07 | 中 | 依赖全部未固定版本，也没有 Python 版本/锁文件 | websockets、onnxruntime、NumPy 等升级可能直接破坏运行或打包 |
 | AUD-08 | 中 | LLM 角色文件直接保存 `api_key` 字段，已跟踪文件含类似 Key 的掩码值 | 易误提交真实密钥；当前掩码值也会导致角色认证失败 |
@@ -154,7 +154,11 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 ### AUD-05：缺少工程质量门禁（高）
 
-证据：修复 AUD-03 时已增加首批协议与资源边界测试，并允许跟踪 `tests/test_*.py`；仓库仍没有 GitHub Actions、`pyproject.toml`、pytest/coverage、ruff、mypy 或 pre-commit 配置。
+修复状态：已完成。仓库现已建立 `tests/unit`、`tests/integration`、`tests/windows` 分层，默认测试会排除需要集成环境、Windows 实机或人工观察的用例；22 项自动测试覆盖协议与资源边界、task round-robin、配置兼容、合并/格式化/热词纯函数和音频流生命周期 mock。`pyproject.toml` 统一配置 pytest、coverage、ruff 与 mypy，关键路径当前分支覆盖率为 53.98%，CI 最低门槛为 50%。
+
+Windows `Quality` 工作流会在 push、PR 和手工触发时安装运行/开发依赖，依次执行 `compileall`、ruff、关键路径 mypy 和 pytest/coverage。`Release smoke` 工作流在版本标签或手工触发时必须先通过同一质量工作流，再使用 `build.spec` 构建组合包并验证客户端、服务端入口；本地开发另有 pre-commit 的 lint、类型、快速测试和编译钩子。
+
+原始证据（修复前）：修复 AUD-03 时已增加首批协议与资源边界测试，并允许跟踪 `tests/test_*.py`；仓库仍没有 GitHub Actions、`pyproject.toml`、pytest/coverage、ruff、mypy 或 pre-commit 配置。
 
 影响：13 个本地定制提交横跨音频线程、快捷键、Tk UI 和生命周期，但无法自动验证。AUD-01 这类确定性错误只需一个构造/重开单元测试就能发现。
 
