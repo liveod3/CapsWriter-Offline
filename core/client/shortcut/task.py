@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING, Optional
 from . import logger
 from core.client.state import console
 from core.tools.my_status import Status
-from core.ui.recording_indicator import show_recording_indicator, hide_recording_indicator, show_status_hint
+from core.ui.recording_indicator import (
+    hide_recording_indicator,
+    hide_status_hint,
+    show_recording_indicator,
+    show_status_hint,
+)
 from core.ui.tray import set_recording_state
  
 if TYPE_CHECKING:
@@ -76,16 +81,13 @@ class ShortcutTask:
             self._recorder_class = AudioRecorder
         return self._recorder_class(self.app)
 
-    def _show_recording_ready(self, generation: int, show_ready_hint: bool) -> None:
+    def _show_recording_ready(self, generation: int, clear_preparing_hint: bool) -> None:
         """仅为当前仍在进行的录音显示就绪状态。"""
         if generation != self._launch_generation or not self.is_recording:
             return
 
-        if show_ready_hint:
-            message = '麦克风已就绪，可以说话'
-            logger.info(f"[{self.shortcut.key}] {message}")
-            console.print(f'\n[bold green]● {message}[/]')
-            show_status_hint(message, duration_ms=1000, dot_color='#34D399')
+        if clear_preparing_hint:
+            hide_status_hint()
         self._status.start()
         show_recording_indicator()
         set_recording_state(True)
@@ -101,7 +103,7 @@ class ShortcutTask:
             return
 
         if self.app.stream.is_ready(ready_event):
-            self._show_recording_ready(generation, show_ready_hint=True)
+            self._show_recording_ready(generation, clear_preparing_hint=True)
 
     def launch(self) -> bool:
         """启动录音任务"""
@@ -133,7 +135,7 @@ class ShortcutTask:
         # stream.start() 后硬件可能仍在唤醒；只在首个音频块到达后提示可以说话。
         ready_event = self.app.stream.get_ready_event()
         if self.app.stream.is_ready(ready_event):
-            self._show_recording_ready(generation, show_ready_hint=False)
+            self._show_recording_ready(generation, clear_preparing_hint=False)
         else:
             message = '正在准备麦克风，请稍候'
             logger.info(f"[{self.shortcut.key}] {message}")

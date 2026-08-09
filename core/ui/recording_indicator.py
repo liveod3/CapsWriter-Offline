@@ -92,6 +92,9 @@ class _RecordingIndicator:
     def show_hint(self, text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
         self._root.after(0, lambda: self._show_hint_impl(text, duration_ms, dot_color))
 
+    def hide_hint(self) -> None:
+        self._root.after(0, self._hide_hint_impl)
+
     # ── Tk 线程内部实现 ───────────────────────────────────────
 
     def _show_impl(self) -> None:
@@ -319,3 +322,11 @@ def show_status_hint(text: str, duration_ms: int = 1600, dot_color: str = '#7DD3
     ind = _get_indicator()
     if ind:
         ind.show_hint(text=text, duration_ms=duration_ms, dot_color=dot_color)
+
+
+def hide_status_hint() -> None:
+    """隐藏当前状态提示浮窗（线程安全）。"""
+    with _lock:
+        ind = _indicator
+    if ind:
+        ind.hide_hint()
