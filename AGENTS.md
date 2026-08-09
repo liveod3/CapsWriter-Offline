@@ -22,7 +22,7 @@ CapsWriter-Offline 是 Windows 10/11 优先的离线语音输入工具。用户�
 - `core/server/engines/`：ASR、标点、对齐器及其推理代码。多个 `export/` 与 `gguf/` 目录包含上游/派生代码，修改前先确认代码归属。
 - `LLM/`：可热加载的角色配置；这些 `.py` 文件会被执行，不只是静态数据。
 - `models/`：模型说明和下载入口；大型模型文件不应提交。
-- `docs/`：用户文档、变更日志和项目审计报告。
+- `docs/`：用户文档、变更日志和历史审计归档；当前待办统一记录在根目录 `TODO.md`。
 - `build.spec`、`build-client.spec`、`build_hook.py`：PyInstaller 打包链路。
 
 ## 3. 运行与依赖
@@ -149,7 +149,7 @@ python -m pytest -q
 - `core/client/llm/` 与 `LLM/`：动态执行角色文件、云端数据外发和密钥管理。
 - `core/server/engines/*/export/`：体积大、重复度高，含上游派生代码；避免无边界的全仓格式化。
 
-更完整的现状、证据和优先级见 `docs/PROJECT_AUDIT_REPORT.md`。
+当前待办和优先级见 `TODO.md`；历史现状与证据见 `docs/archive/PROJECT_AUDIT_REPORT-2026-08-08.md`。
 
 ## 9. 交付清单
 
