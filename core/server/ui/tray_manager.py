@@ -28,7 +28,7 @@ class TrayManager:
             return
 
         # 获取图标路径
-        icon_path = os.path.join(self.app.base_dir, 'assets', 'icon.ico')
+        icon_path = os.path.join(self.app.base_dir, 'assets', 'server-icon.ico')
         
         # 启用托盘
         enable_min_to_tray(

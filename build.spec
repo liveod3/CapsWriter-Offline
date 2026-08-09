@@ -201,7 +201,7 @@ exe_1 = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\\\icon.ico'],
+    icon=['assets\\\\server-icon.ico'],
     # 所有第三方依赖放入 internal 目录
     contents_directory='internal',
 )
@@ -221,7 +221,7 @@ exe_2 = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets\\\\icon.ico'],
+    icon=['assets\\\\client-icon.ico'],
     # 所有第三方依赖放入 internal 目录
     contents_directory='internal',
 )

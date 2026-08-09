@@ -152,82 +152,69 @@ def _is_window_visible(hwnd: int) -> bool:
     return user32.IsWindowVisible(hwnd) != 0
 
 
+def _add_recording_badge(image):
+    """在图标右下角叠加醒目的录音红色徽标。"""
+    from PIL import ImageDraw
+
+    image = image.convert('RGBA')
+    draw = ImageDraw.Draw(image)
+    center_x = image.width - 12
+    center_y = image.height - 12
+    outer_radius = 10
+    inner_radius = 8
+
+    # 浅色描边让红点在深色图标和不同任务栏主题上都保持清晰。
+    draw.ellipse(
+        (
+            center_x - outer_radius,
+            center_y - outer_radius,
+            center_x + outer_radius,
+            center_y + outer_radius,
+        ),
+        fill=(255, 248, 240, 255),
+    )
+    draw.ellipse(
+        (
+            center_x - inner_radius,
+            center_y - inner_radius,
+            center_x + inner_radius,
+            center_y + inner_radius,
+        ),
+        fill=(255, 59, 48, 255),
+    )
+    return image
+
+
 def _create_icon(icon_path: Optional[str] = None, recording: bool = False):
     """
     创建托盘图标
     
-    优先从指定路径加载图标文件，如果不存在则动态生成。
+    从指定路径加载当前图标体系；录音时在右下角叠加红色徽标。
     
     Args:
-        icon_path: 图标文件路径
+        icon_path: 当前图标体系中的图标文件路径，必须提供
+        recording: 是否显示录音状态
         
     Returns:
         PIL Image 对象
     """
-    from PIL import Image, ImageDraw
-    
-    # 仅正常状态加载图标文件；录音状态始终动态生成（确保红点显示）
-    if not recording and icon_path and os.path.exists(icon_path):
-        try:
-            image = Image.open(icon_path)
-            if image.mode != 'RGBA':
-                image = image.convert('RGBA')
-            return image.resize((64, 64), Image.Resampling.LANCZOS)
-        except Exception:
-            pass  # 加载失败则使用动态生成
+    from PIL import Image
 
-    # 动态生成麦克风图标
-    size = 64
-    scale = 4
-    S = size * scale  # 256px 工作分辨率（抗锯齿）
+    if not icon_path:
+        raise ValueError('缺少托盘图标路径')
+    if not os.path.exists(icon_path):
+        raise FileNotFoundError(f'托盘图标不存在: {icon_path}')
 
-    img = Image.new('RGBA', (S, S), (0, 0, 0, 0))
-    dc = ImageDraw.Draw(img)
+    try:
+        with Image.open(icon_path) as source:
+            image = source.convert('RGBA')
+        image = image.resize((64, 64), Image.Resampling.LANCZOS)
+    except Exception as error:
+        raise RuntimeError(f'加载托盘图标失败: {icon_path}') from error
 
-    BG  = (28, 28, 30)      # 深色背景 #1C1C1E
-    MIC = (255, 255, 255)   # 白色麦克风
-    RED = (255, 59, 48)     # 录音状态红点 #FF3B30
-
-    # ── 圆角背景 ────────────────────────────────────────────
-    m = 10
-    dc.rounded_rectangle([m, m, S - m, S - m], radius=S // 5, fill=BG)
-
-    cx = S // 2  # 水平中心 128
-
-    # ── 麦克风胶囊体：细长药丸形，宽高比 ≈ 1:2.2 ────────────
-    bw, bh = 46, 100
-    btop    = 20
-    bbottom = btop + bh           # 120
-    dc.rounded_rectangle(
-        [cx - bw // 2, btop, cx + bw // 2, bbottom],
-        radius=bw // 2,           # 完全圆角 = 药丸形
-        fill=MIC,
-    )
-
-    # ── 颈部（极细，避免"肩膀"感）────────────────────────────
-    nw = 8
-    dc.rectangle([cx - nw // 2, bbottom - 2, cx + nw // 2, 152], fill=MIC)
-
-    # ── U 形支架：宽度明显窄于胶囊，视觉上是"架子"而非肩膀 ──
-    aw = 36                       # < bw=46，支架比胶囊更窄
-    dc.arc(
-        [cx - aw, 132, cx + aw, 168],
-        start=180, end=360,
-        fill=MIC, width=9,
-    )
-
-    # ── 底部横杆 ────────────────────────────────────────────
-    dc.rectangle([cx - aw, 161, cx + aw, 171], fill=MIC)
-
-    # ── 录音状态红点（右下角）────────────────────────────────
     if recording:
-        dr  = 24
-        dcx = S - m - dr - 4
-        dcy = S - m - dr - 4
-        dc.ellipse([dcx - dr - 4, dcy - dr - 4, dcx + dr + 4, dcy + dr + 4], fill=BG)
-        dc.ellipse([dcx - dr,     dcy - dr,     dcx + dr,     dcy + dr    ], fill=RED)
-
-    return img.resize((size, size), Image.Resampling.LANCZOS)
+        return _add_recording_badge(image)
+    return image
 
 
 class _TraySystem:
@@ -367,7 +354,7 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
     Args:
         name: 托盘图标显示的名称，默认使用程序名称
-        icon_path: 图标文件路径，默认动态生成
+        icon_path: 当前图标体系中的图标文件路径，必须提供
         exit_callback: 退出回调函数，当用户点击托盘退出菜单时调用
         more_options: 额外菜单项列表，格式为 [(名称, 回调函数), ...]
     """
@@ -452,7 +439,9 @@ def _refresh_tray_status() -> None:
 
 
 if __name__ == "__main__":
-    enable_min_to_tray()
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    demo_icon_path = os.path.join(project_root, 'assets', 'client-icon.ico')
+    enable_min_to_tray(icon_path=demo_icon_path)
     print("程序运行中... 你可以双击托盘图标隐藏我。")
     while True:
         time.sleep(1)

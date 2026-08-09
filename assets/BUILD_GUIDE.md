@@ -36,7 +36,8 @@ dist/CapsWriter-Offline/
 │   └── ...
 │
 ├── assets/                   # 资源文件
-│   └── icon.ico
+│   ├── client-icon.ico       # 客户端图标
+│   └── server-icon.ico       # 服务端图标
 │
 ├── models/                   # 模型文件（目录连接符）
 │   ├── FunASR-Nano/          # 轻量级模型（推荐）
