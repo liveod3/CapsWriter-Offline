@@ -61,6 +61,7 @@ class WebSocketManager:
         """
         self.app = app
         self._connect_fail_logged = False  # 断联后只记一次失败日志
+        self._shutdown_requested = False
 
     @property
     def state(self) -> ClientState:
@@ -81,6 +82,11 @@ class WebSocketManager:
         Returns:
             连接是否成功
         """
+        # 退出流程一旦开始就不能再重连，否则事件循环停止时可能中断
+        # 刚建立的 TCP 连接，在服务端留下不完整的 WebSocket 握手。
+        if self._shutdown_requested:
+            return False
+
         # 如果已连接，直接返回
         if self.is_connected:
             return True
@@ -121,7 +127,15 @@ class WebSocketManager:
             if _websockets_major_version() >= 14:
                 kwargs["proxy"] = None  
             
-            self.state.websocket = await websockets.connect(**kwargs)
+            websocket = await websockets.connect(**kwargs)
+
+            # connect() 期间也可能收到退出请求。此时完成关闭握手，但不再
+            # 把连接发布到共享状态，避免结果处理循环继续使用它。
+            if self._shutdown_requested:
+                await websocket.close()
+                return False
+
+            self.state.websocket = websocket
 
             console.print(f'[bold green]已连接服务端: {url}[/bold green]\n')
             logger.info(f"WebSocket 建立成功: {url}")
@@ -194,10 +208,16 @@ class WebSocketManager:
     
     async def close(self) -> None:
         """关闭 WebSocket 连接"""
-        if self.state.websocket is not None:
-            await self.state.websocket.close()
-            self.state.websocket = None
+        websocket = self.state.websocket
+        if websocket is not None:
+            await websocket.close()
+            if self.state.websocket is websocket:
+                self.state.websocket = None
             logger.info("WebSocket 连接已关闭")
+
+    def begin_shutdown(self) -> None:
+        """同步发布退出状态，阻止新的连接和自动重连。"""
+        self._shutdown_requested = True
 
     def close_sync(self) -> None:
         """
@@ -206,12 +226,19 @@ class WebSocketManager:
         使用 run_coroutine_threadsafe 安全地将关闭操作调度到已有的事件循环。
         如果事件循环未运行，则直接置空连接引用。
         """
-        if self.state.websocket is None:
+        # 必须在调度异步 close 之前同步设置；退出可能来自托盘线程，
+        # 结果处理循环此时仍在事件循环线程中运行。
+        self.begin_shutdown()
+
+        websocket = self.state.websocket
+        if websocket is None:
             return
 
         loop = self.app.loop
         if loop and loop.is_running():
-            asyncio.run_coroutine_threadsafe(self.close(), loop)
+            # 捕获当前连接，避免随后 State.reset() 先清空共享引用，导致实际
+            # close 协程执行时找不到需要关闭的连接。
+            asyncio.run_coroutine_threadsafe(websocket.close(), loop)
             logger.debug("已调度 WebSocket 关闭（threadsafe）")
         else:
             # 事件循环已停止，直接清空引用

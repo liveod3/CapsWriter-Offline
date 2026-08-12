@@ -86,6 +86,8 @@ class CapsWriterClient:
         # 闲置自动挂起监控
         self._idle_suspend_running = False
         self._idle_suspend_thread = None
+        self._active_runner = None
+        self._stopping = False
 
     def mark_user_activity(self) -> None:
         """标记用户活跃时间，用于闲置自动挂起判断。"""
@@ -223,7 +225,16 @@ class CapsWriterClient:
         """
         统一释放所有资源（清理顺序：硬件 -> 托盘 -> WebSocket -> State）
         """
+        if self._stopping:
+            return
+        self._stopping = True
+
         logger.info("正在执行 CapsWriterClient 资源释放...")
+
+        # 先终止结果处理循环，防止关闭当前连接后触发自动重连。
+        processor = getattr(self._active_runner, 'processor', None)
+        if processor is not None:
+            processor.request_exit()
 
         # 1. 停止核心运行组件
         self.stop_idle_suspend_monitor()
@@ -247,8 +258,10 @@ class CapsWriterClient:
         except Exception as e:
             logger.warning(f"重置状态时发生错误: {e}")
 
-        # 6. 停止事件循环（最后一步，确保前面的异步操作已调度）
-        self.loop.stop()
+        # 麦克风模式由 ResultProcessor 在关闭连接后自然返回，让关闭握手有
+        # 机会完成；其他模式仍沿用主动停止事件循环的退出方式。
+        if processor is None:
+            self.loop.stop()
 
         logger.info("资源释放完成")
         console.print('[green4]再见！')
@@ -272,6 +285,7 @@ class CapsWriterClient:
         else:
             # 麦克风实时模式
             runner = MicRunner(self)
+        self._active_runner = runner
         
         try:
             self.loop.run_until_complete(runner.run())
