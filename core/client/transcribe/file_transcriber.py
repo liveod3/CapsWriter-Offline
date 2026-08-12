@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Optional
 from config_client import ClientConfig as Config
 from core.client.state import console
 from core.client.connection import WebSocketManager
+from core.constants import AudioFormat
 from core.protocol import AudioMessage, RecognitionMessage
 from .media_tool import MediaTool
 from .result_handler import ResultHandler
@@ -27,6 +28,20 @@ from core.tools.token_sync import sync_tokens_from_text
 if TYPE_CHECKING:
     from core.client.state import ClientState
     from core.client.app import CapsWriterClient
+
+
+async def read_fixed_chunk(reader: asyncio.StreamReader, chunk_size: int) -> bytes:
+    """从异步管道累计读取一个定长块；到达 EOF 时返回最后一个不足定长的块。"""
+    if chunk_size <= 0:
+        raise ValueError("chunk_size 必须为正数")
+
+    data = bytearray()
+    while len(data) < chunk_size:
+        part = await reader.read(chunk_size - len(data))
+        if not part:
+            break
+        data.extend(part)
+    return bytes(data)
 
 
 class FileTranscriber:
@@ -112,13 +127,15 @@ class FileTranscriber:
                 stderr=asyncio.subprocess.DEVNULL
             )
             
-            # 分块大小：1分钟音频 (16000 * 4 * 60 bytes)
-            chunk_size = 16000 * 4 * 60
+            # StreamReader.read(n) 不保证一次返回 n 字节。必须在客户端先累计出
+            # 一个完整识别分片，否则“在途消息数”会按管道碎片消耗，并在服务端
+            # 凑够首个识别片段前形成相互等待。
+            chunk_size = AudioFormat.seconds_to_bytes(Config.file_seg_duration)
             bytes_sent = 0
             progress = 0.0
             
             while True:
-                data = await process.stdout.read(chunk_size)
+                data = await read_fixed_chunk(process.stdout, chunk_size)
                 if not data:
                     break
                 
@@ -149,6 +166,10 @@ class FileTranscriber:
                     self._send_window.release()
                     raise
 
+            returncode = await process.wait()
+            if returncode != 0:
+                raise RuntimeError(f"FFmpeg 提取音频失败，退出码: {returncode}")
+
             # 发送结束标志
             final_message = AudioMessage(
                 task_id=self.task_id,
@@ -163,7 +184,6 @@ class FileTranscriber:
             )
             if not await self._ws_manager.send(final_message):
                 raise ConnectionError("结束标志发送失败")
-            await process.wait()
             
             if self._audio_duration == 0:
                 self._audio_duration = progress 

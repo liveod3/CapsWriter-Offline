@@ -1,6 +1,7 @@
 # coding: utf-8
 from __future__ import annotations
 import asyncio
+import sys
 from pathlib import Path
 from . import logger
 from config_client import ClientConfig as Config, __version__
@@ -68,7 +69,13 @@ class FileRunner:
             
             logger.info("所有文件已处理完成")
             
-            input('\n按回车退出\n')
+            # 打包版双击/拖拽启动时保留窗口，便于用户查看结果；
+            # conda run、重定向或其他无 stdin 场景应当正常结束，不能把成功任务报成失败。
+            if sys.stdin is not None and sys.stdin.isatty():
+                try:
+                    input('\n按回车退出\n')
+                except EOFError:
+                    logger.debug("标准输入已关闭，文件模式直接退出")
 
         except Exception as e:
             logger.error(f"文件模式运行异常: {e}", exc_info=True)

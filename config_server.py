@@ -172,7 +172,7 @@ class Qwen3ASRGGUFArgs:
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
     # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
+    onnx_provider = 'DML'       # ONNX 编码器使用 DirectML GPU；不可用时引擎回退 CPU
     llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
     
     # 模型细节
@@ -193,8 +193,8 @@ class ForceAlignerGGUFArgs:
     llm_fn = ModelPaths.force_aligner_gguf_llm_decode.name
 
     # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    llm_use_gpu = False          # 是否启用 GPU 加速 GGUF 模型
+    onnx_provider = 'DML'       # ONNX 编码器使用 DirectML GPU；不可用时引擎回退 CPU
+    llm_use_gpu = True          # GGUF 解码器将模型层卸载到 GPU
     
     # 对齐细节
     n_ctx = 3072                # 上下文窗口大小
