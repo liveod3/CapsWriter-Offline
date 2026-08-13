@@ -241,7 +241,18 @@ class FileTranscriber:
         self._apply_hotwords(message)
 
         # 调用结果处理器进行保存和格式化
-        text_display = ResultHandler.save_results(self.file, message)
+        text_display, sequence, output_paths = ResultHandler.save_results(
+            self.file, message
+        )
+
+        if sequence > 1:
+            console.print(
+                f'    [bold yellow]检测到同名结果，本次使用编号 ({sequence})，'
+                '未覆盖既有文件[/]'
+            )
+        console.print('    [bold cyan]输出文件：[/]')
+        for output_path in output_paths:
+            console.print(f'      - {output_path}')
         
         process_duration = message.time_complete - message.time_start
         console.print(f'\033[K    处理耗时：{process_duration:.2f}s')
@@ -249,7 +260,8 @@ class FileTranscriber:
         
         logger.info(
             f"转录完成: {self.file}, 处理耗时: {process_duration:.2f}s, "
-            f"文本长度: {len(text_display)}"
+            f"文本长度: {len(text_display)}, "
+            f"输出编号: {sequence}, 输出文件: {[str(p) for p in output_paths]}"
         )
         return True
 

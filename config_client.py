@@ -88,6 +88,11 @@ class ClientConfig:
 
     file_seg_duration = 60      # 转录文件时分段长度
     file_seg_overlap = 4        # 转录文件时分段重叠
+    file_scan_recursive = True  # 命令行传入文件夹时是否递归扫描子文件夹
+    file_media_extensions = (   # 文件夹扫描时纳入批量转写的媒体格式
+        '.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma',
+        '.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.m4v', '.ts',
+    )
 
     file_save_srt = True        # 转录文件时是否保存 srt 字幕
     file_save_txt = True        # 转录文件时是否保存 txt 文本（按标点切分后的）

@@ -24,6 +24,7 @@ from .manager import (
     TrayManager,
     MicRunner, FileRunner
 )
+from .manager.file_runner import resolve_input_paths
 from .audio.stream import AudioStreamManager
 from .shortcut.shortcut_manager import ShortcutManager
 from .shortcut.shortcut_config import Shortcut
@@ -277,9 +278,10 @@ class CapsWriterClient:
         # 注册退出函数
         register_signal(self.stop)
 
-        files = [Path(f) for f in sys.argv[1:] if os.path.exists(f)]
+        raw_inputs = [Path(value) for value in sys.argv[1:]]
+        files = resolve_input_paths(raw_inputs) if raw_inputs else []
 
-        if files:
+        if raw_inputs:
             # 文件转录模式
             runner = FileRunner(self, files)
         else:
