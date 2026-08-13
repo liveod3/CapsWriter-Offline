@@ -57,9 +57,12 @@ class ServerState:
     # 消息队列
     queue_in: Queue = field(default_factory=lambda: _bounded_queue('queue_in_maxsize', 32))
     queue_out: Queue = field(default_factory=lambda: _bounded_queue('queue_out_maxsize', 32))
+    align_queue_in: Queue = field(default_factory=lambda: _bounded_queue('align_queue_in_maxsize', 4))
+    align_queue_out: Queue = field(default_factory=lambda: _bounded_queue('align_queue_out_maxsize', 4))
 
     # 识别子进程
     recognize_process: Optional[Process] = None
+    aligner_process: Optional[Process] = None
 
 
 

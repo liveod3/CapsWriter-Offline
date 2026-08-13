@@ -10,9 +10,13 @@ from multiprocessing.managers import ListProxy
 from .. import logger
 from .worker import RecognizerWorker
 
-def start_worker(queue_in: Queue, queue_out: Queue, sockets_id: ListProxy, stdin_fn: int):
+def start_worker(queue_in: Queue, queue_out: Queue, sockets_id: ListProxy,
+                 align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int):
     """识别子进程启动入口"""
-    worker = RecognizerWorker(queue_in, queue_out, sockets_id, stdin_fn)
+    worker = RecognizerWorker(
+        queue_in, queue_out, sockets_id,
+        align_queue_in, align_queue_out, stdin_fn,
+    )
     worker.run()
 
 __all__ = ['RecognizerWorker', 'start_worker']

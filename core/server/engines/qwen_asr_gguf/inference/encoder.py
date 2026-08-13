@@ -129,6 +129,10 @@ class QwenAudioEncoder:
         
         # 初始化 ONNX Session Options
         sess_opts = ort.SessionOptions()
+        # DirectML 要求禁用内存模式并使用顺序执行；显式设置也能避免
+        # 两个 GPU 模型并存/退出时出现未定义的资源调度行为。
+        sess_opts.enable_mem_pattern = False
+        sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         sess_opts.log_severity_level = 3
         sess_opts.add_session_config_entry("session.intra_op.allow_spinning", "0")
         sess_opts.add_session_config_entry("session.inter_op.allow_spinning", "0")

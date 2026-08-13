@@ -37,6 +37,8 @@ class ServerConfig:
     max_tasks_per_connection = 4
     queue_in_maxsize = 32
     queue_out_maxsize = 32
+    align_queue_in_maxsize = 4
+    align_queue_out_maxsize = 4
     worker_buffer_max_tasks = 64
 
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
@@ -50,7 +52,10 @@ class ServerConfig:
 
     # 日志配置
     log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
-    aligner_idle_timeout = 10  # 对齐引擎空闲多少秒后自动释放显存 (0 表示不释放)
+    # Forced Aligner 在独立兄弟进程中按需加载；空闲后退出整个进程，避免在
+    # ASR 进程内卸载共享 GPU 后端。0 表示进程常驻。
+    aligner_idle_timeout = 1   # 单卡 GPU 下快速让出显存；进程监控器会自动补位
+    aligner_request_timeout = 60  # 单次对齐最长等待时间；超时后跳过时间戳，不阻塞 ASR
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
     gpu_boost_enabled = False                   # 总开关，默认关闭

@@ -7,7 +7,7 @@
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 
 
 @dataclass
@@ -96,3 +96,37 @@ class RecognitionSession:
     task_id: str
     result: Result
     # 未来可在此扩展会话级状态，如 N-best 假设、中间特征缓存等
+
+
+@dataclass
+class AlignmentItem:
+    """跨进程传输的中性对齐条目，避免 ASR 进程导入 Aligner 实现模块。"""
+    text: str
+    start_time: float
+    end_time: float
+
+
+@dataclass
+class AlignmentResult:
+    """跨进程对齐结果。"""
+    items: List[AlignmentItem] = field(default_factory=list)
+
+
+@dataclass
+class AlignRequest:
+    """ASR 进程发往独立 Aligner 进程的请求。"""
+    request_id: str
+    task_id: str
+    audio: Any
+    text: str
+    language: str = 'auto'
+    offset_sec: float = 0.0
+
+
+@dataclass
+class AlignResponse:
+    """独立 Aligner 进程返回给 ASR 进程的响应。"""
+    request_id: str
+    task_id: str
+    result: Optional[AlignmentResult] = None
+    error: str = ''

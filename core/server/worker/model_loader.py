@@ -23,10 +23,12 @@ class ModelLoader:
     负责 ASR 引擎和辅助模型（标点、对齐器）的生命周期管理。
     自动根据引擎能力挂载补丁插件。
     """
-    def __init__(self):
+    def __init__(self, align_queue_in=None, align_queue_out=None):
         self.recognizer = None
         self.punc_model = None
         self.aligner = None
+        self.align_queue_in = align_queue_in
+        self.align_queue_out = align_queue_out
 
     def load(self):
         """
@@ -77,11 +79,17 @@ class ModelLoader:
         self.punc_model = EngineFactory.create_punc_engine()
 
     def _load_align_model(self):
-        """加载时间戳对齐补丁代理 (ManagedAlignerProxy)"""
-        from ..engines.manager import ManagedAlignerProxy
-        logger.info(f"引擎不具备时间戳能力，已挂载 Aligner 托管代理 (闲置卸载时间: {Config.aligner_idle_timeout}s)")
-        # 挂载代理而非实体模型，实现按需加载与自动释放
-        self.aligner = ManagedAlignerProxy(timeout_sec=Config.aligner_idle_timeout)
+        """挂载独立 Aligner 进程的远程代理。"""
+        from ..engines.manager import ProcessAlignerProxy
+        if self.align_queue_in is None or self.align_queue_out is None:
+            raise RuntimeError('Aligner 跨进程队列未初始化')
+        timeout = getattr(Config, 'aligner_request_timeout', 60)
+        logger.info(f"引擎不具备时间戳能力，已挂载独立 Aligner 进程代理 (请求超时: {timeout}s)")
+        self.aligner = ProcessAlignerProxy(
+            self.align_queue_in,
+            self.align_queue_out,
+            timeout_sec=timeout,
+        )
 
     def cleanup(self):
         """释放模型资源"""

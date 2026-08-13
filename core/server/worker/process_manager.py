@@ -8,10 +8,12 @@ from __future__ import annotations
 import sys
 import os
 import queue
+import threading
 from multiprocessing import Process, Manager
 from typing import TYPE_CHECKING
 from ..state import console
 from . import start_worker
+from .aligner_worker import start_aligner_worker
 from .check_model import check_model
 from . import logger
 if TYPE_CHECKING:
@@ -26,6 +28,10 @@ class ProcessManager:
     """
     def __init__(self, app: CapsWriterServer):
         self._process = None
+        self._align_process = None
+        self._align_lock = threading.Lock()
+        self._align_monitor_thread = None
+        self._monitor_stop = threading.Event()
         self.app = app
         self.is_alive = False
 
@@ -39,6 +45,7 @@ class ProcessManager:
         # 防连续触发
         if self.is_alive: return
         self.is_alive = True
+        self._monitor_stop.clear()
 
         # 1. 前置检查
         check_model()
@@ -51,12 +58,17 @@ class ProcessManager:
         # 获取标准输入文件描述符，用于 Windows 下的信号传递补丁
         stdin_fn = sys.stdin.fileno()
         
-        # 3. 创建并启动进程
+        # 3. 先启动轻量 Aligner 兄弟进程（首个文件请求前不会加载模型）
+        self._start_aligner_process()
+
+        # 4. 创建并启动 ASR 进程
         self._process = Process(
             target=start_worker,
             args=(state.queue_in,
                   state.queue_out,
-                  state.sockets_id, 
+                  state.sockets_id,
+                  state.align_queue_in,
+                  state.align_queue_out,
                   stdin_fn),
             daemon=True
         )
@@ -66,10 +78,62 @@ class ProcessManager:
         state.recognize_process = self._process
         logger.info(f"识别子进程已拉起 (PID: {self._process.pid})")
 
-        # 4. 等待模型加载完成 (轮询方式)
+        # 5. 等待模型加载完成 (轮询方式)
         self._wait_for_models()
+
+        # Aligner 空闲退出或异常退出后，由主进程自动补位一个空载进程。
+        if self.is_alive:
+            self._align_monitor_thread = threading.Thread(
+                target=self._monitor_aligner,
+                name='aligner-process-monitor',
+                daemon=True,
+            )
+            self._align_monitor_thread.start()
         
         return self._process
+
+    def _start_aligner_process(self):
+        """确保存在一个只等待请求、尚未必加载模型的 Aligner 进程。"""
+        with self._align_lock:
+            if not self.is_alive:
+                return None
+            if self._align_process and self._align_process.is_alive():
+                return self._align_process
+
+            old_process = self._align_process
+            if old_process is not None:
+                try:
+                    old_process.join(timeout=0)
+                    old_process.close()
+                except (OSError, ValueError):
+                    pass
+
+            state = self.app.state
+            self._align_process = Process(
+                target=start_aligner_worker,
+                args=(state.align_queue_in, state.align_queue_out),
+                daemon=True,
+            )
+            self._align_process.start()
+            state.aligner_process = self._align_process
+            logger.info(f"Aligner 兄弟进程已拉起 (PID: {self._align_process.pid})")
+            return self._align_process
+
+    def _monitor_aligner(self):
+        """监控 Aligner 的空闲退出/异常退出并自动补位。"""
+        while not self._monitor_stop.wait(0.5):
+            if not self.is_alive:
+                return
+            process = self._align_process
+            if process is not None and not process.is_alive():
+                if process.exitcode not in (0, None):
+                    logger.error(
+                        f"Aligner 进程异常退出 (PID: {process.pid}, "
+                        f"ExitCode: {process.exitcode})，正在自动重启"
+                    )
+                else:
+                    logger.info("Aligner 空闲进程已退出，正在补位空载进程")
+                self._start_aligner_process()
 
     def _wait_for_models(self):
         """轮询队列直到收到模型加载成功 (True) 或发生错误"""
@@ -109,6 +173,24 @@ class ProcessManager:
         # 防连续触发
         if not self.is_alive: return
         self.is_alive = False
+        self._monitor_stop.set()
+
+        if self._align_monitor_thread and self._align_monitor_thread.is_alive():
+            self._align_monitor_thread.join(timeout=1)
+
+        align_process = self._align_process
+        if align_process and align_process.is_alive():
+            logger.info(f"正在停止 Aligner 兄弟进程 (PID: {align_process.pid})...")
+            try:
+                self.app.state.align_queue_in.put(None, timeout=0.5)
+            except queue.Full:
+                logger.debug('Aligner 输入队列已满，将通过进程终止兜底退出')
+
+            align_process.join(timeout=2)
+            if align_process.is_alive():
+                logger.debug("Aligner 进程未响应优雅退出，执行强制终止")
+                align_process.terminate()
+                align_process.join(timeout=1)
 
         if self._process and self._process.is_alive():
             logger.info(f"正在终止识别子进程 (PID: {self._process.pid})...")
