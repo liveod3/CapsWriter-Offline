@@ -55,16 +55,24 @@ class FileTranscriber:
     4. 调用 ResultHandler 处理结果
     """
     
-    def __init__(self, app: CapsWriterClient, file: Path):
+    def __init__(
+        self,
+        app: CapsWriterClient,
+        file: Path,
+        *,
+        output_formats: frozenset[str],
+    ):
         """
         初始化文件转录器
         
         Args:
             app: 客户端 App 实例
             file: 要转录的文件路径
+            output_formats: 本次任务需要保存的结果格式
         """
         self.app = app
         self.file = file
+        self.output_formats = output_formats
         self.task_id: Optional[str] = None
         self._audio_duration: float = 0.0
         try:
@@ -242,7 +250,9 @@ class FileTranscriber:
 
         # 调用结果处理器进行保存和格式化
         text_display, sequence, output_paths = ResultHandler.save_results(
-            self.file, message
+            self.file,
+            message,
+            output_formats=self.output_formats,
         )
 
         if sequence > 1:

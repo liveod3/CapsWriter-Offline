@@ -28,14 +28,19 @@ def _configured_media_extensions() -> frozenset[str]:
     return frozenset(extensions or DEFAULT_MEDIA_EXTENSIONS)
 
 
-def resolve_input_paths(inputs: list[Path]) -> list[Path]:
+def resolve_input_paths(
+    inputs: list[Path],
+    *,
+    recursive: bool | None = None,
+) -> list[Path]:
     """
     将文件和文件夹参数展开成稳定、有序且去重的文件列表。
 
-    直接传入的文件保持兼容（包括字幕校正用的文本文件）；文件夹只扫描
-    配置允许的媒体格式，避免把已生成的 txt/json/srt 再次当作输入。
+    直接传入的媒体文件保持兼容；文件夹只扫描配置允许的媒体格式，避免把
+    已生成的 txt/json/srt 再次当作输入。
     """
-    recursive = bool(getattr(Config, 'file_scan_recursive', True))
+    if recursive is None:
+        recursive = bool(getattr(Config, 'file_scan_recursive', True))
     media_extensions = _configured_media_extensions()
     files = []
     seen = set()
@@ -80,11 +85,18 @@ def resolve_input_paths(inputs: list[Path]) -> list[Path]:
 
 class FileRunner:
     """
-    文件模式运行器：负责文件转录模式下的逻辑，包括音视频文件的 ASR 转录和字幕文件的时间轴调整。
+    文件模式运行器：负责一个或多个音视频文件的 ASR 转录。
     """
-    def __init__(self, app, files: list[Path]):
+    def __init__(
+        self,
+        app,
+        files: list[Path],
+        *,
+        output_formats: frozenset[str],
+    ):
         self.app = app
         self.files = files
+        self.output_formats = output_formats
 
     @property
     def state(self):
@@ -96,13 +108,13 @@ class FileRunner:
 
     async def _process_file(self, file: Path) -> bool:
         """处理单个输入；失败由调用方记录后继续下一个文件。"""
-        from ..transcribe import FileTranscriber, SrtAdjuster
+        from ..transcribe import FileTranscriber
 
-        if file.suffix.lower() in ['.txt', '.json', '.srt', '.vtt']:
-            SrtAdjuster().adjust(file)
-            return True
-
-        transcriber = FileTranscriber(self.app, file)
+        transcriber = FileTranscriber(
+            self.app,
+            file,
+            output_formats=self.output_formats,
+        )
         if not await transcriber.check():
             return False
 
@@ -190,6 +202,8 @@ class FileRunner:
                     input('\n按回车退出\n')
                 except EOFError:
                     logger.debug("标准输入已关闭，文件模式直接退出")
+
+            return failed_count == 0 and succeeded_count == total
 
         except Exception as e:
             logger.error(f"文件模式运行异常: {e}", exc_info=True)

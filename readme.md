@@ -80,6 +80,22 @@ CapsWriter 的特别之处在于追求：
 
 从源码测试时，可在 PowerShell 中运行 `./start_capswriter.ps1`，脚本会自动定位 `capswriter` Conda 环境，并分别打开服务端和客户端终端。使用 `-ServerOnly` 或 `-ClientOnly` 可只启动一端，使用 `-WhatIf` 可只预览启动操作。
 
+源码客户端提供正式命令行入口：
+
+```powershell
+# 实时麦克风输入
+python start_client.py mic
+
+# 转写媒体或文件夹，并覆盖本次输出格式
+python start_client.py transcribe --format srt,txt,json "D:\Videos"
+
+# 使用指定文本和时间戳数据重建字幕
+python start_client.py rebuild-srt --text "edited.txt" --json "timestamps.json"
+```
+
+执行 `python start_client.py --help` 可查看完整参数。打包版继续兼容双击启动、
+拖拽媒体，以及同时拖入一个 TXT 和一个 JSON 来重建 SRT。
+
 
 ## ⚙️ 个性化配置
 

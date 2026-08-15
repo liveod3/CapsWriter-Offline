@@ -2,9 +2,8 @@
 import re
 import json
 from pathlib import Path
-from typing import Dict
+from typing import AbstractSet, Dict
 
-from config_client import ClientConfig as Config
 from core.tools import srt_from_txt
 from core.protocol import RecognitionMessage
 from . import logger
@@ -51,22 +50,27 @@ class ResultHandler:
         return "\n".join(lines)
 
     @staticmethod
-    def output_paths(file: Path) -> Dict[str, Path]:
-        """返回当前配置会生成的整套结果路径。"""
+    def output_paths(
+        file: Path,
+        output_formats: AbstractSet[str],
+    ) -> Dict[str, Path]:
+        """返回本次任务会生成的整套结果路径。"""
         paths = {}
-        if getattr(Config, 'file_save_merge', False):
+        if 'merge' in output_formats:
             paths['merge'] = file.with_suffix('.merge.txt')
-        if getattr(Config, 'file_save_txt', True):
+        if 'txt' in output_formats:
             paths['txt'] = file.with_suffix('.txt')
-        if getattr(Config, 'file_save_json', True):
+        if 'json' in output_formats:
             paths['json'] = file.with_suffix('.json')
-        if getattr(Config, 'file_save_srt', True):
+        if 'srt' in output_formats:
             paths['srt'] = file.with_suffix('.srt')
         return paths
 
     @classmethod
     def allocate_output_file(
-        cls, source_file: Path
+        cls,
+        source_file: Path,
+        output_formats: AbstractSet[str],
     ) -> tuple[Path, int, Dict[str, Path]]:
         """
         为一整套结果分配共同编号，确保现有结果不会被覆盖。
@@ -79,14 +83,18 @@ class ResultHandler:
             candidate = source_file if sequence == 1 else source_file.with_name(
                 f'{source_file.stem} ({sequence}){source_file.suffix}'
             )
-            paths = cls.output_paths(candidate)
+            paths = cls.output_paths(candidate, output_formats)
             if not any(path.exists() for path in paths.values()):
                 return candidate, sequence, paths
             sequence += 1
 
     @classmethod
     def save_results(
-        cls, file: Path, message: RecognitionMessage
+        cls,
+        file: Path,
+        message: RecognitionMessage,
+        *,
+        output_formats: AbstractSet[str],
     ) -> tuple[str, int, list[Path]]:
         """
         保存转录结果到文件
@@ -101,31 +109,34 @@ class ResultHandler:
         tokens = message.tokens
         
         # 为整套输出统一分配一个不会覆盖既有文件的编号。
-        _output_file, sequence, paths = cls.allocate_output_file(file)
+        _output_file, sequence, paths = cls.allocate_output_file(
+            file,
+            output_formats,
+        )
         
         # 1. 保存 merge.txt
-        if Config.file_save_merge:
+        if 'merge' in output_formats:
             merge_filename = paths['merge']
             with open(merge_filename, 'w', encoding='utf-8') as f:
                 f.write(text_accu)
             logger.debug(f"保存合并文本: {merge_filename}")
 
         # 2. 保存 txt
-        if Config.file_save_txt:
+        if 'txt' in output_formats:
             txt_filename = paths['txt']
             with open(txt_filename, 'w', encoding='utf-8') as f:
                 f.write(text_split)
             logger.debug(f"保存切分文本: {txt_filename}")
 
         # 3. 保存 json
-        if Config.file_save_json:
+        if 'json' in output_formats:
             json_filename = paths['json']
             with open(json_filename, 'w', encoding='utf-8') as f:
                 json.dump({'timestamps': timestamps, 'tokens': tokens}, f, ensure_ascii=False)
             logger.debug(f"保存 JSON 结果: {json_filename}")
         
         # 4. 生成 srt
-        if Config.file_save_srt:
+        if 'srt' in output_formats:
             # 构建 words 信息（无需依赖 json 文件）
             words = [{'word': token.replace('@', ''), 'start': timestamp, 'end': timestamp + 0.2} 
                      for (timestamp, token) in zip(timestamps, tokens)]

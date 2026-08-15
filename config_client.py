@@ -86,18 +86,20 @@ class ClientConfig:
     enable_idle_suspend = True  # 是否启用闲置自动挂起（释放麦克风，避免耳机长期通话模式）
     idle_suspend_seconds = 20   # 空闲超过多少秒后自动挂起
 
+    # 文件转录默认值：CLI 未提供对应覆盖参数时使用，命令行不会写回这些配置。
     file_seg_duration = 60      # 转录文件时分段长度
     file_seg_overlap = 4        # 转录文件时分段重叠
-    file_scan_recursive = True  # 命令行传入文件夹时是否递归扫描子文件夹
+    file_scan_recursive = True  # 未指定 --recursive/--no-recursive 时是否递归扫描
     file_media_extensions = (   # 文件夹扫描时纳入批量转写的媒体格式
         '.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma',
         '.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.m4v', '.ts',
     )
 
+    # 未指定 --format 时使用以下四项；指定后由命令行完整覆盖本次输出集合。
     file_save_srt = True        # 转录文件时是否保存 srt 字幕
     file_save_txt = True        # 转录文件时是否保存 txt 文本（按标点切分后的）
     file_save_json = True       # 转录文件时是否保存 json 结果（含原始时间戳）
-    file_save_merge = False      # 转录文件时是否保存 merge.txt（未切分的段落长文本）
+    file_save_merge = False     # 转录文件时是否保存 merge.txt（未切分的段落长文本）
 
     udp_broadcast = False               # 是否启用 UDP 广播输出结果
     udp_broadcast_targets = [           # UDP 广播目标地址列表，格式: (地址, 端口)

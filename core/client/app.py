@@ -7,7 +7,6 @@ CapsWriter Offline 客户端主程序门面类 (Facade)
 """
 
 import os
-import sys
 import asyncio
 import threading
 import time
@@ -21,10 +20,10 @@ from .state import console
 from .connection import WebSocketManager
 from typing import TYPE_CHECKING, Optional
 from .manager import (
-    TrayManager,
-    MicRunner, FileRunner
+    TrayManager, MicRunner, FileRunner, SrtRebuildRunner
 )
 from .manager.file_runner import resolve_input_paths
+from .cli import ClientCommand, ClientMode
 from .audio.stream import AudioStreamManager
 from .shortcut.shortcut_manager import ShortcutManager
 from .shortcut.shortcut_config import Shortcut
@@ -47,7 +46,9 @@ class CapsWriterClient:
     
     管理的外部接口简洁：start()。
     """
-    def __init__(self):
+    def __init__(self, command: ClientCommand):
+        self.command = command
+
         # 确保正确的工作目录
         self.base_dir = Path(__file__).parents[2]
         os.chdir(self.base_dir)
@@ -268,28 +269,43 @@ class CapsWriterClient:
         console.print('[green4]再见！')
 
 
-    def start(self):
+    def start(self) -> int:
         """
         启动客户端 (唯一入口)
         
-        自动根据命令行参数识别模式。内部管理异步循环。
+        根据已解析的命令选择运行器，并管理异步循环。
         """
 
         # 注册退出函数
         register_signal(self.stop)
 
-        raw_inputs = [Path(value) for value in sys.argv[1:]]
-        files = resolve_input_paths(raw_inputs) if raw_inputs else []
-
-        if raw_inputs:
-            # 文件转录模式
-            runner = FileRunner(self, files)
-        else:
-            # 麦克风实时模式
+        if self.command.mode is ClientMode.MIC:
             runner = MicRunner(self)
+        elif self.command.mode is ClientMode.TRANSCRIBE:
+            files = resolve_input_paths(
+                list(self.command.inputs),
+                recursive=self.command.recursive,
+            )
+            if not files:
+                console.print('[bold red]没有发现可转写的媒体文件[/]')
+                logger.error('没有发现可转写的媒体文件')
+                return 2
+            runner = FileRunner(
+                self,
+                files,
+                output_formats=self.command.output_formats,
+            )
+        else:
+            runner = SrtRebuildRunner(
+                self.command.text_file,
+                self.command.json_file,
+            )
         self._active_runner = runner
         
         try:
-            self.loop.run_until_complete(runner.run())
+            succeeded = self.loop.run_until_complete(runner.run())
         except RuntimeError:
-            ...
+            if not self._stopping:
+                raise
+            return 0
+        return 0 if succeeded is not False else 1

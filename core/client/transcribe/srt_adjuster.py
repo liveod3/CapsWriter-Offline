@@ -7,6 +7,8 @@ SRT 调整模块
 
 from __future__ import annotations
 
+import json
+import math
 import uuid
 from pathlib import Path
 
@@ -23,23 +25,103 @@ class SrtAdjuster:
     根据文本文件重新生成 SRT 字幕时间轴。
     """
     
-    def adjust(self, file: Path) -> None:
+    @staticmethod
+    def _load_words(json_file: Path) -> list[dict]:
+        """读取并严格校验字幕重建需要的 token 时间戳。"""
+        with open(json_file, 'r', encoding='utf-8') as stream:
+            payload = json.load(stream)
+        if not isinstance(payload, dict):
+            raise ValueError('JSON 顶层必须是对象')
+
+        tokens = payload.get('tokens')
+        timestamps = payload.get('timestamps')
+        if not isinstance(tokens, list) or not isinstance(timestamps, list):
+            raise ValueError('JSON 必须包含数组 tokens 和 timestamps')
+        if not tokens or len(tokens) != len(timestamps):
+            raise ValueError('tokens 和 timestamps 必须非空且长度一致')
+
+        normalized_timestamps = []
+        previous = -1.0
+        for index, timestamp in enumerate(timestamps):
+            if (
+                isinstance(timestamp, bool)
+                or not isinstance(timestamp, (int, float))
+                or not math.isfinite(timestamp)
+                or timestamp < 0
+            ):
+                raise ValueError(f'timestamps[{index}] 不是有限的非负数值')
+            value = float(timestamp)
+            if value < previous:
+                raise ValueError('timestamps 必须按非递减顺序排列')
+            normalized_timestamps.append(value)
+            previous = value
+
+        for index, token in enumerate(tokens):
+            if not isinstance(token, str):
+                raise ValueError(f'tokens[{index}] 必须是字符串')
+
+        words = [
+            {
+                'word': token.replace('@', ''),
+                'start': timestamp,
+                'end': timestamp + 0.2,
+            }
+            for token, timestamp in zip(tokens, normalized_timestamps)
+        ]
+        for index in range(len(words) - 1):
+            words[index]['end'] = min(
+                words[index]['end'],
+                words[index + 1]['start'],
+            )
+        return words
+
+    @staticmethod
+    def _allocate_output(text_file: Path) -> tuple[Path, int]:
+        """为重建的 SRT 分配不覆盖已有结果的编号。"""
+        sequence = 1
+        while True:
+            output = (
+                text_file.with_suffix('.srt')
+                if sequence == 1
+                else text_file.with_name(f'{text_file.stem} ({sequence}).srt')
+            )
+            if not output.exists():
+                return output, sequence
+            sequence += 1
+
+    def adjust(self, text_file: Path, json_file: Path) -> bool:
         """
-        调整 SRT 字幕时间轴
+        使用显式指定的 TXT 和 JSON 重建 SRT 字幕。
         
         Args:
-            file: 文本文件路径
+            text_file: 人工校对后的文本文件
+            json_file: 包含 tokens 与 timestamps 的 JSON 文件
         """
         task_id = str(uuid.uuid1())
         console.print(f'\n任务标识：{task_id}')
-        console.print(f'    处理文件：{file}')
+        console.print(f'    文本文件：{text_file}')
+        console.print(f'    时间戳文件：{json_file}')
         
-        logger.info(f"开始调整 SRT: {file}")
+        logger.info(f"开始重建 SRT: text={text_file}, json={json_file}")
         
         try:
-            srt_from_txt.one_task(file)
-            console.print('    [green]srt 调整完成')
-            logger.info(f"SRT 调整完成: {file}")
+            words = self._load_words(json_file)
+            with open(text_file, 'r', encoding='utf-8') as stream:
+                text_lines = stream.readlines()
+            if not any(line.strip() for line in text_lines):
+                raise ValueError('TXT 内容为空')
+
+            output_file, sequence = self._allocate_output(text_file)
+            srt_from_txt.generate_srt_file(words, text_lines, output_file)
+            if sequence > 1:
+                console.print(
+                    f'    [bold yellow]检测到同名结果，本次使用编号 '
+                    f'({sequence})，未覆盖既有文件[/]'
+                )
+            console.print(f'    [green]SRT 重建完成：{output_file}[/]')
+            logger.info(f"SRT 重建完成: {output_file}")
+            return True
         except Exception as e:
-            console.print(f'    [red]srt 调整失败: {e}')
-            logger.error(f"SRT 调整失败: {e}", exc_info=True)
+            console.print(f'    [red]SRT 重建失败：{e}[/]')
+            logger.error(f"SRT 重建失败: {e}", exc_info=True)
+            return False
