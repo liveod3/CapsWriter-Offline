@@ -6,14 +6,15 @@
 
 CapsWriter-Offline 是 Windows 10/11 优先的离线语音输入工具。用户通过全局快捷键开始/结束录音；客户端采集音频并通过 WebSocket 发送给服务端；服务端在独立进程中运行 ASR、标点和可选对齐模型；客户端再进行热词、规则、LLM、上屏、字幕和日记处理。
 
-当前代码版本由 `config_client.py` 与 `config_server.py` 中的 `__version__` 定义（目前均为 `2.6`）。README、历史文档或发行说明可能滞后，发生冲突时以代码、当前配置和用户要求为准。
+当前代码版本由 `config_templates/config_client_template.py` 与 `config_templates/config_server_template.py` 中的 `__version__` 定义（目前均为 `2.6`），根目录本机配置中的版本字段应与模板同步。README、历史文档或发行说明可能滞后，发生冲突时以代码、当前模板和用户要求为准。
 
 ## 2. 仓库地图
 
 - `start_client.py`：客户端冻结/源码入口。
 - `start_server.py`：服务端冻结/源码入口，包含 Windows 多进程 `freeze_support()`。
-- `config_client.py`：快捷键、音频切片、输出、热词、LLM、UDP、闲置挂起等用户配置。
-- `config_server.py`：监听地址、模型选择、推理后端、模型路径和 GPU 加速配置。
+- `config_client.py`：被 Git 忽略的客户端本机配置，程序实际从这里读取；不得覆盖用户取值。
+- `config_server.py`：被 Git 忽略的服务端本机配置，程序实际从这里读取；不得覆盖用户取值。
+- `config_templates/`：受 Git 跟踪的客户端/服务端默认配置，是配置字段、注释、默认值和版本号的规范源。
 - `core/protocol.py`：客户端与服务端共享的 JSON 消息协议。
 - `core/client/`：音频采集、快捷键、连接、结果处理、文件转录、LLM、热词、UDP 和托盘管理。
 - `core/server/`：WebSocket 服务、任务队列、识别子进程、引擎工厂、合并与格式化。
@@ -33,7 +34,7 @@ CapsWriter-Offline 是 Windows 10/11 优先的离线语音输入工具。用户�
 
 ```powershell
 conda run -n capswriter python --version
-conda run -n capswriter python -m compileall -q start_client.py start_server.py config_client.py config_server.py core LLM
+conda run -n capswriter python -m compileall -q start_client.py start_server.py config_client.py config_server.py config_templates core LLM
 ```
 
 若 Agent 的非交互 Shell 没有初始化 Conda，先读取 `$env:USERPROFILE\.conda\environments.txt` 定位已登记的 `capswriter` 环境，再直接调用该环境下的 `python.exe`；不得把解析出的本机绝对路径写入仓库文件。确认该环境确实不存在或不可用后，才考虑创建新环境或安装依赖。
@@ -47,6 +48,9 @@ python -m pip install -r requirements-client.txt -r requirements-server.txt
 源码启动方式：
 
 ```powershell
+# 仅在根目录本机配置不存在时初始化；不得覆盖已有配置
+if (!(Test-Path config_server.py)) { Copy-Item config_templates/config_server_template.py config_server.py }
+if (!(Test-Path config_client.py)) { Copy-Item config_templates/config_client_template.py config_client.py }
 python start_server.py
 python start_client.py
 ```
@@ -56,7 +60,8 @@ python start_client.py
 - 服务端启动通常需要与 `config_server.py` 中 `model_type` 对应的完整模型；不要为了普通代码检查自动下载大模型。
 - 文件转录依赖系统可用的 `ffmpeg`。
 - 全局快捷键、托盘、麦克风、PortAudio、DirectML/Vulkan 和模拟键盘行为需要真实 Windows 桌面会话，CI 或无头环境不能完整覆盖。
-- 当前 `config_client.py` 是本 fork 的定制配置，默认快捷键/模式可能与 README 不同。不要以文档内容覆盖用户配置。
+- 根目录的 `config_client.py` 与 `config_server.py` 是用户本机配置，默认快捷键、模式和模型可能与模板不同。不要以模板或文档覆盖它们。
+- PyInstaller 发行包必须从 `config_templates/` 复制默认配置，不能把开发机根目录的本机配置打入发行包。
 - `build/`、`dist/`、`logs/`、年份目录、模型二进制和 `__pycache__/` 是生成物或用户数据，不要纳入普通改动。
 
 ## 4. 修改前规则
@@ -67,6 +72,7 @@ python start_client.py
 4. 保持 UTF-8 和现有中文用户界面风格。面向用户的文档、计划、说明和新增注释优先使用中文。
 5. 不得把 API Key、访问令牌、私人音频、识别文本、剪贴板内容、日志或真实模型路径提交到仓库。新增密钥读取时优先使用环境变量或本地未跟踪配置。
 6. 配置兼容性是产品能力。新增配置项应有安全默认值，并用 `getattr(..., default)` 或迁移逻辑兼容旧配置/发行包。
+7. 修改配置字段、默认值、说明或 `__version__` 时，以 `config_templates/` 中的模板为提交对象；若根目录本机配置存在，还应只合并必要的结构变化并保留用户取值。不得只修改被忽略的根配置，因为这类变化不会进入提交。
 
 ## 5. 不可破坏的架构约束
 
@@ -104,7 +110,7 @@ python start_client.py
 无模型、无 GUI 也能执行的最低检查：
 
 ```powershell
-python -m compileall -q start_client.py start_server.py config_client.py config_server.py core LLM
+python -m compileall -q start_client.py start_server.py config_client.py config_server.py config_templates core LLM
 git diff --check
 git status --short
 ```

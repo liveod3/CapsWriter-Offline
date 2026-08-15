@@ -7,7 +7,7 @@
     - **Server**: 主进程处理 WebSocket，**独立子进程** (`multiprocessing.Process`) 运行 AI 模型，确保推理（CPU密集）不阻塞网络心跳。
     - **Client**: 轻量启动，负责全局快捷键监听、录音采集、UI 展示。
 - **源代码开放**: 入口 [`start_server.py`](start_server.py) / [`start_client.py`](start_client.py) 为冻结入口；核心源码在 [`core/`](core/) 目录，发行版保留为源码供用户修改。
-- **配置化**: [`config_client.py`](config_client.py) / [`config_server.py`](config_server.py) 及 `hot*.txt`、[`LLM/*.py`](LLM/) 位于根目录。
+- **配置化**: 根目录的 `config_client.py` / `config_server.py` 是被 Git 忽略的本机运行配置；受跟踪的默认规范位于 [`config_templates/`](config_templates/)。`hot*.txt` 与 [`LLM/*.py`](LLM/) 位于根目录。
 - **版本**: v2.5-alpha（2026-04-28）
 
 ## 架构细节与流程 (Architecture & Workflows)
@@ -63,8 +63,8 @@
 - **UDP 控制**: 支持通过 UDP 命令远程控制录音启停（`udp_control=True`）。
 
 ## 关键路径 (Key Paths)
-- **服务端配置**: [`config_server.py`](config_server.py) — 模型选择、网络、格式化、对齐器。
-- **客户端配置**: [`config_client.py`](config_client.py) — 快捷键、音频、热词、LLM、输出、UDP。
+- **服务端配置**: 根目录 `config_server.py`（本机使用）；[`config_server_template.py`](config_templates/config_server_template.py)（受跟踪的默认模板，复制到根目录时去掉 `_template`）。
+- **客户端配置**: 根目录 `config_client.py`（本机使用）；[`config_client_template.py`](config_templates/config_client_template.py)（受跟踪的默认模板，复制到根目录时去掉 `_template`）。
 - **热词**:
     - [`hot.txt`](hot.txt) - 统一 RAG 音素匹配（中英文）
     - [`hot-rule.txt`](hot-rule.txt) - 规则替换
@@ -173,4 +173,3 @@
 ## 用户偏好 (User Preferences)
 - **语言**: 中文 (Chinese)，总结、Plan、WalkThrough、注释都要用中文。
 - **环境**: 运行环境是 `conda activate c`，或用 `D:/anaconda3/envs/c/python.exe` 或 `conda run -n c` 执行。所有的临时 Python 代码要先写到临时脚本文件，再运行，而不要直接用命令行跑代码。临时脚本用完不要删。
-

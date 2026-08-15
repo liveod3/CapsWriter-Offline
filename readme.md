@@ -99,7 +99,18 @@ python start_client.py rebuild-srt --text "edited.txt" --json "timestamps.json"
 
 ## ⚙️ 个性化配置
 
-所有的设置都在根目录的 `config_server.py` 和 `config_client.py` 里，可直接编辑。
+实际运行配置仍是根目录的 `config_server.py` 和 `config_client.py`，但这两个文件是
+本机配置，已从 Git 跟踪中移除。首次从源码运行时，请先从默认模板复制：
+
+```powershell
+if (!(Test-Path config_server.py)) { Copy-Item config_templates/config_server_template.py config_server.py }
+if (!(Test-Path config_client.py)) { Copy-Item config_templates/config_client_template.py config_client.py }
+```
+
+这些命令会把模板复制到根目录，并在复制时去掉 `_template` 后缀。不要移动或直接
+重命名模板本身。然后编辑根目录的两个配置文件；Git 不会记录其中的本机设置。受版本控制的默认
+模板位于 [`config_templates/`](config_templates/)。项目升级新增或调整配置项时，请将
+模板中的结构变化手动合并到本机配置，不要直接覆盖已经定制的文件。
 
 
 ## 🛠️ 常见问题

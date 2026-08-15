@@ -2,6 +2,10 @@ import os
 from collections.abc import Iterable
 from pathlib import Path
 
+# 这是受 Git 跟踪的客户端默认配置模板。
+# 首次使用时将本文件复制到仓库根目录，并重命名为 config_client.py。
+# 请在根目录副本中保存本机设置，不要直接修改或移动本模板。
+
 # 版本信息
 __version__ = '2.6'
 

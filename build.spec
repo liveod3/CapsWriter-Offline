@@ -244,15 +244,15 @@ coll = COLLECT(
 
 # 复制额外所需的文件（只复制用户自己写的文件）
 my_files = [
-    'config_client.py',
-    'config_server.py',
-    'core_server.py',
-    'core_client.py',
-    'hot.txt',
-    'hot-server.txt',
-    'hot-rule.txt',
-    'readme.md',
-    'LICENSE'
+    ('config_templates/config_client_template.py', 'config_client.py'),
+    ('config_templates/config_server_template.py', 'config_server.py'),
+    ('core_server.py', 'core_server.py'),
+    ('core_client.py', 'core_client.py'),
+    ('hot.txt', 'hot.txt'),
+    ('hot-server.txt', 'hot-server.txt'),
+    ('hot-rule.txt', 'hot-rule.txt'),
+    ('readme.md', 'readme.md'),
+    ('LICENSE', 'LICENSE'),
 ]
 my_folders = []     # 这里是要复制的文件夹
 dest_root = join('dist', basename(coll.name))
@@ -265,18 +265,18 @@ for folder in my_folders:
         for filename in filenames:
             src_file = join(dirpath, filename)
             if exists(src_file):
-                my_files.append(src_file)
+                my_files.append((src_file, src_file))
 
 # 执行文件复制到根目录（不是 internal）
-for file in my_files:
-    if not exists(file):
+for src_file, rel_path in my_files:
+    if not exists(src_file):
         continue
     # 保持相对路径结构
-    rel_path = file.replace('\\', '/') if '\\' in file else file
+    rel_path = rel_path.replace('\\', '/')
     dest_file = join(dest_root, rel_path)
     dest_folder = dirname(dest_file)
     makedirs(dest_folder, exist_ok=True)
-    copyfile(file, dest_file)
+    copyfile(src_file, dest_file)
 
 
 # 为 models 文件夹建立链接，免去复制大文件
