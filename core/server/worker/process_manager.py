@@ -9,8 +9,12 @@ import sys
 import os
 import queue
 import threading
+import time
+from collections import deque
 from multiprocessing import Process, Manager
 from typing import TYPE_CHECKING
+from rich.panel import Panel
+from config_server import ServerConfig as Config
 from ..state import console
 from . import start_worker
 from .aligner_worker import start_aligner_worker
@@ -32,6 +36,8 @@ class ProcessManager:
         self._align_lock = threading.Lock()
         self._align_monitor_thread = None
         self._monitor_stop = threading.Event()
+        self._aligner_idle_exits = deque()
+        self._last_aligner_churn_warning = 0.0
         self.app = app
         self.is_alive = False
 
@@ -133,7 +139,39 @@ class ProcessManager:
                     )
                 else:
                     logger.info("Aligner 空闲进程已退出，正在补位空载进程")
+                    self._record_aligner_idle_exit()
                 self._start_aligner_process()
+
+    def _record_aligner_idle_exit(self):
+        """识别短时间内反复卸载/重载 Aligner 的资源抖动。"""
+        now = time.monotonic()
+        window = 60.0
+        self._aligner_idle_exits.append(now)
+        while self._aligner_idle_exits and now - self._aligner_idle_exits[0] > window:
+            self._aligner_idle_exits.popleft()
+
+        if len(self._aligner_idle_exits) < 3:
+            return
+        if (self._last_aligner_churn_warning
+                and now - self._last_aligner_churn_warning < 300):
+            return
+
+        self._last_aligner_churn_warning = now
+        timeout = getattr(Config, 'aligner_idle_timeout', 600)
+        logger.warning(
+            f'检测到 Aligner 在 60 秒内反复退出 {len(self._aligner_idle_exits)} 次；'
+            f'aligner_idle_timeout={timeout!r} 可能过短'
+        )
+        console.print(Panel.fit(
+            f'[bold yellow]60 秒内已发生 {len(self._aligner_idle_exits)} 次 '
+            'Aligner 卸载/重载。[/bold yellow]\n'
+            '这会造成专用显存和 GPU 利用率呈锯齿波动，并拖慢文件转写；'
+            '[bold]它不等同于显存交换[/bold]。\n'
+            f'[dim]当前 aligner_idle_timeout = {timeout!r}。若显存容得下 ASR 与 '
+            'Aligner 同时驻留，可尝试提高到 30；设为 0 表示常驻。[/dim]',
+            title='[bold yellow]GPU 模型反复装卸告警[/bold yellow]',
+            border_style='bold yellow',
+        ))
 
     def _wait_for_models(self):
         """轮询队列直到收到模型加载成功 (True) 或发生错误"""

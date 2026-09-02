@@ -67,6 +67,13 @@ class ServerConfig:
     gpu_unboost_cmd = 'nvidia-smi -rmc'         # GPU 取消预加速命令，恢复显存到默认频率
     gpu_unboost_timeout = 1                     # 空闲多少秒后取消加速
 
+    # NVIDIA 专用显存压力提示。仅在推理期间低频采样，不参与调度；没有
+    # nvidia-smi（AMD/Intel/部分精简驱动）时会静默停用。
+    gpu_memory_warning_enabled = True
+    gpu_memory_warning_interval = 1.0           # 采样间隔（秒），最低 0.5
+    gpu_memory_warning_threshold = 0.90         # 专用显存占比阈值
+    gpu_memory_warning_consecutive_samples = 3  # 连续命中次数，抑制瞬时峰值误报
+
     # 集成显卡兼容性补丁
     # os.environ["GGML_VK_DISABLE_COOPMAT"] = "1"   # AMD集显无法加载 GGUF 模型时尝试
     # os.environ["GGML_VK_DISABLE_F16"] = "1"       # 集成显卡解码有误，强制熔断时尝试

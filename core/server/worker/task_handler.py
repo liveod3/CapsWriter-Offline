@@ -16,6 +16,7 @@ from config_server import ServerConfig as Config
 from .pipeline import TaskPipeline
 from ..state import WorkerState
 from .gpu_boost import GpuBoostManager
+from .gpu_monitor import GpuMemoryMonitor
 from . import logger
 
 
@@ -93,6 +94,23 @@ class TaskHandler:
         except (TypeError, ValueError):
             self.max_buffer_tasks = 64
         self.gpu_boost = GpuBoostManager(state)
+        self.gpu_monitor = GpuMemoryMonitor(
+            console=self._console,
+            enabled=getattr(Config, 'gpu_memory_warning_enabled', True),
+            interval=getattr(Config, 'gpu_memory_warning_interval', 1.0),
+            threshold=getattr(Config, 'gpu_memory_warning_threshold', 0.90),
+            consecutive_samples=getattr(
+                Config,
+                'gpu_memory_warning_consecutive_samples',
+                3,
+            ),
+        )
+
+    @property
+    def _console(self):
+        # 延迟导入，避免模块初始化阶段引入额外的服务端状态依赖。
+        from ..state import console
+        return console
 
     def set_engine(self, recognizer, punc_model=None, aligner=None):
         """注入识别引擎实例并初始化管线"""
@@ -153,7 +171,11 @@ class TaskHandler:
 
     def handle_audio_task(self, task):
         """处理音频识别任务。"""
-        result = self.pipeline.process(task)
+        self.gpu_monitor.begin_task()
+        try:
+            result = self.pipeline.process(task)
+        finally:
+            self.gpu_monitor.end_task()
         while task.socket_id in self.sockets_id:
             try:
                 self.queue_out.put(result, timeout=0.5)
@@ -170,25 +192,28 @@ class TaskHandler:
         """核心任务循环：drain 队列 → 清理断连 → 轮转执行一个。"""
         logger.info("TaskHandler 开始工作循环 (公平调度)")
 
-        while True:
-            try:
-                if not self.drain_queue():
-                    break
+        try:
+            while True:
+                try:
+                    if not self.drain_queue():
+                        break
 
-                task = self.buffer.pop()
-                if task is None:
+                    task = self.buffer.pop()
+                    if task is None:
+                        continue
+
+                    # 根据任务类型分派
+                    if task.type == 'cmd':
+                        self.handle_command_task(task)
+                    else:
+                        self.handle_audio_task(task)
+
+                    self.cleanup()
+                except InterruptedError:
                     continue
-
-                # 根据任务类型分派
-                if task.type == 'cmd':
-                    self.handle_command_task(task)
-                else:
-                    self.handle_audio_task(task)
-
-                self.cleanup()
-            except InterruptedError:
-                continue
-            except Exception as e:
-                logger.error(f"任务执行出错: {str(e)}", exc_info=True)
+                except Exception as e:
+                    logger.error(f"任务执行出错: {str(e)}", exc_info=True)
+        finally:
+            self.gpu_monitor.close()
 
         logger.info("TaskHandler 工作循环结束")
