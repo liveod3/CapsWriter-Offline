@@ -18,19 +18,19 @@ class MediaTool:
         ffprobe_path = shutil.which('ffprobe')
         
         if ffmpeg_path is None:
-            console.print('\n[bold red]错误：未检测到 FFmpeg 环境[/bold red]')
-            console.print('    文件转录功能依赖 FFmpeg 来提取音视频中的音频。')
-            console.print('    [cyan]建议处理方案：[/cyan]')
-            console.print('    1. 请确保已安装 FFmpeg 并将其 [bold]bin[/bold] 目录添加到系统环境变量 [bold]Path[/bold] 中。')
-            console.print('    2. 或者将 [bold]ffmpeg.exe[/bold] 放置在程序根目录下。')
-            console.print('    3. 也可以前往官方下载：[u]https://ffmpeg.org/download.html[/u]\n')
+            console.print('\n[ui.error]✗ 缺少 FFmpeg[/]')
+            console.print('[ui.value]文件转写需要 FFmpeg 提取音轨。[/]')
+            console.print('[ui.label]解决方法[/]  [ui.value]将 FFmpeg 的 bin 目录加入 Path，'
+                          '或把 ffmpeg.exe 放到程序目录。[/]')
+            console.print('[ui.label]下载[/]  [link=https://ffmpeg.org/download.html]'
+                          'https://ffmpeg.org/download.html[/link]\n')
             logger.error("未检测到 FFmpeg 环境，无法进行文件转录")
             return False
             
         if ffprobe_path is None:
-            console.print('\n[bold yellow]提示：未检测到 ffprobe 环境[/bold yellow]')
-            console.print('    程序将无法预先获取文件时长，进度条将只显示当前已发送时长。')
-            console.print('    [cyan]建议：[/cyan]若需完整进度条，请在安装 FFmpeg 时确保 bin 目录下包含 ffprobe.exe。\n')
+            console.print('\n[ui.warning]▲ 未检测到 ffprobe[/]')
+            console.print('[ui.value]读取完整段音频前，仅显示已处理时长；随后补全百分比与 ETA。[/]')
+            console.print('[ui.label]建议[/]  [ui.value]将 ffprobe.exe 与 ffmpeg.exe 一同安装。[/]\n')
             logger.warning("未检测到 ffprobe 环境，进度显示将受到限制")
             
         return True

@@ -73,7 +73,7 @@ class WebSocketManager:
         """检查是否已连接"""
         return self.state.is_connected
     
-    async def connect(self) -> bool:
+    async def connect(self, *, announce: bool = True) -> bool:
         """
         建立 WebSocket 连接
 
@@ -137,7 +137,11 @@ class WebSocketManager:
 
             self.state.websocket = websocket
 
-            console.print(f'[bold green]已连接服务端: {url}[/bold green]\n')
+            if announce:
+                console.print(
+                    f'[ui.success]●[/] [ui.label]服务端在线[/]  '
+                    f'[ui.value]{Config.addr}:{Config.port}[/]'
+                )
             logger.info(f"WebSocket 建立成功: {url}")
             self._connect_fail_logged = False
             return True

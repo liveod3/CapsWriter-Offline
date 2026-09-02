@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Any, Optional
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from core.client.state import console
 from .llm_constants import WatcherConstants
 from .llm_role_formatter import RoleFormatter
 from . import logger
@@ -176,7 +177,7 @@ class LLMFileWatcher(FileSystemEventHandler):
         """执行重载操作"""
         if file_path == WatcherConstants.RELOAD_ALL_MARKER:
             logger.info("检测到文件变化，正在重新加载所有角色...")
-            print(f"\n[LLM 监控] 检测到文件变化，正在重新加载所有角色...")
+            console.print('\n[ui.warning]● LLM 配置发生变化，正在重新加载[/]')
             self._on_roles_reload()
             self._print_all_roles()
         else:
@@ -198,7 +199,9 @@ class LLMFileWatcher(FileSystemEventHandler):
             if not found:
                 # 可能是文件名和内部 role.name 不对应
                 logger.debug(f"未找到直接对应文件 '{file_name_stem}' 的角色，显示所有角色")
-                print(f"（未找到直接对应文件 '{file_name_stem}' 的角色，显示所有角色）")
+                console.print(
+                    f"[ui.muted]未找到与 {file_name_stem} 对应的角色，显示全部角色。[/]"
+                )
                 self._print_all_roles()
 
     def start(self):
@@ -225,18 +228,18 @@ class LLMFileWatcher(FileSystemEventHandler):
 
     def _print_all_roles(self):
         """打印所有已加载的角色信息"""
-        print(f"\nLLM 角色")
+        console.print('\n[ui.accent]LLM 角色[/]')
 
         roles = self._get_roles()
 
         if not roles:
-            print("未加载任何角色")
+            console.print('[ui.muted]未加载任何角色[/]')
             return
 
         for role_name, role_config in roles.items():
             self._print_role_info(role_name, role_config)
 
-        print(f"")
+        console.print()
 
     def _print_role_info(self, role_name: str, role_config):
         """打印单个角色信息（使用 Rich 带颜色格式）"""

@@ -69,7 +69,7 @@ class AudioRecorder:
         if not self._ws_manager.is_connected:
             if message.is_final:
                 self.state.pop_audio_file(message.task_id)
-                console.print('    服务端未连接，无法发送\n')
+                console.print('[ui.error]✗ 服务端未连接，录音未发送[/]\n')
                 logger.warning("服务端未连接，无法发送音频数据")
             return
         
@@ -190,8 +190,9 @@ class AudioRecorder:
                         self._file_manager.finish()
                         logger.debug("完成音频文件写入")
                     
-                    console.print(f'任务标识：{self.task_id}')
-                    console.print(f'    录音时长：{self._duration:.2f}s')
+                    console.print(
+                        f'[ui.label]录音[/]  [ui.value]{self._duration:.2f}s[/]'
+                    )
                     logger.info(f"录音任务完成，任务ID: {self.task_id}, 时长: {self._duration:.2f}s")
                     
                     # 告诉服务端音频片段结束了

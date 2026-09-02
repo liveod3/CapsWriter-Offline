@@ -27,8 +27,27 @@ from . import logger
 
 # 配置 Rich console
 _theme = Theme({
-    'markdown.code': 'cyan',
-    'markdown.item.number': 'yellow'
+    'ui.title': 'bold #F8FAFC',
+    'ui.accent': 'bold #38BDF8',
+    'ui.secondary': '#C4B5FD',
+    'ui.label': '#93C5FD',
+    'ui.value': '#F1F5F9',
+    'ui.muted': '#CBD5E1',
+    'ui.success': 'bold #5EE6A8',
+    'ui.warning': 'bold #FFD166',
+    'ui.error': 'bold #FF7B89',
+    'ui.border': '#60A5FA',
+    'ui.progress': '#38BDF8',
+    'ui.progress.done': '#5EE6A8',
+    'markdown.code': '#38BDF8',
+    'markdown.item.number': '#FFD166',
+    # 兼容尚未迁移的旧标记，避免同一客户端出现两套基础色。
+    'green': '#5EE6A8',
+    'green4': '#5EE6A8',
+    'cyan': '#38BDF8',
+    'yellow': '#FFD166',
+    'red': '#FF7B89',
+    'bright_red': '#FF7B89',
 })
 console = Console(highlight=False, soft_wrap=True, theme=_theme)
 
@@ -180,6 +199,5 @@ class ClientState:
             text: 输出文本内容
         """
         self.last_output_text = text
-
 
 

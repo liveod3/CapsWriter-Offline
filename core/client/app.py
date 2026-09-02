@@ -136,7 +136,7 @@ class CapsWriterClient:
             if paused:
                 message = '听写已闲置挂起：麦克风已释放'
                 logger.info(message)
-                console.print(f'\n[bold yellow]● {message}[/]')
+                console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
                 show_status_hint('听写已闲置挂起', duration_ms=1800, dot_color='#F59E0B')
                 self.state.last_activity_time = time.time()
 
@@ -146,7 +146,7 @@ class CapsWriterClient:
             if show_hint:
                 message = '当前正在录音，稍后再暂停'
                 logger.info(message)
-                console.print(f'\n[bold yellow]● {message}[/]')
+                console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=1600, dot_color='#F59E0B')
             return False
 
@@ -160,7 +160,7 @@ class CapsWriterClient:
         logger.info("听写已暂停：音频流已释放")
 
         if show_hint:
-            console.print('\n[cyan]● 听写已暂停：麦克风已释放[/]')
+            console.print('\n[ui.accent]●[/] [ui.value]听写已暂停，麦克风已释放[/]')
             show_status_hint('听写已暂停', duration_ms=1400, dot_color='#7DD3FC')
         return True
 
@@ -186,12 +186,12 @@ class CapsWriterClient:
             if self.stream.is_ready(ready_event):
                 message = '听写已恢复：麦克风已就绪'
                 logger.info(message)
-                console.print(f'\n[bold green]● {message}[/]')
+                console.print(f'\n[ui.success]●[/] [ui.value]{message}[/]')
                 show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
             else:
                 message = '正在准备麦克风，请稍候'
                 logger.info(message)
-                console.print(f'\n[bold yellow]● {message}[/]')
+                console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
                 threading.Thread(
                     target=self._show_resume_hint_when_ready,
@@ -207,14 +207,14 @@ class CapsWriterClient:
             if not self.state.dictation_paused and ready_event is self.stream.get_ready_event():
                 message = '麦克风准备超时，请重试'
                 logger.info(message)
-                console.print(f'\n[bold red]● {message}[/]')
+                console.print(f'\n[ui.error]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
             return
 
         if not self.state.dictation_paused and self.stream.is_ready(ready_event):
             message = '听写已恢复：麦克风已就绪'
             logger.info(message)
-            console.print(f'\n[bold green]● {message}[/]')
+            console.print(f'\n[ui.success]●[/] [ui.value]{message}[/]')
             show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
 
     def toggle_dictation_pause(self) -> bool:
@@ -266,7 +266,7 @@ class CapsWriterClient:
             self.loop.stop()
 
         logger.info("资源释放完成")
-        console.print('[green4]再见！')
+        console.print('[ui.muted]CapsWriter 已退出。[/]')
 
 
     def start(self) -> int:
@@ -287,7 +287,7 @@ class CapsWriterClient:
                 recursive=self.command.recursive,
             )
             if not files:
-                console.print('[bold red]没有发现可转写的媒体文件[/]')
+                console.print('[ui.error]✗ 没有发现可转写的媒体文件[/]')
                 logger.error('没有发现可转写的媒体文件')
                 return 2
             runner = FileRunner(

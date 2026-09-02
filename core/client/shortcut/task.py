@@ -98,7 +98,7 @@ class ShortcutTask:
             if generation == self._launch_generation and self.is_recording:
                 message = '麦克风准备超时，请重试'
                 logger.info(f"[{self.shortcut.key}] {message}")
-                console.print(f'\n[bold red]● {message}[/]')
+                console.print(f'\n[ui.error]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
             return
 
@@ -139,7 +139,7 @@ class ShortcutTask:
         else:
             message = '正在准备麦克风，请稍候'
             logger.info(f"[{self.shortcut.key}] {message}")
-            console.print(f'\n[bold yellow]● {message}[/]')
+            console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
             show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
             Thread(
                 target=self._wait_for_audio_ready,

@@ -78,6 +78,24 @@ def test_regular_async_close_allows_later_reconnect():
     asyncio.run(run())
 
 
+def test_connection_success_can_be_silent_for_file_mode():
+    async def run():
+        manager = make_manager()
+        websocket = SimpleNamespace(close=AsyncMock())
+
+        with (
+            patch(
+                "core.client.connection.websocket_manager.websockets.connect",
+                new=AsyncMock(return_value=websocket),
+            ),
+            patch("core.client.connection.websocket_manager.console.print") as output,
+        ):
+            assert await manager.connect(announce=False) is True
+            output.assert_not_called()
+
+    asyncio.run(run())
+
+
 def test_connection_completed_during_shutdown_is_closed_without_being_published():
     async def run():
         manager = make_manager()

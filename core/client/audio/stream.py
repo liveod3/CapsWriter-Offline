@@ -97,8 +97,9 @@ class AudioStreamManager:
         message = f'输入设备已切换：{device_name}'
         logger.info(f"输入音频设备已切换: {previous_device} -> {device_name}")
         console.print(
-            f'\n[bold yellow]● 输入设备已切换：[/]'
-            f'[cyan]{previous_device}[/] [yellow]→[/] [green]{device_name}[/]'
+            f'\n[ui.warning]● 输入设备已切换[/]  '
+            f'[ui.value]{previous_device}[/] [ui.secondary]→[/] '
+            f'[ui.success]{device_name}[/]'
         )
         show_status_hint(message, duration_ms=2600, dot_color='#F59E0B')
 
@@ -241,7 +242,8 @@ class AudioStreamManager:
             
             if not silent:
                 console.print(
-                    f'使用{selection_mode}音频设备：[italic]{device_name}，声道数：{self._channels}',
+                    f'[ui.label]音频设备[/]  [ui.value]{device_name}[/]  '
+                    f'[ui.muted]{selection_mode} · {self._channels} 声道[/]',
                     end='\n\n'
                 )
             logger.info(

@@ -98,9 +98,9 @@ class SrtAdjuster:
             json_file: 包含 tokens 与 timestamps 的 JSON 文件
         """
         task_id = str(uuid.uuid1())
-        console.print(f'\n任务标识：{task_id}')
-        console.print(f'    文本文件：{text_file}')
-        console.print(f'    时间戳文件：{json_file}')
+        console.print('\n[ui.accent]字幕重建[/]')
+        console.print(f'[ui.label]文本[/]  [ui.value]{text_file}[/]')
+        console.print(f'[ui.label]时间戳[/]  [ui.value]{json_file}[/]')
         
         logger.info(f"开始重建 SRT: text={text_file}, json={json_file}")
         
@@ -115,13 +115,13 @@ class SrtAdjuster:
             srt_from_txt.generate_srt_file(words, text_lines, output_file)
             if sequence > 1:
                 console.print(
-                    f'    [bold yellow]检测到同名结果，本次使用编号 '
+                    f'[ui.warning]▲ 同名结果已存在，本次使用编号 '
                     f'({sequence})，未覆盖既有文件[/]'
                 )
-            console.print(f'    [green]SRT 重建完成：{output_file}[/]')
+            console.print(f'[ui.success]✓ 重建完成[/]  [ui.value]{output_file}[/]')
             logger.info(f"SRT 重建完成: {output_file}")
             return True
         except Exception as e:
-            console.print(f'    [red]SRT 重建失败：{e}[/]')
+            console.print(f'[ui.error]✗ SRT 重建失败[/]  [ui.value]{e}[/]')
             logger.error(f"SRT 重建失败: {e}", exc_info=True)
             return False

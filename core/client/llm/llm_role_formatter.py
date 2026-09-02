@@ -7,7 +7,7 @@ LLM 角色信息格式化器
 """
 import unicodedata
 from rich.text import Text
-from rich.console import Console
+from core.client.state import console
 from .llm_role_config import RoleConfig
 
 
@@ -42,40 +42,40 @@ class RoleFormatter:
         # 角色名称：统一对齐到至少 8 个半角字符宽度
         display_width = RoleFormatter._get_display_width(role_name)
         padding = " " * max(0, 8 - display_width)
-        text.append(f"{role_name}{padding}：", style="bold cyan")
+        text.append(f"{role_name}{padding}  ", style="ui.accent")
 
         # 启用状态
         enabled = role_config.enabled
-        text.append("启用 " if enabled else "启用 ", style="green" if enabled else "dim")
+        text.append("启用 ", style="ui.success" if enabled else "ui.muted")
 
         # 输出方式
         output_mode = role_config.output_mode
         if output_mode == 'typing':
-            text.append("打字 ", style="green")
+            text.append("打字 ", style="ui.success")
         elif output_mode == 'toast':
-            text.append("弹窗 ", style="blue")
+            text.append("弹窗 ", style="ui.secondary")
         else:
-            text.append("打字 ", style="dim")
+            text.append("打字 ", style="ui.muted")
 
         # 思考
         thinking = role_config.enable_thinking
-        text.append("思考 " if thinking else "思考 ", style="green" if thinking else "dim")
+        text.append("思考 ", style="ui.success" if thinking else "ui.muted")
 
         # 记忆
         history = role_config.enable_history
-        text.append("记忆 " if history else "记忆 ", style="green" if history else "dim")
+        text.append("记忆 ", style="ui.success" if history else "ui.muted")
 
         # 热词
         hotwords = role_config.enable_hotwords
-        text.append("热词 " if hotwords else "热词 ", style="green" if hotwords else "dim")
+        text.append("热词 ", style="ui.success" if hotwords else "ui.muted")
 
         # 读取选中文字
         read_selection = role_config.enable_read_selection
-        text.append("读选区 " if read_selection else "读选区 ", style="green" if read_selection else "dim")
+        text.append("读选区 ", style="ui.success" if read_selection else "ui.muted")
         
 
         # 模型信息
-        text.append(f"  ({role_config.model} from {role_config.provider})", style="dim")
+        text.append(f"  {role_config.model} · {role_config.provider}", style="ui.muted")
 
         return text
 
@@ -89,7 +89,6 @@ class RoleFormatter:
             role_config: 角色配置
             prefix: 前缀文本（默认两个空格）
         """
-        console = Console()
         status_line = RoleFormatter.format_status(role_name, role_config)
 
         text = Text(prefix)
@@ -105,7 +104,6 @@ class RoleFormatter:
             role_name: 角色名称
             role_config: 角色配置
         """
-        console = Console()
         status_line = RoleFormatter.format_status(role_name, role_config)
 
         # 构建 "角色更新  " 前缀 + 状态行

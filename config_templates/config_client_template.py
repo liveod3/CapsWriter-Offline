@@ -94,6 +94,8 @@ class ClientConfig:
     file_seg_duration = 60      # 转录文件时分段长度
     file_seg_overlap = 4        # 转录文件时分段重叠
     file_scan_recursive = True  # 未指定 --recursive/--no-recursive 时是否递归扫描
+    # 每次文件转写运行生成独立日志，保存到 logs/transcribe/年份/月份/。
+    file_separate_log = True
     file_media_extensions = (   # 文件夹扫描时纳入批量转写的媒体格式
         '.mp3', '.wav', '.m4a', '.flac', '.aac', '.ogg', '.wma',
         '.mp4', '.mkv', '.mov', '.avi', '.flv', '.webm', '.m4v', '.ts',

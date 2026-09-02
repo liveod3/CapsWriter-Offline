@@ -95,13 +95,17 @@ class HotwordManager:
         padding1 = " " * max(0, 8 - w)
         w2 = self._get_display_width(filename)
         padding2 = " " * max(0, 16 - w2)
-        return f"[bold cyan]{label}{padding1}：[/][cyan]{filename}{padding2}[/] 已更新[green]{count:3d}[/]条"
+        return (
+            f"[ui.label]{label}{padding1}[/]  "
+            f"[ui.value]{filename}{padding2}[/]  "
+            f"[ui.muted]{count:3d} 条[/]"
+        )
 
-    def load_all(self) -> None:
+    def load_all(self, *, announce: bool = True) -> None:
         """初次加载所有资源"""
         logger.info("正在加载热词资源...")
-        self._load_hot()
-        self._load_rule()
+        self._load_hot(announce=announce)
+        self._load_rule(announce=announce)
         logger.info("热词资源加载完成")
 
     def _read_file(self, key: str) -> str:
@@ -119,15 +123,17 @@ class HotwordManager:
             logger.error(f"读取文件失败 {path}: {e}")
             return ""
 
-    def _load_hot(self) -> None:
+    def _load_hot(self, *, announce: bool = True) -> None:
         content = self._read_file('hot')
         num = self.phoneme_corrector.update_hotwords(content)
-        console.print(self._format_msg("热词库", "hot.txt", num))
+        if announce:
+            console.print(self._format_msg("热词库", "hot.txt", num))
 
-    def _load_rule(self) -> None:
+    def _load_rule(self, *, announce: bool = True) -> None:
         content = self._read_file('rule')
         num = self.rule_corrector.update_rules(content)
-        console.print(self._format_msg("规则库", "hot-rule.txt", num))
+        if announce:
+            console.print(self._format_msg("规则库", "hot-rule.txt", num))
 
     def get_phoneme_corrector(self) -> PhonemeCorrector:
         return self.phoneme_corrector
@@ -135,9 +141,9 @@ class HotwordManager:
     def get_rule_corrector(self) -> RuleCorrector:
         return self.rule_corrector
 
-    def start(self) -> None:
+    def start(self, *, announce: bool = True) -> None:
         """开启热词服务：加载资源并启动文件监视"""
-        self.load_all()
+        self.load_all(announce=announce)
         self.start_file_watcher()
 
     def stop(self) -> None:
@@ -236,9 +242,7 @@ class _HotwordFileHandler(FileSystemEventHandler):
                     handler()
                     logger.info(f"热词文件已自动重新加载: {filename}")
                 except Exception as e:
-                    console.print(f'热词自动更新失败：{e}', style='bright_red')
+                    console.print(f'✗ 热词自动更新失败：{e}', style='ui.error')
                     logger.error(f"更新热词失败: {e}", exc_info=True)
             break
-
-
 

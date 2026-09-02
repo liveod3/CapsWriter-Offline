@@ -124,7 +124,7 @@ class ResultProcessor:
             polished_text = polished_text[:max_display_length] + '...'
 
         role_label = f'[{role_name}]' if role_name else ''
-        result_text = f'[green]{polished_text}[/green]' if processed else polished_text
+        result_text = f'[ui.success]{polished_text}[/]' if processed else polished_text
 
         if token_count == 0 and polished_text:
             token_count = _estimate_tokens(polished_text)
@@ -175,7 +175,7 @@ class ResultProcessor:
                     logger.debug(f"连接异常中断: {e}")
                     break
 
-            console.print(f'[bold red]已断开服务端连接[/bold red]\n')
+            console.print('[ui.error]●[/] [ui.value]服务端连接已断开，正在重试[/]\n')
             self._cleanup()
             
 
@@ -227,15 +227,15 @@ class ResultProcessor:
 
         # 控制台输出：时延 + 热词时延合并到一行
         hotword_label = f'  热词时延: {hotword_elapsed:.2f}s' if Config.hot else ''
-        console.print(f'    转录时延：{delay:.2f}s{hotword_label}')
+        console.print(f'[ui.label]转录时延[/]  [ui.value]{delay:.2f}s{hotword_label}[/]')
 
         # 先显示原始识别结果
         original_text_stripped = TextOutput.strip_punc(original_text)
-        console.print(f'    识别结果：[green]{original_text_stripped}')
+        console.print(f'[ui.label]识别结果[/]  [ui.value]{original_text_stripped}[/]')
 
         # 如果发生了热词替换，显示替换后的结果
         if original_text_stripped != text:
-            console.print(f'    热词替换：[cyan]{text}')
+            console.print(f'[ui.label]热词替换[/]  [ui.accent]{text}[/]')
             logger.debug(f"热词替换后: {text[:50]}{'...' if len(text) > 50 else ''}")
 
         # 热词匹配情况
@@ -245,8 +245,8 @@ class ResultProcessor:
         # 1. 显示完全匹配/已替换的热词
         if matched_hotwords and Config.hot:
             # 提取热词文本 (现为 (原词, 热词, 分数))
-            replaced_info = [f"{origin}->[green4]{hw}[/]" for origin, hw, score in matched_hotwords]
-            console.print(f'    完全匹配：{", ".join(replaced_info)}')
+            replaced_info = [f"{origin} → [ui.success]{hw}[/]" for origin, hw, score in matched_hotwords]
+            console.print(f'[ui.label]完全匹配[/]  {", ".join(replaced_info)}')
 
         # 2. 潜在热词记录到 log
         if potential_hotwords and Config.hot:
