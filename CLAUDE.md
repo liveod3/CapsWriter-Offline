@@ -1,175 +1,40 @@
-# CapsWriter-Offline 开发指南
+# CapsWriter-Offline：Claude 工作入口
 
-## 核心设计 (Core Design)
-**"快、准、稳、离线"**
-- **离线 (Offline)**: 全本地模型 (ASR, 标点, LLM)，保护隐私。
-- **C/S 架构**:
-    - **Server**: 主进程处理 WebSocket，**独立子进程** (`multiprocessing.Process`) 运行 AI 模型，确保推理（CPU密集）不阻塞网络心跳。
-    - **Client**: 轻量启动，负责全局快捷键监听、录音采集、UI 展示。
-- **源代码开放**: 入口 [`start_server.py`](start_server.py) / [`start_client.py`](start_client.py) 为冻结入口；核心源码在 [`core/`](core/) 目录，发行版保留为源码供用户修改。
-- **配置化**: 根目录的 `config_client.py` / `config_server.py` 是被 Git 忽略的本机运行配置；受跟踪的默认规范位于 [`config_templates/`](config_templates/)。`hot*.txt` 与 [`LLM/*.py`](LLM/) 位于根目录。
-- **版本**: v2.5-alpha（2026-04-28）
+开始任务前必须阅读并遵循 [AGENTS.md](AGENTS.md)。它是本仓库 Agent 公共规则的唯一维护入口，包含环境选择、本机配置保护、架构约束、验证命令和交付要求；本文件只补充按任务查找代码的导航。用户当前会话的明确要求优先于仓库文档。
 
-## 架构细节与流程 (Architecture & Workflows)
+## 先确认事实来源
 
-### 1. 识别全链路 (Recognition Flow)
-- **采集**: Client 监听快捷键（默认 CapsLock 和 X2）。按下就开始收集录音chunk，超过 **0.3s (Threshold)** 不松则触发识别，**实时流式**通过 WebSocket 发送。
-- **切片 (Slicing)**: Client 配置 `mic_seg_duration` (60s) 和 `mic_seg_overlap` (4s)。Server 仅基于时间切片，**禁用 VAD** 以保留完整上下文。
-- **Server 处理**:
-    - **双重结果**: 同时计算 `text` (简单文本拼接, Robust) 和 `text_accu` (基于 Token 时间戳去重, Precision)。
-    - **拼接算法**: `text_accu`使用 **Token 时间戳去重** ([`core/server/merger/`](core/server/merger/))，`text` 使用 **模糊文本匹配**。
-- **Client 后处理**:
-    - **触发**: 用户**松开按键** -> Server 返回 IsFinal 结果。
-    - **热词 (RAG)**: 基于 **音素 (Phoneme)** 的两阶段模糊检索，匹配 `hot.txt`（统一中英文热词）。
-    - **规则替换**: `hot-rule.txt` 正则替换。
-    - **LLM 润色**: 根据角色配置进行智能润色或回答。
-    - **上屏**: 模拟键盘输入或 Toast 显示。
+- 当前字段、默认值与版本：以 [配置模板](config_templates/README.md) 及其两个 Python 模板为规范源；实际运行读取根目录被忽略的本机配置。不要用模板整体覆盖用户设置。
+- 当前工作项与产品方向：见 [TODO.md](TODO.md)。其中英文 UI 迁移是专项计划，开发沟通仍优先使用中文。
+- 历史判断：见 [2026-08-08 审计归档](docs/archive/PROJECT_AUDIT_REPORT-2026-08-08.md)，不能直接当作当前缺陷清单或通过验证的证据。
+- 运行环境与检查命令：使用 AGENTS.md 第 3、6 节，不另写机器专用 Python 路径或第二套 Conda 环境名。
 
-### 2. 客户端模式 (Client Modes)
-- **听写 (Dictation)**: 默认模式。按住快捷键 -> 发送音频 -> 松开上屏。
-- **转录 (Transcription)**: 拖入文件 -> `ffmpeg` 提取音频 -> 发送 Server -> 接收带时间戳结果 -> 生成 `.srt` / `.txt` / `.json`。
+## 按任务阅读代码
 
-### 3. LLM Agent & 智能修正
-- **实时监控 (Hot Reload)**: Client 启动 `watchdog` 文件监视器，实时响应 `hot*.txt` 和 `LLM/*.py` 的修改（3秒防抖）。
-- **角色系统**: 模块化的 LLM 角色配置，支持多角色切换。
-- **角色触发**: 检测识别结果前缀（如"翻译"、"助理"），匹配 [`LLM/`](LLM/) 下定义的角色。
-- **Context 组装**（根据角色配置决定是否启用）:
-    1.  **潜在热词**: RAG 检索 `hot.txt`（`enable_hotwords`）。
-    2.  **选中文字**: 模拟 Ctrl+C 获取的鼠标选中文本（`enable_read_selection`）。
-    3.  **对话历史**: 保留上下文历史记录（`enable_history`）。
-    4.  **用户指令**: 当前语音输入内容。
-- **输出模式**:
-    - **typing**: 直接模拟键盘打字输出。
-    - **toast**: 在 Toast 弹窗中显示，支持 Markdown 渲染。
-- **UI**: 结果流式显示在 **Toast** (Tkinter 无边框置顶窗)，支持 Markdown 渲染。
+| 任务 | 优先阅读 | 现有相关测试 |
+| --- | --- | --- |
+| CLI、拖拽、批量文件入口 | [cli.py](core/client/cli.py)、[app.py](core/client/app.py)、[file_runner.py](core/client/manager/file_runner.py) | [CLI](tests/unit/test_client_cli.py)、[文件入口](tests/unit/test_file_runner.py) |
+| 录音、暂停、设备切换 | [stream.py](core/client/audio/stream.py)、[客户端状态](core/client/state.py)、[快捷键](core/client/shortcut/)、[MicRunner](core/client/manager/mic_runner.py) | [mock 音频生命周期](tests/unit/test_audio_stream_lifecycle.py)；仍需 Windows 实机回归 |
+| WebSocket、认证、输入边界 | [protocol.py](core/protocol.py)、[server_manager.py](core/server/connection/server_manager.py)、[ws_recv.py](core/server/connection/ws_recv.py)、[客户端连接](core/client/connection/websocket_manager.py) | [输入上限](tests/test_aud03_limits.py)、[连接关闭](tests/unit/test_websocket_shutdown.py) |
+| 调度、会话、文本合并 | [schema.py](core/server/schema.py)、[state.py](core/server/state.py)、[task_handler.py](core/server/worker/task_handler.py)、[pipeline.py](core/server/worker/pipeline.py)、[merger](core/server/merger/) | [TaskBuffer](tests/test_aud04_task_buffer.py)、[文本处理](tests/unit/test_text_processing.py) |
+| 模型、对齐与 GPU 生命周期 | [factory.py](core/server/engines/factory.py)、[model_loader.py](core/server/worker/model_loader.py)、[process_manager.py](core/server/worker/process_manager.py)、[aligner_worker.py](core/server/worker/aligner_worker.py)、[进程代理](core/server/engines/manager.py) | [GPU 监控 mock](tests/unit/test_gpu_monitor.py)；不能替代真实推理验证 |
+| 字幕、转录进度、输出 | [file_transcriber.py](core/client/transcribe/file_transcriber.py)、[result_handler.py](core/client/transcribe/result_handler.py)、[srt_adjuster.py](core/client/transcribe/srt_adjuster.py)、[media_tool.py](core/client/transcribe/media_tool.py) | [转录](tests/unit/test_file_transcriber.py)、[结果保存](tests/unit/test_transcribe_result_handler.py)、[字幕](tests/unit/test_srt_adjuster.py) |
+| 热词、规则、听写上屏 | [hotword](core/client/hotword/)、[result_processor.py](core/client/output/result_processor.py)、[text_output.py](core/client/output/text_output.py) | [文本处理](tests/unit/test_text_processing.py)；上屏需要桌面验证 |
+| LLM 角色、上下文、输出取消 | [RoleConfig](core/client/llm/llm_role_config.py)、[加载器](core/client/llm/llm_role_loader.py)、[检测器](core/client/llm/llm_role_detector.py)、[消息组装](core/client/llm/llm_message_builder.py)、[ClientPool](core/client/llm/llm_client_pool.py)、[处理器](core/client/llm/llm_processor.py)、[角色目录](LLM/) | mock Provider 等待补齐，见 TODO.md；禁止用真实密钥/私人选区作为测试输入 |
+| 配置兼容与发布 | [config_templates](config_templates/)、[build.spec](build.spec)、[build-client.spec](build-client.spec)、[build_hook.py](build_hook.py)、[zip_release.py](zip_release.py) | [配置兼容](tests/unit/test_config_compatibility.py)、[发布冒烟工作流](.github/workflows/release-smoke.yml)；仅检查 EXE 存在不代表可运行 |
 
-### 4. 热词系统 (Hotword System)
-- **服务器热词**: `hot-server.txt` 用于服务端热词增强。
-- **统一文件**: `hot.txt` 统一管理中英文热词（基于音素匹配）。
-- **两阶段检索**:
-    1.  **FastRAG**: 倒排索引 + Numba JIT 快速粗筛（减少 90% 计算量）。
-    2.  **AccuRAG**: 模糊音权重精确匹配（前后鼻音、平翘舌等）。
-- **双阈值机制**:
-    - `hot_thresh` (0.85): 高阈值用于实际替换。
-    - `hot_similar` (0.6): 低阈值用于 LLM 上下文参考。
-- **规则替换**: `hot-rule.txt` 支持正则表达式规则替换 (`pattern = replacement`)。
+## 容易误判的行为
 
-### 5. 历史归档 (Diary)
-- **按日期归档**: `年份/月份/日期.md`。
-- **音频**: 原始录音存入 `年份/月份/assets/`，Markdown 中自动生成 HTML 音频控件链接。
+- 客户端先解析命令，再加载应用。无参数等同于 `mic`；`transcribe` 可处理多个媒体文件/目录并覆盖本次输出格式；`rebuild-srt` 需要配套 TXT/JSON，不是任意 SRT/VTT 导入。参数见 CLI 源码及[文件转录说明](docs/文件转录功能如何使用.md)。
+- 默认快捷键、长按/切换模式和阈值必须按当前模板及本机配置判断，不能把“松开按键结束”套用于所有模式。
+- 音频通过 WebSocket 发送 JSON，其中音频字段是 Base64 编码的 16 kHz、单声道 float32 数据；子协议名 `binary` 不代表原始二进制音频帧。客户端指定切片参数，服务端接收层维护任务缓存并按时间切片。
+- ASR/标点在识别子进程运行；缺少时间戳能力时由 `ProcessAlignerProxy` 挂载对齐器兄弟进程，文件转录请求才调用对齐。闲置卸载通过结束对齐进程完成，主进程监控补位空载进程。
+- `text` 是不依赖时间戳的文本合并结果；`text_accu`、tokens 和 timestamps 用于精确合并/字幕。不同 ASR 引擎的能力以 [EngineCapabilities](core/server/engines/base.py) 和各引擎实现为准，不能假定每个引擎都提供时间戳或热词。
+- 服务端已有认证、输入限制与连接内 task 缓存；Worker 会话仍仅按 `task_id` 索引，跨连接同 ID 是需继续加固的边界，见 AGENTS.md 第 8 节。
+- LLM 支持 Ollama 与 OpenAI 兼容 API 路由，具体地址及默认值见 [llm_constants.py](core/client/llm/llm_constants.py) 和角色配置。不要按某个历史角色文件名推断 Provider/模型，也不要把本地 ASR 等同于所有功能都不外发数据。
+- `LLM/*.py` 是热加载执行的代码，合法字段由 `RoleConfig` 定义。修改角色前静态核对加载器和调用方；不为审计执行角色或复制可能含密钥的配置。
+- 诊断可从 `logs/client_latest.log`、`logs/server_latest.log` 及 `logs/transcribe/` 的单次转录日志定位，但只读取相关且必要的片段，交付内容应脱敏。日志不是唯一证据，还需结合代码、配置和复现条件。
 
-### 6. UDP 广播与控制
-- **UDP 广播**: 识别结果可通过 UDP 广播到局域网（`udp_broadcast=True`）。
-- **UDP 控制**: 支持通过 UDP 命令远程控制录音启停（`udp_control=True`）。
+## 文档维护
 
-## 关键路径 (Key Paths)
-- **服务端配置**: 根目录 `config_server.py`（本机使用）；[`config_server_template.py`](config_templates/config_server_template.py)（受跟踪的默认模板，复制到根目录时去掉 `_template`）。
-- **客户端配置**: 根目录 `config_client.py`（本机使用）；[`config_client_template.py`](config_templates/config_client_template.py)（受跟踪的默认模板，复制到根目录时去掉 `_template`）。
-- **热词**:
-    - [`hot.txt`](hot.txt) - 统一 RAG 音素匹配（中英文）
-    - [`hot-rule.txt`](hot-rule.txt) - 规则替换
-    - [`hot-server.txt`](hot-server.txt) - 服务端热词
-- **LLM角色**: [`LLM/*.py`](LLM/) (根目录, 定义 Role/Prompt/Model)
-    - [`default.py`](LLM/default.py) - 默认角色（热词、润色，process=False）
-    - [`翻译.py`](LLM/翻译.py) - 翻译角色（ollama/gemma3:12b）
-    - [`高级翻译.py`](LLM/高级翻译.py) - 高级翻译（deepseek/deepseek-chat）
-    - [`大助理.py`](LLM/大助理.py) - 大助理（zhipu/glm-4.5-air）
-    - [`小助理.py`](LLM/小助理.py) - 小助理（lmstudio/local-model）
-- **服务端核心**: [`core/server/`](core/server/)
-    - [`app.py`](core/server/app.py) - `CapsWriterServer` 门面类
-    - [`state.py`](core/server/state.py) - `ServerState` / `WorkerState` 共享状态
-    - [`schema.py`](core/server/schema.py) - `Task` / `Result` / `RecognitionSession` 数据结构
-    - [`connection/server_manager.py`](core/server/connection/server_manager.py) - `SocketManager` WebSocket 服务端生命周期
-    - [`connection/ws_recv.py`](core/server/connection/ws_recv.py) - 音频接收与切片
-    - [`connection/ws_send.py`](core/server/connection/ws_send.py) - 识别结果发送
-    - [`worker/process_manager.py`](core/server/worker/process_manager.py) - `ProcessManager` 子进程管理
-    - [`worker/worker.py`](core/server/worker/worker.py) - `RecognizerWorker` 推理循环
-    - [`worker/model_loader.py`](core/server/worker/model_loader.py) - `ModelLoader` 模型加载
-    - [`worker/pipeline.py`](core/server/worker/pipeline.py) - `TaskPipeline` 识别流水线
-    - [`engines/`](core/server/engines/) - ASR 引擎实现（见下方模型支持）
-    - [`merger/`](core/server/merger/) - 文本/Token 合并算法
-    - [`formatter/text_formatter.py`](core/server/formatter/text_formatter.py) - `TextFormatter` 后处理
-- **客户端核心**: [`core/client/`](core/client/)
-    - [`app.py`](core/client/app.py) - `CapsWriterClient` 门面类
-    - [`state.py`](core/client/state.py) - `ClientState` 共享状态
-    - [`connection/websocket_manager.py`](core/client/connection/websocket_manager.py) - `WebSocketManager`
-    - [`audio/`](core/client/audio/) - `AudioStreamManager` / `Recorder` / `FileManager`
-    - [`shortcut/`](core/client/shortcut/) - `ShortcutManager`（pynput）快捷键系统
-    - [`output/result_processor.py`](core/client/output/result_processor.py) - `ResultProcessor` 后处理核心
-    - [`output/text_output.py`](core/client/output/text_output.py) - `TextOutput` 上屏
-    - [`hotword/`](core/client/hotword/) - 热词系统（Phoneme RAG + Rule + Rectification）
-    - [`llm/`](core/client/llm/) - LLM 子系统（角色加载、上下文、API 调用）
-    - [`manager/`](core/client/manager/) - `MicRunner` / `FileRunner` / `TrayManager`
-    - [`transcribe/`](core/client/transcribe/) - `FileTranscriber` 文件转录
-    - [`diary/diary_writer.py`](core/client/diary/diary_writer.py) - `DiaryWriter` 日记归档
-    - [`udp/`](core/client/udp/) - UDP 广播与远程控制
-- **共享工具**: [`core/tools/`](core/tools/) — ITN、格式化、信号处理、窗口检测、简繁转换
-- **UI 组件**: [`core/ui/`](core/ui/) — Toast、Tray、对话框（热词/纠错）
-- **协议**: [`core/protocol.py`](core/protocol.py) — `AudioMessage` + `RecognitionMessage`
-- **日志**: `logs/client_latest.log` & `logs/server_latest.log`（排查问题唯一入口）
-
-## 打包与部署 (Build)
-- [`build.spec`](build.spec): Server + Client 打包。
-- [`build-client.spec`](build-client.spec): 仅 Client (Win7兼容)。
-- **策略**: 所有 Python 依赖放入 `internal/`。根目录仅保留配置文件、源码入口 ([`start_*.py`](start_server.py))、核心源码 ([`core/`](core/))、模型文件夹 ([`models/`](models/)) 和说明文档。
-- **PyInstaller 6.0+**: 使用现代化打包配置，支持 CUDA provider 可选收集。
-
-## 模型支持 (Models)
-
-### ASR 引擎
-
-| 引擎类型 | 类名 | 文件 | 能力 | 说明 |
-|---------|------|------|------|------|
-| `paraformer` | `ParaformerEngine` | [`engines/paraformer_onnx/`](core/server/engines/paraformer_onnx/) | ASR + TIMESTAMPS | 通过 `sherpa_onnx.OfflineRecognizer`，准确率高 |
-| `sensevoice` | `SenseVoiceEngine` | [`engines/sensevoice_onnx/`](core/server/engines/sensevoice_onnx/) | ASR + PUNC + HOTWORDS + TIMESTAMPS | 自有 ONNX 推理，多语言（中英日韩粤） |
-| `fun_asr_nano` | `FunASREngine` | [`engines/fun_asr_gguf/`](core/server/engines/fun_asr_gguf/) | ASR + PUNC + HOTWORDS + TIMESTAMPS | GGUF LLM 解码器 + ONNX 编码器/CTC，最准 |
-| `qwen_asr` | `QwenASREngine` | [`engines/qwen_asr_gguf/`](core/server/engines/qwen_asr_gguf/) | ASR + PUNC | GGUF 版 Qwen3-ASR 模型 |
-
-### 辅助模型
-- **Punct-CT-Transformer**: 标点模型（`CTTransformerPuncEngine`），引擎无 PUNC 能力时自动加载。
-- **QwenForceAligner**: 对齐器（`ManagedAlignerProxy` 延迟加载+闲置卸载），用于文件转录时间戳对齐。
-
-### 引擎能力检测
-引擎通过 `EngineCapabilities` 标志位声明能力（`ASR` / `PUNC` / `TIMESTAMPS` / `STREAMING` / `HOTWORDS`）。`ModelLoader` 在加载时智能补丁：若引擎缺少 `PUNC` 则外挂标点模型，若缺少 `TIMESTAMPS` 则外挂对齐器。
-
-## LLM 提供商支持 (LLM Providers)
-- **Ollama**: 本地部署（默认）。
-- **LMStudio**: 本地 OpenAI 兼容 API。
-- **OpenAI**: GPT 系列。
-- **DeepSeek**: deepseek 系列。
-- **Moonshot**: 月之暗面。
-- **Zhipu**: 智谱 AI。
-- **Volcengine**: 火山引擎。
-- **Cerebras**: Cerebras。
-
-## 数据流 (Data Flow)
-```
-[Microphone] -> sounddevice callback -> asyncio.Queue
-   |
-   v  (ShortcutManager 检测按键)
-[AudioStreamManager] 开始录音 -> WebSocketManager 发送 AudioMessage (base64 chunks)
-   |
-   v  (WebSocket, 子协议 "binary")
-[Server: SocketManager] -> ws_recv -> AudioCache 切片 -> Task -> multiprocessing.Queue
-   |
-   v
-[Worker 子进程: RecognizerWorker]
-   |-- TaskPipeline: 音频预处理 -> ASR 解码 -> 文本合并 -> 格式化
-   |-- 输出两路结果: text (简单合并) + text_accu (时间戳去重)
-   |
-   v
-[Server: ws_send] -> RecognitionMessage -> WebSocket -> Client
-   |
-   v
-[Client: ResultProcessor]
-   |-- 音素热词纠正 (FastRAG + AccuRAG)
-   |-- 正则规则替换 (hot-rule.txt)
-   |-- LLM 角色检测 -> 上下文组装 -> API 调用 -> 流式输出
-   |-- TextOutput 上屏 (type/paste) 或 Toast 显示
-   |-- DiaryWriter 日记归档
-   |-- UDP 广播识别结果
-```
-
-## 用户偏好 (User Preferences)
-- **语言**: 中文 (Chinese)，总结、Plan、WalkThrough、注释都要用中文。
-- **环境**: 运行环境是 `conda activate c`，或用 `D:/anaconda3/envs/c/python.exe` 或 `conda run -n c` 执行。所有的临时 Python 代码要先写到临时脚本文件，再运行，而不要直接用命令行跑代码。临时脚本用完不要删。
+公共环境、测试、隐私和架构规则只修改 AGENTS.md；模块路径或阅读顺序变化时更新本导航。完成对应工作后同步 TODO.md，不因历史文档的过时描述恢复已经替换的实现，也不把计划中的能力写成已完成。

@@ -54,6 +54,7 @@
 
 ### 协议与 LAN 后续加固
 
+- [ ] 将 WorkerState 会话与 TaskBuffer 缓冲从仅按 `task_id` 索引改为 `(socket_id, task_id)`，同步流水线、结果返回与清理；补充不同连接复用同一 task ID 的隔离回归，避免把连接内音频缓存隔离误当作完整会话隔离。
 - [ ] 完成协议版本协商与显式取消，保证旧客户端有可理解的失败响应。
 - [ ] 为 LAN 模式增加令牌轮换/撤销、认证失败限频、活跃客户端查看与断开能力。
 - [ ] 保持本机模式仅监听 loopback；跨不可信网络继续强制 TLS 或可信反向代理。
@@ -145,7 +146,8 @@
 
 - [ ] 让 README 明确区分上游默认值与当前 fork 的实际快捷键/模式；启动时打印当前生效快捷键。
 - [ ] 以 `config_templates/config_client_template.py` 和 `config_templates/config_server_template.py` 中的 `__version__` 为规范源，自动校验两者一致并同步发布文档；根目录本机配置只做兼容检查，不覆盖用户取值。
-- [ ] 清理 `CLAUDE.md` 中过期的 2.5-alpha、已删除角色和机器专用 Python 路径；机器私有偏好移出仓库级指南。
+- [x] 清理 `CLAUDE.md` 中过期的 2.5-alpha、角色清单和机器专用 Python 路径；公共规则统一到 `AGENTS.md`，移除旧环境及临时脚本留存偏好，补齐 CLI、测试/CI、对齐进程与离线边界说明。
+- [ ] 修正 quality 工作流和 pre-commit 的配置检查路径：干净检出时从模板初始化缺失的根配置，将 `config_templates/` 纳入语法/lint 检查；不得提交本机配置来补足 CI 输入。
 
 ### 仓库卫生与来源（AUD-13）
 
