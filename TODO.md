@@ -72,7 +72,7 @@
 
 - [ ] 建立简短英文文案规范：sentence case、动词优先、无表情符号、无“助手大小”等拟人化层级、避免重复解释和产品经理式口号。
 - [x] 托盘动态显示 Pause/Resume dictation、Show/Hide console。
-- [x] 采用 Correct transcription、Translate 和 Text actions，不再提供助理角色。
+- [x] 采用 Correct transcription、Translate 和 LLM actions，不再提供助理角色。
 - [x] 此功能已移除，不再重新命名或保留菜单入口。
 - [x] 托盘使用 Reconnect microphone。其余音频日志随后续文案专项统一。
 - [ ] 统一后续功能文案；当前托盘使用 Copy last result、Open history；不存在 Context 或 Clear memory 菜单。
@@ -121,6 +121,8 @@
 
 - [x] 删除两端词表检索/强制替换、旧角色执行与会话历史，更新配置和迁移说明。
 - [x] Provider/预设采用静态 TOML；单一默认预设可关闭，显式口令覆盖默认，每次仅发一个请求。
+- [x] LLM actions 提供全部开启/关闭及润色、翻译独立开关；动态显示动作与 On/Off/Partly on，立即生效并保存本机配置。能力可同时启用，每次由默认预设或口令选择单一请求；移除处理上一条与取消菜单，动作状态提示由 5 秒缩短至 2.5 秒（2026-09-15）。
+- [x] 修复总开关被 pystray 注入 icon 参数而失效；文案改为 Currently on/off/partly on，保存成功明确提示。默认翻译被关闭时回退到已开启的润色；补充真实菜单分发、事件循环、配置落盘/重载及下一次请求的回归验证。
 - [x] 默认关闭光标参考；隔离进程按次读取、密码/选区/超时降级，所有音频分片复用快照。
 - [x] 完整结果后上屏；取消与焦点变化不自动输出，失败可取回原文。
 - [x] 文字/音频/动作记录独立保存，诊断日志按月轮转并限定清理范围。

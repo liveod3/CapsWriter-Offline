@@ -69,7 +69,9 @@ class ClientConfig:
     traditional_locale = 'zh-hant'  # 繁体地区：'zh-hant'（标准繁体）, 'zh-tw'（台湾繁体）, 'zh-hk'（香港繁体）
 
 
-    llm_enabled = False          # 是否启用无会话文本动作（LLM/*.toml）
+    llm_enabled = False          # LLM 总开关；托盘 LLM actions 可全部开启/关闭并保存
+    llm_correction_enabled = True   # 润色/纠错独立开关，受总开关控制
+    llm_translation_enabled = True  # 翻译独立开关，默认由“翻译…”口令触发
 
     # 独立保存听写文字；不要求同时保存麦克风音频。
     save_transcripts = True
@@ -83,6 +85,7 @@ class ClientConfig:
     caret_context_after_chars = 200
 
     # 最多一个自动预设；None 表示仅显式口令触发，受 llm_enabled 总开关控制。
+    # 托盘分别控制两种能力；关闭对应能力后不再自动或显式调用它。
     llm_default_preset = 'correct_asr'
     llm_config_dir = 'LLM'
     # 诊断日志按年/月保留，0 表示不自动清理；不控制识别文字归档。

@@ -79,13 +79,13 @@ class ResultProcessor:
         self.state.set_output_text(final_text)
         console.print("Transcription:", original, markup=False)
         if result.processed:
-            console.print("Text action:", final_text, markup=False)
+            console.print("LLM action:", final_text, markup=False)
 
         from core.ui import show_status_hint
 
         if result.error:
             show_status_hint(
-                (result.error_message or "Text action failed.")
+                (result.error_message or "LLM action failed.")
                 + " Original transcription retained.",
                 duration_ms=5000,
             )

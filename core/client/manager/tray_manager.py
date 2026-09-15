@@ -4,10 +4,10 @@ from __future__ import annotations
 import asyncio
 import os
 import subprocess
-import time
 from pathlib import Path
 
 from config_client import ClientConfig as Config
+from core.client.llm.settings import llm_options, save_llm_options
 from core.ui.menu_model import MenuAction
 from . import logger
 
@@ -15,7 +15,7 @@ from . import logger
 class TrayManager:
     def __init__(self, app):
         self.app = app
-        self._action_running = False
+        self._mode_saving = False
 
     @property
     def state(self):
@@ -43,11 +43,6 @@ class TrayManager:
 
     def menu_actions(self):
         root = self.app.base_dir
-        text_enabled = lambda _item: bool(
-            getattr(Config, "llm_enabled", False)
-            and self.state.last_recognition_text
-            and not self._action_running
-        )
         return [
             MenuAction(
                 lambda _item: "Resume dictation"
@@ -65,29 +60,33 @@ class TrayManager:
                 enabled=lambda _item: bool(self.state.last_output_text),
             ),
             MenuAction(
-                "Text actions",
-                tooltip="Process the last transcript and copy the result.",
+                "LLM actions",
+                tooltip="Enable or disable all LLM actions, or control each action separately.",
                 icon="text",
                 children=[
                     MenuAction(
-                        "Correct transcription",
-                        lambda: self._text_action("correct_asr"),
-                        "Correct the last transcript and copy the complete result.",
-                        "text",
-                        text_enabled,
-                    ),
-                    MenuAction(
-                        "Translate",
-                        lambda: self._text_action("translate"),
-                        "Translate the last transcript and copy the complete result.",
-                        "translate",
-                        text_enabled,
-                    ),
-                    MenuAction(
-                        "Cancel text action",
-                        self.app.llm.cancel,
-                        "Cancel the current text request. Keep the original transcript.",
+                        lambda _item: self._llm_toggle_label(),
+                        lambda: self._toggle_llm_option(),
+                        "Click to turn all off when all are on; otherwise turn all on. Changes are saved.",
                         "pause",
+                        enabled=lambda _item: not self._mode_saving,
+                        checked=lambda _item: all(llm_options(Config).values()),
+                    ),
+                    MenuAction(
+                        lambda _item: self._llm_toggle_label("correct_asr"),
+                        lambda: self._toggle_llm_option("correct_asr"),
+                        "Click to toggle correction. The label shows its current state. Changes are saved.",
+                        "text",
+                        enabled=lambda _item: not self._mode_saving,
+                        checked=lambda _item: llm_options(Config)["correct_asr"],
+                    ),
+                    MenuAction(
+                        lambda _item: self._llm_toggle_label("translate"),
+                        lambda: self._toggle_llm_option("translate"),
+                        "Click to toggle translation. The label shows its current state. Changes are saved.",
+                        "translate",
+                        enabled=lambda _item: not self._mode_saving,
+                        checked=lambda _item: llm_options(Config)["translate"],
                     ),
                 ],
             ),
@@ -99,7 +98,7 @@ class TrayManager:
             ),
             MenuAction(
                 "Settings",
-                tooltip="Edit client settings and text action configuration.",
+                tooltip="Edit client settings and LLM action configuration.",
                 icon="settings",
                 children=[
                     MenuAction(
@@ -115,7 +114,7 @@ class TrayManager:
                         "settings",
                     ),
                     MenuAction(
-                        "Text presets…",
+                        "LLM presets…",
                         lambda: self._open(self.app.llm.directory / "presets.toml"),
                         "Edit prompts and voice triggers. Changes apply to the next request.",
                         "text",
@@ -143,7 +142,7 @@ class TrayManager:
                     MenuAction(
                         "Copy original transcription",
                         self._copy_original,
-                        "Copy the last ASR result before any text action.",
+                        "Copy the last ASR result before any LLM action.",
                         "copy",
                         enabled=lambda _item: bool(self.state.last_recognition_text),
                     ),
@@ -210,35 +209,47 @@ class TrayManager:
 
             copy_to_clipboard(self.state.last_recognition_text)
 
-    def _text_action(self, preset_id):
-        text = self.state.last_recognition_text
-        if not text or self._action_running:
-            return
-        self._action_running = True
+    def _llm_toggle_label(self, preset_id=None):
+        options = llm_options(Config)
+        if preset_id is None:
+            active = any(options.values())
+            state = "on" if all(options.values()) else "partly on" if active else "off"
+            return f"All LLM actions: Currently {state}"
+        active = options[preset_id]
+        name = {"correct_asr": "Correction", "translate": "Translation"}[preset_id]
+        return f"{name}: Currently {'on' if active else 'off'}"
 
-        async def run():
+    def _toggle_llm_option(self, preset_id=None):
+        async def save():
+            from core.ui import show_status_hint
+
+            if self._mode_saving:
+                return
+            self._mode_saving = True
             try:
-                result = await self.app.llm.process(text, preset_id=preset_id)
-                if result.cancelled or getattr(self.app, "_stopping", False):
-                    return
-                self.state.set_output_text(result.text)
-                self._copy_result()
-                if result.processed and getattr(Config, "save_llm_records", False):
-                    await asyncio.to_thread(
-                        self.app.action_records.write,
-                        result.text,
-                        time.time(),
-                        action_input=result.input_text,
-                    )
-                from core.ui import show_status_hint
-
-                show_status_hint(
-                    (result.error_message or "Text action failed.") + " Original copied."
-                    if result.error else "Result copied.",
-                    duration_ms=5000 if result.error else 2500,
+                options = llm_options(Config)
+                if preset_id is None:
+                    active = not all(options.values())
+                    options = dict.fromkeys(options, active)
+                else:
+                    options[preset_id] = not options[preset_id]
+                await asyncio.to_thread(
+                    save_llm_options, self.app.base_dir / "config_client.py",
+                    correction=options["correct_asr"], translation=options["translate"],
                 )
+                if getattr(self.app, "_stopping", False):
+                    return
+                # 在客户端事件循环中一次更新；保存失败时保留原运行状态。
+                Config.llm_correction_enabled = options["correct_asr"]
+                Config.llm_translation_enabled = options["translate"]
+                Config.llm_enabled = any(options.values())
+                if Config.llm_enabled:
+                    self.app.llm.start()
+                show_status_hint("LLM settings saved.", duration_ms=1600)
+            except (OSError, ValueError, SyntaxError) as exc:
+                logger.warning("Cannot save LLM options: %s", type(exc).__name__)
+                show_status_hint("Could not save LLM options. Check client settings.", duration_ms=2500)
             finally:
-                self._action_running = False
+                self._mode_saving = False
 
-        if not self._schedule(run()):
-            self._action_running = False
+        self._schedule(save())

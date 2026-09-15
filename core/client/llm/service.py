@@ -8,7 +8,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from .config import load_catalog
+from .config import Catalog, load_catalog
+from .settings import llm_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
 
 
@@ -37,7 +38,7 @@ class TextActionService:
         self._cancel_epoch = 0
 
     def start(self):
-        if not getattr(self.config, "llm_enabled", False):
+        if self._stopped or self._hotkeys or not getattr(self.config, "llm_enabled", False):
             return
         from core.client.global_hotkey import get_global_hotkey_manager
 
@@ -70,6 +71,11 @@ class TextActionService:
             return TextResult(text, text)
         self._loop = asyncio.get_running_loop()
         epoch = self._cancel_epoch
+        # 模式在请求入口固定，菜单切换只影响后续请求。
+        default_preset = getattr(self.config, "llm_default_preset", "correct_asr")
+        options = llm_options(self.config)
+        if not any(options.values()) or (preset_id in options and not options[preset_id]):
+            return TextResult(text, text)
         content = text
         selected_id = None
         try:
@@ -77,11 +83,20 @@ class TextActionService:
             catalog = await asyncio.to_thread(load_catalog, self.directory)
             if self._stopped or epoch != self._cancel_epoch:
                 return TextResult(text, text, cancelled=True)
+            # 关闭的能力不参加口令匹配，避免绕过开关或吞掉原文中的口令。
+            catalog = Catalog(catalog.providers, {
+                key: preset for key, preset in catalog.presets.items()
+                if options.get(key, True)
+            })
+            if isinstance(default_preset, str) and not options.get(default_preset, True):
+                # 旧菜单可能留下默认翻译；只开润色时应实际执行润色。
+                # 不自动回退到翻译，避免普通听写意外变成另一种语言。
+                default_preset = "correct_asr" if options["correct_asr"] else None
             if preset_id is not None:
                 preset = catalog.presets[preset_id]
             else:
                 preset, content = catalog.select(
-                    text, getattr(self.config, "llm_default_preset", "correct_asr")
+                    text, default_preset
                 )
             if preset is None:
                 return TextResult(text, text)
@@ -91,7 +106,7 @@ class TextActionService:
             location = "Local" if host in {"localhost", "127.0.0.1", "::1"} else "Remote"
             if self.status_callback:
                 self.status_callback(
-                    f"{preset.name} · {provider.model} · {location}", duration_ms=5000
+                    f"{preset.name} · {provider.model} · {location}", duration_ms=2500
                 )
             payload = {"transcript": content}
             if preset.use_caret_context and context:
@@ -121,7 +136,7 @@ class TextActionService:
 
             detail = exc.user_message if isinstance(exc, MissingAPIKeyError) else ""
             logger.warning(
-                "Text action failed: %s%s", type(exc).__name__, f". {detail}" if detail else ""
+                "LLM action failed: %s%s", type(exc).__name__, f". {detail}" if detail else ""
             )
             return TextResult(
                 content, content, selected_id, error=type(exc).__name__, error_message=detail

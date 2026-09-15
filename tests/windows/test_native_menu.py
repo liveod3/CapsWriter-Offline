@@ -46,10 +46,13 @@ def test_menu_owner_preserves_default_window_messages_and_tooltip_dispatch():
 
 def test_native_menu_has_bitmaps_and_submenu_tooltip_mapping():
     action = MenuAction(
-        "Text actions",
-        tooltip="Process a transcript.",
+        "LLM actions",
+        tooltip="Control LLM actions.",
         icon="text",
-        children=[MenuAction("Translate", lambda: None, "Translate once.", "translate")],
+        children=[MenuAction(
+            "Translation: Currently on", lambda: None, "Control translation.", "translate",
+            checked=lambda _item: True,
+        )],
     )
     icon = NativeMenuIcon("capswriter-native-test")
     callbacks = []
@@ -63,16 +66,22 @@ def test_native_menu_has_bitmaps_and_submenu_tooltip_mapping():
         )
         assert U.GetMenuItemInfoW(menu, 0, True, ctypes.byref(item))
         assert item.hbmpItem and item.hSubMenu
-        assert icon._tips[1] == "Process a transcript."
-        assert icon._tips[2] == "Translate once."
+        assert icon._tips[1] == "Control LLM actions."
+        assert icon._tips[2] == "Control translation."
         assert icon._positions[(int(item.hSubMenu), 0)] == 2
+        child = win32.MENUITEMINFO(
+            cbSize=ctypes.sizeof(win32.MENUITEMINFO), fMask=win32.MIIM_STATE | win32.MIIM_FTYPE
+        )
+        assert U.GetMenuItemInfoW(item.hSubMenu, 0, True, ctypes.byref(child))
+        assert child.fState & win32.MFS_CHECKED
+        assert not child.fType & win32.MFT_RADIOCHECK
         # 检查原生菜单确实存有文字，避免只验证句柄存在。
         U.GetMenuStringW.argtypes = [W.HMENU, W.UINT, W.LPWSTR, ctypes.c_int, W.UINT]
         label = ctypes.create_unicode_buffer(100)
-        assert U.GetMenuStringW(menu, 0, label, len(label), 0x400) == len("Text actions")
-        assert label.value == "Text actions"
-        assert U.GetMenuStringW(item.hSubMenu, 0, label, len(label), 0x400) == len("Translate")
-        assert label.value == "Translate"
+        assert U.GetMenuStringW(menu, 0, label, len(label), 0x400) == len("LLM actions")
+        assert label.value == "LLM actions"
+        assert U.GetMenuStringW(item.hSubMenu, 0, label, len(label), 0x400) == len("Translation: Currently on")
+        assert label.value == "Translation: Currently on"
     finally:
         if menu:
             win32.DestroyMenu(menu)

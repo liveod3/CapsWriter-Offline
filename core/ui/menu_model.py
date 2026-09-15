@@ -13,6 +13,8 @@ class MenuAction:
     enabled: bool | Callable = True
     children: list = field(default_factory=list)
     default: bool = False
+    checked: Callable | None = None
+    radio: bool = False
 
     def to_item(self):
         import pystray
@@ -23,7 +25,8 @@ class MenuAction:
             else self.callback
         )
         item = pystray.MenuItem(
-            self.label, action or (lambda: None), enabled=self.enabled, default=self.default
+            self.label, action or (lambda: None), enabled=self.enabled, default=self.default,
+            checked=self.checked, radio=self.radio,
         )
         item.caps_tooltip = self.tooltip
         item.caps_icon = self.icon

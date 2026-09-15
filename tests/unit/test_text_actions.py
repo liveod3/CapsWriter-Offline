@@ -218,3 +218,109 @@ def test_edited_presets_take_effect_on_next_request(tmp_path):
         transport.complete.call_args_list[0].args[1][0]
         != transport.complete.call_args_list[1].args[1][0]
     )
+
+
+def test_live_modes_route_next_request_and_off_disables_voice_triggers():
+    async def run():
+        settings = config(llm_enabled=False, llm_default_preset="correct_asr")
+        transport = SimpleNamespace(complete=AsyncMock(return_value="result"))
+        status = Mock()
+        service = TextActionService(settings, ROOT, transport, status_callback=status)
+        settings.llm_enabled = True
+        assert (await service.process("原文")).preset_id == "correct_asr"
+        settings.llm_default_preset = "translate"
+        assert (await service.process("原文")).preset_id == "translate"
+        settings.llm_enabled = False
+        result = await service.process("翻译：原文")
+        assert result.text == "翻译：原文" and not result.processed
+        assert transport.complete.await_count == 2
+        assert all(call.kwargs["duration_ms"] == 2500 for call in status.call_args_list)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("correction,translation", [(False, False), (True, False), (False, True), (True, True)])
+def test_independent_switches_control_defaults_triggers_and_explicit_requests(correction, translation):
+    async def run():
+        settings = config(
+            llm_enabled=True, llm_correction_enabled=correction,
+            llm_translation_enabled=translation,
+        )
+        transport = SimpleNamespace(complete=AsyncMock(return_value="result"))
+        service = TextActionService(settings, ROOT, transport)
+        plain = await service.process("原文")
+        assert plain.processed == correction
+        triggered = await service.process("翻译：原文")
+        assert triggered.preset_id == (
+            "translate" if translation else "correct_asr" if correction else None
+        )
+        if not translation:
+            assert triggered.input_text == "翻译：原文"
+        for preset_id, enabled in (("correct_asr", correction), ("translate", translation)):
+            before = transport.complete.await_count
+            result = await service.process("原文", preset_id=preset_id)
+            assert result.processed == enabled
+            assert transport.complete.await_count == before + int(enabled)
+        assert transport.complete.await_count == int(correction) * 2 + int(translation) + int(correction or translation)
+
+    asyncio.run(run())
+
+
+def test_disabled_default_translation_falls_back_to_enabled_correction():
+    transport = SimpleNamespace(complete=AsyncMock(return_value="result"))
+    service = TextActionService(config(
+        llm_enabled=True, llm_default_preset="translate",
+        llm_translation_enabled=False, llm_correction_enabled=True,
+    ), ROOT, transport)
+    result = asyncio.run(service.process("原文"))
+    assert result.processed and result.preset_id == "correct_asr"
+    transport.complete.assert_awaited_once()
+
+
+def test_independent_switches_are_snapshotted_before_catalog_load(monkeypatch):
+    settings = config(llm_enabled=True, llm_correction_enabled=True, llm_translation_enabled=True)
+    catalog = load_catalog(ROOT / "LLM")
+
+    def load_and_disable(_directory):
+        settings.llm_correction_enabled = False
+        return catalog
+
+    monkeypatch.setattr("core.client.llm.service.load_catalog", load_and_disable)
+    transport = SimpleNamespace(complete=AsyncMock(return_value="result"))
+    service = TextActionService(settings, ROOT, transport)
+    assert asyncio.run(service.process("原文")).processed
+    assert not asyncio.run(service.process("原文")).processed
+    transport.complete.assert_awaited_once()
+
+
+def test_mode_change_during_catalog_load_does_not_reroute_inflight_request(monkeypatch):
+    settings = config(llm_enabled=True, llm_default_preset="correct_asr")
+    catalog = load_catalog(ROOT / "LLM")
+
+    def load_and_switch(_directory):
+        settings.llm_default_preset = "translate"
+        return catalog
+
+    monkeypatch.setattr("core.client.llm.service.load_catalog", load_and_switch)
+    transport = SimpleNamespace(complete=AsyncMock(return_value="result"))
+    service = TextActionService(settings, ROOT, transport)
+    assert asyncio.run(service.process("原文")).preset_id == "correct_asr"
+    assert asyncio.run(service.process("原文")).preset_id == "translate"
+
+
+def test_enabling_after_start_registers_cancel_once_and_stop_cleans_up(monkeypatch):
+    hotkeys = Mock()
+    monkeypatch.setattr("core.client.global_hotkey.get_global_hotkey_manager", lambda: hotkeys)
+    settings = config(llm_enabled=False)
+    service = TextActionService(settings, ROOT)
+    service.start()
+    hotkeys.register.assert_not_called()
+    settings.llm_enabled = True
+    service.start()
+    service.start()
+    hotkeys.register.assert_called_once_with("<esc>", service.cancel)
+    hotkeys.start.assert_called_once()
+    service.stop()
+    hotkeys.unregister.assert_called_once_with("<esc>")
+    service.start()
+    hotkeys.register.assert_called_once()
