@@ -97,6 +97,16 @@ def _init_win_api():
         import ctypes
         user32 = ctypes.windll.user32
         kernel32 = ctypes.windll.kernel32
+        from ctypes import wintypes as W
+        kernel32.GetConsoleWindow.restype = W.HWND
+        user32.GetAncestor.argtypes = [W.HWND, W.UINT]
+        user32.GetAncestor.restype = W.HWND
+        user32.GetSystemMenu.argtypes = [W.HWND, W.BOOL]
+        user32.GetSystemMenu.restype = W.HMENU
+        user32.DeleteMenu.argtypes = [W.HMENU, W.UINT, W.UINT]
+        for name in ("IsIconic", "IsWindowVisible", "SetForegroundWindow"):
+            getattr(user32, name).argtypes = [W.HWND]
+        user32.ShowWindow.argtypes = [W.HWND, ctypes.c_int]
         _win_api_initialized = True
     except Exception as e:
         logger.warning(f"Windows API 初始化失败: {e}")
@@ -224,6 +234,8 @@ class _TraySystem:
         # 延迟导入 pystray
         import pystray
         from pystray import MenuItem as item
+        from .menu_model import MenuAction
+        from .tray_native import NativeMenuIcon
         
         self.hwnd = _get_console_hwnd()
         self.should_exit = False
@@ -237,22 +249,32 @@ class _TraySystem:
         # 定义菜单
         menu_items = [
             item(f"{self.title}", lambda: None, enabled=False),
-            item('👁️ 显示/隐藏', self.toggle_window, default=True),
+            MenuAction(lambda _item: 'Hide console' if _is_window_visible(self.hwnd) else 'Show console',
+                       self.toggle_window, 'Show or hide the console. Dictation continues while hidden.',
+                       'console', default=True).to_item(),
         ]
 
         # 添加额外选项
         if more_options:
-            for opt_name, opt_func in more_options:
-                menu_items.append(item(opt_name, opt_func))
+            for option in more_options:
+                if isinstance(option, MenuAction):
+                    menu_items.append(option.to_item())
+                else:
+                    opt_name, opt_func = option
+                    menu_items.append(item(opt_name, opt_func))
 
-        menu_items.append(item('🔄 重启', self.on_restart))
-        menu_items.append(item('❌ 退出', self.on_exit))
+        menu_items.append(pystray.Menu.SEPARATOR)
+        menu_items.append(MenuAction('Restart client' if 'Client' in self.title else 'Restart server',
+                                    self.on_restart, 'Restart this process and reload its configuration.',
+                                    'restart').to_item())
+        menu_items.append(MenuAction('Quit', self.on_exit, 'Close this process and release its resources.',
+                                    'quit').to_item())
 
-        self.icon = pystray.Icon(
+        self.icon = NativeMenuIcon(
             "console_tray",
             _create_icon(icon_path),
             title=f"{self.title}",
-            menu=tuple(menu_items)
+            menu=pystray.Menu(*menu_items)
         )
 
     def toggle_window(self) -> None:
@@ -394,6 +416,7 @@ def stop_tray() -> None:
     """停止托盘图标"""
     global _tray_instance, _tray_recording, _tray_paused
     if _tray_instance and _tray_instance.icon:
+        _tray_instance.should_exit = True
         try:
             _tray_instance.icon.stop()
         except Exception:
@@ -428,9 +451,9 @@ def _refresh_tray_status() -> None:
             recording=_tray_recording,
         )
         if _tray_recording:
-            suffix = ' · 录音中'
+            suffix = ' · Recording'
         elif _tray_paused:
-            suffix = ' · 已暂停'
+            suffix = ' · Paused'
         else:
             suffix = ''
         _tray_instance.icon.title = f"{_tray_instance.title}{suffix}"
