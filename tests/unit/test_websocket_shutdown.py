@@ -1,14 +1,19 @@
 import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
+import pytest
+from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
+from websockets.frames import Close
 
 from core.client.app import CapsWriterClient
-from core.client.connection.websocket_manager import WebSocketManager
+from core.client.connection.websocket_manager import CommunicationError, WebSocketManager
+from core.client.output.result_processor import ResultProcessor
 
 
 class FakeState:
     def __init__(self):
         self.websocket = None
+        self.task_contexts = {}
 
     @property
     def is_connected(self):
@@ -18,6 +23,99 @@ class FakeState:
 def make_manager():
     app = SimpleNamespace(state=FakeState(), loop=None)
     return WebSocketManager(app)
+
+
+def closed_connection(code=1000):
+    exception = ConnectionClosedOK if code == 1000 else ConnectionClosedError
+    return exception(Close(code, ""), Close(code, ""), True)
+
+
+def test_shutdown_while_receiving_exits_without_traceback_or_reconnect():
+    async def run():
+        manager = make_manager()
+        manager.app.ws = manager
+        manager.app.loop = asyncio.get_running_loop()
+        manager.state.task_contexts["pending"] = ("synthetic reference", 42)
+        processor = ResultProcessor(manager.app)
+        receiving = asyncio.Event()
+        closing = asyncio.Event()
+
+        async def recv():
+            receiving.set()
+            await closing.wait()
+            raise closed_connection()
+
+        websocket = SimpleNamespace(recv=recv, close=AsyncMock(side_effect=closing.set))
+        manager.state.websocket = websocket
+        with (
+            patch(
+                "core.client.connection.websocket_manager.websockets.connect",
+                new_callable=AsyncMock,
+            ) as connect,
+            patch("core.client.output.result_processor.console.print") as output,
+        ):
+            operation = asyncio.create_task(processor.start())
+            await receiving.wait()
+            processor.request_exit()
+            manager.close_sync()
+            manager.state.websocket = None  # 模拟 app.stop() 的 State.reset()
+            await asyncio.wait_for(operation, 1)
+            connect.assert_not_awaited()
+            output.assert_not_called()
+        websocket.close.assert_awaited_once()
+        assert not manager.state.task_contexts
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("code", [1000, 1011])
+def test_remote_close_still_reports_failure_when_not_exiting(code):
+    async def run():
+        manager = make_manager()
+        manager.state.websocket = SimpleNamespace(
+            recv=AsyncMock(side_effect=closed_connection(code))
+        )
+        with pytest.raises(CommunicationError):
+            await manager.receive()
+        assert manager.state.websocket is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("failure", ["remote_close", "invalid_json"])
+def test_processor_reconnects_after_receive_failure(failure):
+    async def run():
+        manager = make_manager()
+        manager.app.ws = manager
+        manager.app.loop = asyncio.get_running_loop()
+        processor = ResultProcessor(manager.app)
+        first = SimpleNamespace(close=AsyncMock(), recv=AsyncMock())
+        if failure == "remote_close":
+            first.recv.side_effect = closed_connection(1011)
+        else:
+            first.recv.return_value = "invalid JSON"
+        manager.state.websocket = first
+
+        async def end_after_reconnect():
+            processor.request_exit()
+            await asyncio.sleep(0)
+            raise closed_connection()
+
+        second = SimpleNamespace(close=AsyncMock(), recv=AsyncMock(side_effect=end_after_reconnect))
+        with (
+            patch(
+                "core.client.connection.websocket_manager.websockets.connect",
+                new=AsyncMock(return_value=second),
+            ) as connect,
+            patch("core.client.output.result_processor.console.print"),
+        ):
+            await asyncio.wait_for(processor.start(), 1)
+            connect.assert_awaited_once()
+        second.recv.assert_awaited_once()
+        if failure == "invalid_json":
+            first.close.assert_awaited_once()
+
+    asyncio.run(run())
 
 
 def test_client_stop_requests_processor_exit_before_closing_connection():

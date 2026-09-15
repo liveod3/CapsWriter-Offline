@@ -188,21 +188,32 @@ class WebSocketManager:
         接收服务端消息
         
         Returns:
-            解析后的 RecognitionMessage 对象，如果失败返回 None
+            解析后的 RecognitionMessage；退出或未连接时返回 None。
+
+        Raises:
+            CommunicationError: 非退出状态下的断线或消息解析失败。
         """
-        if not self.is_connected:
+        if self._shutdown_requested:
+            return None
+        # recv() 等待期间 stop/reset 可能清空共享引用，保留本次接收的连接。
+        websocket = self.state.websocket
+        if websocket is None or not self.is_connected:
             logger.warning("无法接收消息：WebSocket 未连接")
             return None
         
         try:
-            raw_message = await self.state.websocket.recv()
+            raw_message = await websocket.recv()
             data = json.loads(raw_message)
             return RecognitionMessage.from_dict(data)
             
-        except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as exc:
-            self.state.websocket = None
-            detail = exc.reason or f'关闭代码 {exc.code}'
-            raise CommunicationError(f"接收失败：服务端已关闭连接（{detail}）")
+        except (ConnectionClosedError, ConnectionClosedOK) as exc:
+            if self.state.websocket is websocket:
+                self.state.websocket = None
+            if self._shutdown_requested:
+                return None
+            close_frame = exc.rcvd or exc.sent
+            detail = (close_frame.reason or f'关闭代码 {close_frame.code}') if close_frame else '连接异常中断'
+            raise CommunicationError(f"接收失败：服务端已关闭连接（{detail}）") from exc
             
         except json.JSONDecodeError as e:
             raise CommunicationError(f"消息解析失败: {e}")

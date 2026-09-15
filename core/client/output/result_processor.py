@@ -9,6 +9,7 @@ from config_client import ClientConfig as Config
 from core.protocol import RecognitionMessage
 from core.client.state import console
 from core.client.caret_context import foreground_window
+from core.client.connection import CommunicationError
 from core.client.audio.file_manager import AudioFileManager
 from core.client.output.text_output import TextOutput
 from core.client.udp.udp_broadcaster import broadcast_output_udp
@@ -40,7 +41,15 @@ class ResultProcessor:
                 await asyncio.sleep(2)
                 continue
             while not self._exit_event.is_set():
-                message = await self.ws.receive()
+                try:
+                    message = await self.ws.receive()
+                except CommunicationError as exc:
+                    # 接收异常属于连接边界，不能让它结束整个麦克风运行器。
+                    # 主动退出保持安静；其他断线清理后由外层循环重新连接。
+                    if not self._exit_event.is_set():
+                        logger.warning("Connection interrupted: %s", type(exc).__name__)
+                    await self.ws.close()
+                    break
                 if message is None:
                     break
                 try:
