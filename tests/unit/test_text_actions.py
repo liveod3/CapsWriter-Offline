@@ -64,6 +64,26 @@ def test_catalog_separates_connections_and_presets():
     assert text == "今天有点冷"
 
 
+def test_provider_diagnostics_reach_log_and_original_is_retained(monkeypatch):
+    from core.client.llm.errors import api_error
+
+    error = api_error(429, {"error": {
+        "status": "RESOURCE_EXHAUSTED", "message": "quota exceeded: private transcript/key",
+        "details": [{"retryDelay": "8s"}],
+    }})
+    warning = Mock()
+    monkeypatch.setattr("core.client.logger.warning", warning)
+    service = TextActionService(config(llm_enabled=True), ROOT,
+                                SimpleNamespace(complete=AsyncMock(side_effect=error)))
+    result = asyncio.run(service.process("private transcript/key"))
+    assert result.text == "private transcript/key" and not result.processed
+    assert "quota" in result.error_message.lower()
+    template, *args = warning.call_args.args
+    logged = template % tuple(args)
+    assert all(value in logged for value in ("429", "RESOURCE_EXHAUSTED", "retry_after_s", "elapsed_ms", "request="))
+    assert "private transcript/key" not in logged
+
+
 @pytest.mark.parametrize("default", [[], ["correct_asr"], "missing", False])
 def test_default_must_be_one_existing_id_or_none(default):
     with pytest.raises(ValueError):
@@ -124,7 +144,7 @@ def test_failure_keeps_original_without_response_body(monkeypatch):
     result = asyncio.run(service.process("苦的"))
     assert result.text == "苦的"
     assert result.error == "RuntimeError"
-    assert result.error_message == ""
+    assert result.error_message == "LLM processing failed. Check the diagnostic log."
     assert "secret response" not in str(warning.call_args)
     assert not result.processed
 

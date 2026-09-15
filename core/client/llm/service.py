@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -11,6 +13,7 @@ from urllib.parse import urlsplit
 from .config import Catalog, load_catalog
 from .settings import llm_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
+from .errors import describe_failure
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,11 @@ class TextActionService:
             return TextResult(text, text)
         content = text
         selected_id = None
+        started = time.monotonic()
+        request_id = uuid.uuid4().hex[:8]
+        phase = "configuration"
+        from core.client import logger
+
         try:
             # 每次请求加载静态文件，编辑后下次请求生效；没有文件监控线程。
             catalog = await asyncio.to_thread(load_catalog, self.directory)
@@ -115,6 +123,9 @@ class TextActionService:
                 {"role": "system", "content": preset.system_prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ]
+            phase = "request"
+            logger.info("LLM request started: request=%s input_chars=%d preparation_ms=%d",
+                        request_id, len(content), int((time.monotonic() - started) * 1000))
             request = asyncio.create_task(
                 self.transport.complete(provider, messages, preset.temperature, preset.max_tokens)
             )
@@ -127,16 +138,23 @@ class TextActionService:
                 self._active.discard(request)
             if self._stopped or epoch != self._cancel_epoch:
                 return TextResult(content, content, selected_id, cancelled=True)
+            logger.info("LLM request completed: request=%s elapsed_ms=%d output_chars=%d",
+                        request_id, int((time.monotonic() - started) * 1000), len(result))
             return TextResult(result, content, selected_id, processed=True)
         except asyncio.CancelledError:
+            logger.info("LLM request cancelled: request=%s phase=%s elapsed_ms=%d",
+                        request_id, phase, int((time.monotonic() - started) * 1000))
             return TextResult(content, content, selected_id, cancelled=True)
         except Exception as exc:
-            # 仅展示受控的固定提示，其他异常可能携带 URL、凭据或响应正文。
-            from core.client import logger
-
-            detail = exc.user_message if isinstance(exc, MissingAPIKeyError) else ""
+            category, detail, fields = describe_failure(exc)
+            if isinstance(exc, MissingAPIKeyError):
+                category, detail = "missing_api_key", exc.user_message
+            elif phase == "configuration":
+                category, detail = "configuration_error", "LLM configuration could not be loaded. Check Provider and preset settings."
             logger.warning(
-                "LLM action failed: %s%s", type(exc).__name__, f". {detail}" if detail else ""
+                "LLM action failed: request=%s phase=%s type=%s category=%s elapsed_ms=%d details=%s message=%s",
+                request_id, phase, type(exc).__name__, category,
+                int((time.monotonic() - started) * 1000), json.dumps(fields, sort_keys=True), detail,
             )
             return TextResult(
                 content, content, selected_id, error=type(exc).__name__, error_message=detail

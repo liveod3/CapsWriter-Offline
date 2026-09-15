@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import os
+import json
 from typing import Protocol
 
 from .config import Provider
+from .errors import LLMResponseError, api_error, generation_error
 
 
 class MissingAPIKeyError(ValueError):
@@ -65,19 +67,57 @@ class HTTPTextProvider:
             timeout=provider.timeout, follow_redirects=False, trust_env=False
         ) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as response:
-                response.raise_for_status()
                 data = bytearray()
+                limit = 64 * 1024 if response.is_error else 2 * 1024 * 1024
                 async for chunk in response.aiter_bytes():
+                    if len(data) + len(chunk) > limit:
+                        if not response.is_success:
+                            raise api_error(response.status_code, {})
+                        raise LLMResponseError("response_too_large", "LLM response exceeds the size limit.")
                     data.extend(chunk)
-                    if len(data) > 2 * 1024 * 1024:
-                        raise ValueError("LLM response exceeds limit")
-        import json
+                try:
+                    result = json.loads(data)
+                except (ValueError, UnicodeError):
+                    if not response.is_success:
+                        raise api_error(response.status_code, {}) from None
+                    raise LLMResponseError("invalid_json", "The provider returned invalid JSON.") from None
+                if not response.is_success or (isinstance(result, dict) and "error" in result):
+                    raise api_error(response.status_code, result, response.headers.get("retry-after", ""))
 
-        result = json.loads(data)
+        if not isinstance(result, dict):
+            raise LLMResponseError("invalid_response", "The provider returned an unexpected response structure.")
+        feedback = result.get("promptFeedback", {})
+        if isinstance(feedback, dict) and feedback.get("blockReason"):
+            raise generation_error(feedback["blockReason"], "block_reason")
+        # 兼容端点/代理若透传原生 Gemini 失败字段，也保留结束原因；不将其误报为 KeyError。
+        candidates = result.get("candidates")
+        if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+            reason = candidates[0].get("finishReason")
+            if reason and reason != "STOP":
+                raise generation_error(reason, "finish_reason")
         if provider.kind == "ollama":
-            text = result["message"]["content"]
+            reason = result.get("done_reason")
+            if reason and reason != "stop":
+                raise generation_error(reason, "finish_reason")
+            message = result.get("message")
         else:
-            text = result["choices"][0]["message"]["content"]
+            choices = result.get("choices")
+            if not isinstance(choices, list) or not choices:
+                raise LLMResponseError("empty_choices", "The provider returned no output candidates.")
+            choice = choices[0]
+            if not isinstance(choice, dict):
+                raise LLMResponseError("invalid_response", "The provider returned an invalid output candidate.")
+            reason = choice.get("finish_reason")
+            if reason and reason != "stop":
+                raise generation_error(reason, "finish_reason")
+            message = choice.get("message")
+        if not isinstance(message, dict):
+            raise LLMResponseError("invalid_response", "The provider returned no text message.")
+        if message.get("refusal"):
+            raise generation_error("CONTENT_BLOCKED", "finish_reason")
+        if message.get("tool_calls") or message.get("function_call"):
+            raise generation_error("TOOL_CALLS", "finish_reason")
+        text = message.get("content")
         if not isinstance(text, str) or not text.strip():
-            raise ValueError("LLM returned no text")
+            raise LLMResponseError("empty_output", "The provider returned no usable text.")
         return text.strip()
