@@ -21,7 +21,7 @@ class FakeState:
 
 
 def make_manager():
-    app = SimpleNamespace(state=FakeState(), loop=None)
+    app = SimpleNamespace(state=FakeState(), loop=None, progress=Mock())
     return WebSocketManager(app)
 
 
@@ -122,6 +122,7 @@ def test_client_stop_requests_processor_exit_before_closing_connection():
     calls = []
     app = CapsWriterClient.__new__(CapsWriterClient)
     app._stopping = False
+    app.progress = Mock()
     app._active_runner = SimpleNamespace(
         processor=SimpleNamespace(request_exit=lambda: calls.append("processor"))
     )

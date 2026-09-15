@@ -68,7 +68,8 @@ class TextActionService:
             self._hotkeys = None
 
     async def process(
-        self, text: str, *, context: str = "", preset_id: str | None = None
+        self, text: str, *, context: str = "", preset_id: str | None = None,
+        progress_callback=None,
     ) -> TextResult:
         if self._stopped or not getattr(self.config, "llm_enabled", False) or not text.strip():
             return TextResult(text, text)
@@ -87,6 +88,8 @@ class TextActionService:
         from core.client import logger
 
         try:
+            if progress_callback:
+                progress_callback("Preparing LLM…")
             # 每次请求加载静态文件，编辑后下次请求生效；没有文件监控线程。
             catalog = await asyncio.to_thread(load_catalog, self.directory)
             if self._stopped or epoch != self._cancel_epoch:
@@ -112,7 +115,7 @@ class TextActionService:
             provider = catalog.providers[preset.provider]
             host = urlsplit(provider.base_url).hostname
             location = "Local" if host in {"localhost", "127.0.0.1", "::1"} else "Remote"
-            if self.status_callback:
+            if self.status_callback and not progress_callback:
                 self.status_callback(
                     f"{preset.name} · {provider.model} · {location}", duration_ms=2500
                 )
@@ -124,6 +127,8 @@ class TextActionService:
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ]
             phase = "request"
+            if progress_callback:
+                progress_callback("Waiting for LLM…")
             logger.info("LLM request started: request=%s input_chars=%d preparation_ms=%d",
                         request_id, len(content), int((time.monotonic() - started) * 1000))
             request = asyncio.create_task(

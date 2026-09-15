@@ -61,6 +61,9 @@ class CapsWriterClient:
         self.state = ClientState(app=self)
 
         self.llm = TextActionService(Config, self.base_dir, status_callback=show_status_hint)
+        from core.client.processing_status import ProcessingStatus
+        from core.ui.recording_indicator import set_processing_status
+        self.progress = ProcessingStatus(set_processing_status)
         self.caret_context = CaretContextCapture(Config, self.base_dir)
         
         self.output = TextOutput()
@@ -227,6 +230,7 @@ class CapsWriterClient:
         if self._stopping:
             return
         self._stopping = True
+        self.progress.close()
 
         logger.info("正在执行 CapsWriterClient 资源释放...")
 

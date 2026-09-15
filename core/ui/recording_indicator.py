@@ -7,7 +7,6 @@
 """
 import ctypes
 import ctypes.wintypes
-import threading
 import tkinter as tk
 from typing import Optional, Tuple
 
@@ -80,20 +79,7 @@ class _RecordingIndicator:
         self._pulse_job = None
         self._hint_win: Optional[tk.Toplevel] = None
         self._hint_job = None
-
-    # ── 公共接口（线程安全，调度到 Tk 线程）──────────────────
-
-    def show(self) -> None:
-        self._root.after(0, self._show_impl)
-
-    def hide(self) -> None:
-        self._root.after(0, self._hide_impl)
-
-    def show_hint(self, text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
-        self._root.after(0, lambda: self._show_hint_impl(text, duration_ms, dot_color))
-
-    def hide_hint(self) -> None:
-        self._root.after(0, self._hide_hint_impl)
+        self._processing_text = ''
 
     # ── Tk 线程内部实现 ───────────────────────────────────────
 
@@ -216,9 +202,15 @@ class _RecordingIndicator:
         win.geometry(f'+{x}+{y}')
 
         self._hint_win = win
-        self._hint_job = self._root.after(max(300, int(duration_ms)), self._hide_hint_impl)
+        if duration_ms:
+            self._hint_job = self._root.after(max(300, int(duration_ms)), self._hide_hint_impl)
 
     def _hide_hint_impl(self) -> None:
+        if self._hint_job:
+            try:
+                self._root.after_cancel(self._hint_job)
+            except tk.TclError:
+                pass
         if self._hint_win:
             try:
                 self._hint_win.destroy()
@@ -226,6 +218,14 @@ class _RecordingIndicator:
                 pass
             self._hint_win = None
         self._hint_job = None
+        if self._processing_text:
+            self._show_hint_impl(self._processing_text, 0, '#7DD3FC')
+
+    def _set_processing_impl(self, text: str) -> None:
+        self._processing_text = text
+        # 短通知结束后恢复仍在进行的任务；清理任务不撤掉别的错误通知。
+        if self._hint_job is None:
+            self._hide_hint_impl()
 
     def _relayout_hint_if_needed(self) -> None:
         """录音浮窗显示后，必要时将提示浮窗重新排到上方。"""
@@ -275,58 +275,41 @@ class _RecordingIndicator:
 # ============================================================
 
 _indicator: Optional[_RecordingIndicator] = None
-_lock = threading.Lock()
 
 
-def _get_indicator() -> Optional[_RecordingIndicator]:
-    """获取或创建指示器实例（等待 ToastManager root 就绪）"""
-    global _indicator
-    if _indicator is not None:
-        return _indicator
-
-    import time
+def _post_indicator(action) -> None:
+    """投递到现有 Tk 队列，不在快捷键或 asyncio 线程等待 root。"""
     from .toast_manager import ToastMessageManager
-    mgr = ToastMessageManager()
-    for _ in range(50):
-        if mgr.root is not None:
-            break
-        time.sleep(0.1)
 
-    if mgr.root is None:
-        logger.warning('RecordingIndicator: Tk root 未就绪，跳过显示')
-        return None
-
-    with _lock:
+    def apply(root):
+        global _indicator
         if _indicator is None:
-            _indicator = _RecordingIndicator(mgr.root)
-    return _indicator
+            _indicator = _RecordingIndicator(root)
+        action(_indicator)
+
+    ToastMessageManager().post_ui(apply)
 
 
 def show_recording_indicator() -> None:
     """显示录音指示浮窗（线程安全，可从任意线程调用）"""
-    ind = _get_indicator()
-    if ind:
-        ind.show()
+    _post_indicator(lambda ind: ind._show_impl())
 
 
 def hide_recording_indicator() -> None:
     """隐藏录音指示浮窗（线程安全，可从任意线程调用）"""
-    with _lock:
-        ind = _indicator
-    if ind:
-        ind.hide()
+    _post_indicator(lambda ind: ind._hide_impl())
 
 
 def show_status_hint(text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
     """显示短暂状态提示浮窗（线程安全）。"""
-    ind = _get_indicator()
-    if ind:
-        ind.show_hint(text=text, duration_ms=duration_ms, dot_color=dot_color)
+    _post_indicator(lambda ind: ind._show_hint_impl(text, duration_ms, dot_color))
 
 
 def hide_status_hint() -> None:
     """隐藏当前状态提示浮窗（线程安全）。"""
-    with _lock:
-        ind = _indicator
-    if ind:
-        ind.hide_hint()
+    _post_indicator(lambda ind: ind._hide_hint_impl())
+
+
+def set_processing_status(text: str) -> None:
+    """持续显示当前处理阶段；空字符串结束，短通知消失后自动恢复。"""
+    _post_indicator(lambda ind: ind._set_processing_impl(text))

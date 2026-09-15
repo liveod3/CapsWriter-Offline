@@ -57,6 +57,7 @@ class ShortcutTask:
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
         self._launch_generation: int = 0
+        self._progress_id: str | None = None
 
         # hold_mode 状态跟踪
         self.pressed: bool = False
@@ -156,6 +157,7 @@ class ShortcutTask:
 
         # 启动识别任务
         recorder = self._get_recorder()
+        self._progress_id = recorder.task_id
         self.task = asyncio.run_coroutine_threadsafe(
             recorder.record_and_send(),
             self.app.loop,
@@ -166,6 +168,8 @@ class ShortcutTask:
         """取消录音任务（时间过短）"""
         logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
         self.app.mark_user_activity()
+        if self._progress_id:
+            self.app.progress.finish(self._progress_id)
 
         self._launch_generation += 1
         self.is_recording = False
@@ -182,6 +186,9 @@ class ShortcutTask:
         """完成录音任务"""
         logger.info(f"[{self.shortcut.key}] 释放：完成录音")
         self.app.mark_user_activity()
+        # 在等待音频队列排空、发送尾包及 ASR 结果之前立即提示。
+        if self._progress_id and self.task is not None and not self.task.done():
+            self.app.progress.begin(self._progress_id)
 
         self._launch_generation += 1
         self.is_recording = False

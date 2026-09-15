@@ -48,7 +48,7 @@ class AudioRecorder:
             app: 客户端 App 实例
         """
         self.app = app
-        self.task_id: Optional[str] = None
+        self.task_id: str = str(uuid.uuid4())
         self._file_manager: Optional[AudioFileManager] = None
         self._start_time: float = 0.0
         self._duration: float = 0.0
@@ -69,6 +69,7 @@ class AudioRecorder:
         """发送消息到服务端"""
         if not self._ws_manager.is_connected:
             if message.is_final:
+                self.app.progress.finish(message.task_id)
                 self.state.task_contexts.pop(message.task_id, None)
                 self.state.pop_audio_file(message.task_id)
                 console.print('[ui.error]✗ 服务端未连接，录音未发送[/]\n')
@@ -78,6 +79,7 @@ class AudioRecorder:
         # 使用 WebSocketManager 发送协议消息
         success = await self._ws_manager.send(message)
         if not success and message.is_final:
+            self.app.progress.finish(message.task_id)
             self.state.task_contexts.pop(message.task_id, None)
             self.state.pop_audio_file(message.task_id)
             # 具体错误日志由 WebSocketManager 记录
@@ -90,8 +92,7 @@ class AudioRecorder:
         并发送到服务端进行识别。
         """
         try:
-            # 生成唯一任务 ID
-            self.task_id = str(uuid.uuid1())
+            # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
             logger.debug(f"创建录音任务，任务ID: {self.task_id}")
             
             self._start_time = 0.0
@@ -222,11 +223,13 @@ class AudioRecorder:
                     break
                     
         except asyncio.CancelledError:
+            self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
             if self._file_manager:
                 self._file_manager.finish()
             raise
         except Exception as e:
+            self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
             logger.error(f"录音任务错误: {e}", exc_info=True)
     

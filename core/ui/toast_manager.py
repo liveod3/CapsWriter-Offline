@@ -7,7 +7,7 @@ Toast 消息管理器模块
 import logging
 import threading
 import tkinter as tk
-from queue import Queue
+from queue import Queue, Empty
 from dataclasses import dataclass
 from typing import Literal, Optional, Callable, Union, List, TYPE_CHECKING
 import sys
@@ -112,11 +112,17 @@ class ToastMessageManager:
             return cls._instance
 
     def __init__(self) -> None:
-        if self._initialized:
-            return
+        # 多个快捷键/事件线程可同时首次投递，不能暴露尚未初始化完的队列。
+        with self._lock:
+            if self._initialized:
+                return
+            self._initialize()
 
+    def _initialize(self) -> None:
         self._initialized = True
         self.message_queue: Queue[ToastMessage] = Queue()
+        self.ui_queue: Queue = Queue()
+        self._ui_closed = False
         self.is_running = False
         self.active_windows: List = []  # 运行时类型，避免循环导入
         self.root: Optional[tk.Tk] = None
@@ -149,6 +155,7 @@ class ToastMessageManager:
     def _on_close(self) -> None:
         """关闭所有窗口并退出"""
         self.is_running = False
+        self._ui_closed = True
 
         for window in self.active_windows[:]:
             try:
@@ -163,7 +170,19 @@ class ToastMessageManager:
 
     def _process_queue(self) -> None:
         """处理队列中的消息"""
+        if not self.is_running:
+            return
         try:
+            # 只在 Tk 线程创建/修改状态窗；一次处理有上限，避免饿死主循环。
+            for _ in range(128):
+                try:
+                    callback = self.ui_queue.get_nowait()
+                except Empty:
+                    break
+                try:
+                    callback(self.root)
+                except Exception as exc:
+                    logger.warning("Status UI update failed: %s", type(exc).__name__)
             if not self.message_queue.empty():
                 msg = self.message_queue.get_nowait()
                 msg_id = getattr(msg, '_id', 'unknown')
@@ -209,6 +228,11 @@ class ToastMessageManager:
         # 继续处理队列
         if self.is_running and self.root:
             self.root.after(QUEUE_POLL_INTERVAL_MS, self._process_queue)
+
+    def post_ui(self, callback) -> None:
+        """非阻塞投递；root 尚未就绪时保留命令，关闭后丢弃。"""
+        if not self._ui_closed:
+            self.ui_queue.put(callback)
 
     def _window_exists(self, window) -> bool:
         """检查窗口是否存在"""

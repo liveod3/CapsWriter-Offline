@@ -28,6 +28,7 @@ def test_caret_snapshot_is_once_per_recording_and_audio_is_fifo(monkeypatch):
             queue.put_nowait(event)
         state = SimpleNamespace(queue_in=queue, task_contexts={})
         app = SimpleNamespace(
+            progress=Mock(),
             state=state,
             caret_context=SimpleNamespace(capture=AsyncMock(return_value="surrounding")),
             ws=SimpleNamespace(is_connected=True, send=AsyncMock(return_value=True)),
@@ -67,6 +68,7 @@ def test_final_output_preserves_plain_asr_and_respects_cancel_and_focus(
         error_message = "API key missing. Fill api_key in providers.toml."
         state = SimpleNamespace(task_contexts={"id": ("context", 42)}, set_output_text=Mock())
         app = SimpleNamespace(
+            progress=Mock(),
             state=state,
             llm=SimpleNamespace(
                 process=AsyncMock(

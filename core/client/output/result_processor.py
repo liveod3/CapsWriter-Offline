@@ -32,6 +32,7 @@ class ResultProcessor:
         return self.app.ws
 
     def request_exit(self):
+        self.app.progress.close()
         if self._loop.is_running() and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._exit_event.set)
 
@@ -57,12 +58,20 @@ class ResultProcessor:
                 except Exception as exc:
                     logger.error("Result processing failed: %s", type(exc).__name__)
             self.state.task_contexts.clear()
+            self.app.progress.clear()
             if not self._exit_event.is_set():
                 console.print("[ui.warning]Connection lost. Reconnecting…[/]")
 
     async def _handle_message(self, message: RecognitionMessage | None):
         if message is None or not message.is_final:
             return
+        try:
+            await self._handle_final(message)
+        finally:
+            self.app.progress.finish(message.task_id)
+
+    async def _handle_final(self, message: RecognitionMessage):
+        self.app.progress.update(message.task_id, "Preparing text…")
         original = message.text
         text = original
         if Config.traditional_convert:
@@ -73,7 +82,11 @@ class ResultProcessor:
         self.state.last_recognition_text = original
         context, target_window = self.state.task_contexts.pop(message.task_id, ("", 0))
         logger.info("Final transcription: task=%s chars=%d", message.task_id[:8], len(original))
-        result = await self.app.llm.process(text, context=context)
+        result = await self.app.llm.process(
+            text, context=context,
+            progress_callback=lambda stage: self.app.progress.update(message.task_id, stage),
+        )
+        self.app.progress.finish(message.task_id)
         final_text = result.text
         # 无论失败/取消都可从菜单找回本次文字；取消不会自动上屏。
         self.state.set_output_text(final_text)

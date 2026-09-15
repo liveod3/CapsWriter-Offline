@@ -64,6 +64,29 @@ def test_catalog_separates_connections_and_presets():
     assert text == "今天有点冷"
 
 
+def test_preparing_status_precedes_catalog_and_waiting_covers_transport(monkeypatch):
+    stages = []
+    catalog = load_catalog(ROOT / "LLM")
+
+    def load(_):
+        assert stages == ["Preparing LLM…"]
+        return catalog
+
+    async def complete(*args):
+        assert stages == ["Preparing LLM…", "Waiting for LLM…"]
+        await asyncio.sleep(0)
+        assert stages[-1] == "Waiting for LLM…"
+        return "result"
+
+    monkeypatch.setattr("core.client.llm.service.load_catalog", load)
+    hint = Mock()
+    service = TextActionService(config(llm_enabled=True), ROOT,
+                                SimpleNamespace(complete=complete), status_callback=hint)
+    result = asyncio.run(service.process("text", progress_callback=stages.append))
+    assert result.processed
+    hint.assert_not_called()
+
+
 def test_provider_diagnostics_reach_log_and_original_is_retained(monkeypatch):
     from core.client.llm.errors import api_error
 
