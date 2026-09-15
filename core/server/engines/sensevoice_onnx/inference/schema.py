@@ -20,11 +20,9 @@ class RecognitionResult:
     Attributes:
         text: 识别文本 (字符或块)
         start: 起始时间（秒）
-        is_hotword: 是否为命中的热词
     """
     text: str
     start: float
-    is_hotword: bool = False
 
 
 @dataclass
@@ -69,15 +67,11 @@ class Timings:
         frontend: 特征提取耗时
         encoder: 编码器推理耗时
         decoder: 解码器 (CTC) 推理耗时
-        radar: 热词雷达扫描耗时
-        integrate: 结果整合耗时
         total: 总耗时
     """
     frontend: float = 0.0
     encoder: float = 0.0
     decoder: float = 0.0
-    radar: float = 0.0
-    integrate: float = 0.0
     total: float = 0.0
 
 
@@ -89,12 +83,10 @@ class TranscriptionResult:
     Attributes:
         text: 最终识别文本
         results: 详细的 RecognitionResult 列表
-        hotwords: 识别到的热词列表
         timings: 耗时统计
     """
     text: str = ""
     results: List[RecognitionResult] = field(default_factory=list)
-    hotwords: List[str] = field(default_factory=list)
     timings: Timings = field(default_factory=Timings)
 
 
@@ -110,8 +102,6 @@ class ASREngineConfig:
         decoder_path: 解码器模型路径 (.onnx)
         tokenizer_path: 分词器模型路径 (.model)
         onnx_provider: 推理后端 (CPU, CUDA, DML, TensorRT)
-        hotwords: 初始热词字符串列表
-        top_k: 热词搜索 Top-K 深度
         itn: 是否启用反向文本规范化
         dml_pad_to: DML 填充时长 (秒)
     """
@@ -119,8 +109,6 @@ class ASREngineConfig:
     decoder_path: str
     tokenizer_path: str
     onnx_provider: str = "cpu"
-    hotwords: Optional[List[str]] = None
-    top_k: int = 10
     itn: bool = True
     dml_pad_to: int = 30
 

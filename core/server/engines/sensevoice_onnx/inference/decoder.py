@@ -61,22 +61,20 @@ class SenseVoiceDecoder:
         topk_log_probs, topk_indices = self.session.run(None, {"enc_out": enc_out})
         return topk_log_probs, topk_indices
 
-    def decode_all(self, enc_out, sp, top_k=20, prompt_len=4, T_valid=None, blank_id=0):
+    def decode(self, enc_out, sp, prompt_len=4, T_valid=None, blank_id=0):
         """
         [核心接口] 单次推理获取所有解码信息
-        返回: (greedy_results, radar_indices, radar_probs, top1_indices)
+        返回去除空白和连续重复后的文本与时间戳。
         """
         # 1. 唯一的一次推理调用
-        topk_log_probs, topk_indices = self.forward(enc_out)
+        _, topk_indices = self.forward(enc_out)
         
         # 确定有效范围 (跳过 Prompt 区域)
         start = prompt_len
         end = (T_valid + prompt_len) if T_valid is not None else topk_indices.shape[1]
         
-        # --- A. 提取雷达所需 Top-K 空间 ---
-        radar_indices = topk_indices[0, start:end, :].astype(np.int32)
-        radar_probs = np.exp(topk_log_probs[0, start:end, :].astype(np.float32))
-        top1_indices = radar_indices[:, 0]
+        # 模型固定返回 Top-K，只取 Top-1；无需展开候选概率空间。
+        top1_indices = topk_indices[0, start:end, 0]
         
         # --- B. 构造 Greedy 结果 (基于 Top-1) ---
         greedy_ids = top1_indices
@@ -95,11 +93,11 @@ class SenseVoiceDecoder:
         for tid, fidx in collapsed:
             if tid == blank_id: continue
             char = sp.id_to_piece(int(tid)).replace("\u2581", " ")
-            if not char.strip() and char != " ": ignore_char = True
+            if not char.strip() and char != " ": continue
             else:
                 greedy_results.append({
                     "text": char,
                     "start": round(fidx * 0.060, 3)
                 })
 
-        return greedy_results, radar_indices, radar_probs, top1_indices
+        return greedy_results

@@ -27,9 +27,6 @@ class FunASREngine:
         self.transcribe = self.transcriber.transcribe
 
 
-    def update_hotwords(self, hotwords: List[str]):
-        """更新热词（由父库调用）"""
-        self.models.ctc_decoder.update_hotwords(hotwords)
 
     def cleanup(self):
         """释放资源"""

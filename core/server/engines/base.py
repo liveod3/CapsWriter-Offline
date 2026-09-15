@@ -12,7 +12,6 @@ class EngineCapabilities(Enum):
     PUNC = auto()           # 自带标点
     TIMESTAMPS = auto()     # 自带时间戳
     STREAMING = auto()      # 支持真实流式推理
-    HOTWORDS = auto()       # 支持动态热词
 
 
 @dataclass
@@ -58,7 +57,7 @@ class BaseASREngine(ABC):
         pass
 
     @abstractmethod
-    def create_stream(self, hotwords: Optional[str] = None) -> RecognitionStream:
+    def create_stream(self) -> RecognitionStream:
         """创建一个识别流对象"""
         pass
 
@@ -72,9 +71,6 @@ class BaseASREngine(ABC):
         """执行推理并更新 stream.result"""
         pass
 
-    def update_hotwords(self, hotwords: List[str]):
-        """更新引擎内部的热词表（如果支持）"""
-        pass
 
     @abstractmethod
     def cleanup(self):

@@ -52,7 +52,6 @@ class ServerConfig:
     format_spell = True     # 输出时是否调整中英之间的空格
 
     enable_tray = True        # 是否启用托盘图标功能
-    hotwords_path = Path() / 'hot-server.txt' # 全局热词配置文件路径
 
     # 日志配置
     log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
@@ -114,7 +113,6 @@ class ModelPaths:
     fun_asr_nano_gguf_ctc = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-CTC.fp16.onnx'
     fun_asr_nano_gguf_llm_decode = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-Decoder.q5_k.gguf'
     fun_asr_nano_gguf_token = fun_asr_nano_gguf_dir / 'tokens.txt'
-    fun_asr_nano_gguf_hotwords = Path() / 'hot-server.txt'
 
     # Qwen3-ASR 模型路径，自带标点
     qwen3_asr_gguf_dir = model_dir / 'Qwen3-ASR' / 'Qwen3-ASR-1.7B'
@@ -151,7 +149,6 @@ class SenseVoiceArgs:
     tokenizer_path = ModelPaths.sensevoice_tokenizer.as_posix()
     itn = True                  # 原生输出阿拉伯数字
     onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    top_k = 8                   # 热词检索的 CTC 空间大小
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
 
 
@@ -170,11 +167,9 @@ class FunASRNanoGGUFArgs:
     vulkan_force_fp32 = False   # 是否强制 FP32 计算（如果 GPU 是 Intel 集显且出现精度溢出，可设为 True）
     
     # 模型细节
-    enable_ctc = True           # 是否启用 CTC 热词检索
+    enable_ctc = True           # 是否启用 CTC 时间戳对齐
     n_predict = 512             # LLM 最大生成 token 数
     n_threads = None            # 线程数，None 表示自动
-    similar_threshold = 0.6     # 热词相似度阈值，超过阈值的热词会被传入 llm decoder 的上下文
-    max_hotwords = 20           # 传入上下文的热词数量上限
     dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
     verbose = False
 

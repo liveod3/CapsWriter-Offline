@@ -81,7 +81,6 @@ def export_to_json(path: str, result: TranscriptionResult):
         {
             "text": r.text,
             "start": round(r.start, 3),
-            "is_hotword": r.is_hotword
         }
         for r in result.results
     ]

@@ -31,11 +31,10 @@ class SenseVoiceEngine(BaseASREngine):
         return [
             EngineCapabilities.ASR, 
             EngineCapabilities.PUNC, 
-            EngineCapabilities.HOTWORDS,
             EngineCapabilities.TIMESTAMPS
         ]
 
-    def create_stream(self, hotwords: Optional[str] = None) -> SenseVoiceStream:
+    def create_stream(self) -> SenseVoiceStream:
         """创建识别流"""
         return SenseVoiceStream()
 
@@ -68,9 +67,6 @@ class SenseVoiceEngine(BaseASREngine):
         stream.result.tokens = [r.text for r in res.results]
         stream.result.timestamps = [r.start for r in res.results]
 
-    def update_hotwords(self, hotwords: List[str]):
-        """更新热词"""
-        self.engine.update_hotwords(hotwords)
 
     def cleanup(self):
         """释放资源"""

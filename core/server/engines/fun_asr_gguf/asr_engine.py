@@ -16,7 +16,7 @@ class FunASRStream(RecognitionStream):
     FunASR-Nano 识别流适配器
     桥接内部的音频输入与标准的 RecognitionResult
     """
-    def __init__(self, pipeline: InferencePipeline, sample_rate: int = 16000, hotwords: Optional[str] = None):
+    def __init__(self, pipeline: InferencePipeline, sample_rate: int = 16000):
         super().__init__(sample_rate)
         self.internal_stream = pipeline.create_stream()
 
@@ -29,7 +29,7 @@ class FunASREngine(BaseASREngine):
     """
     FunASR 推理引擎适配器
     
-    具备的全能模型能力：ASR, TIMESTAMPS, HOTWORDS, PUNC
+    具备的全能模型能力：ASR, TIMESTAMPS, PUNC
     """
 
     def __init__(self, config: ASREngineConfig):
@@ -44,13 +44,12 @@ class FunASREngine(BaseASREngine):
         return [
             EngineCapabilities.ASR, 
             EngineCapabilities.TIMESTAMPS, 
-            EngineCapabilities.HOTWORDS, 
             EngineCapabilities.PUNC
         ]
 
-    def create_stream(self, hotwords: Optional[str] = None) -> FunASRStream:
+    def create_stream(self) -> FunASRStream:
         """创建包装后的识别流"""
-        return FunASRStream(self.pipeline, sample_rate=self.config.sample_rate, hotwords=hotwords)
+        return FunASRStream(self.pipeline, sample_rate=self.config.sample_rate)
 
     def decode_stream(
         self,
@@ -70,9 +69,6 @@ class FunASREngine(BaseASREngine):
         stream.result.tokens = list(res.tokens)
         stream.result.timestamps = list(res.timestamps)
 
-    def update_hotwords(self, hotwords: List[str]):
-        """更新热词（透传至模型层）"""
-        self.models.ctc_decoder.update_hotwords(hotwords)
 
     def cleanup(self):
         """释放资源"""

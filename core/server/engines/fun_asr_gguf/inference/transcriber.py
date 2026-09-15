@@ -109,7 +109,6 @@ class AudioTranscriber:
                 'text': d_res.text,
                 'segments': d_res.aligned,
                 'duration': e_s - s_s,
-                'hotwords': d_res.hotwords,
                 'ctc_text': "".join([r.text for r in d_res.ctc_results]) if d_res.ctc_results else ""
             })
             
@@ -130,9 +129,7 @@ class AudioTranscriber:
         all_h = set()
         all_ctc = []
         for r in segment_results:
-            all_h.update(r['hotwords'])
             if r['ctc_text']: all_ctc.append(r['ctc_text'])
-        result.hotwords = list(all_h)
         result.ctc_text = "".join(all_ctc)
 
     def _generate_segments(self, duration: float, segment_size: float, overlap: float):

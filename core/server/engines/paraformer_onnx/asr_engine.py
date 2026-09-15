@@ -27,10 +27,10 @@ class ParaformerStream(RecognitionStream):
     Paraformer 识别流包装类
     转发调用至 sherpa_onnx.OfflineStream 并暴露标准结果接口
     """
-    def __init__(self, recognizer: sherpa_onnx.OfflineRecognizer, sample_rate: int = 16000, hotwords: Optional[str] = None):
+    def __init__(self, recognizer: sherpa_onnx.OfflineRecognizer, sample_rate: int = 16000):
         super().__init__(sample_rate)
         # 实际创建 sherpa-onnx 的流
-        self.internal_stream = recognizer.create_stream(hotwords=hotwords)
+        self.internal_stream = recognizer.create_stream()
 
     def accept_waveform(self, sample_rate: int, audio: np.ndarray):
         self.internal_stream.accept_waveform(sample_rate, audio.astype(np.float32))
@@ -41,7 +41,7 @@ class ParaformerEngine(BaseASREngine):
     Paraformer 识别引擎适配器
 
     声明能力：ASR, TIMESTAMPS
-    不支持：PUNC, HOTWORDS (内置)
+    不支持：PUNC (内置)
     """
 
     @staticmethod
@@ -149,9 +149,9 @@ class ParaformerEngine(BaseASREngine):
             EngineCapabilities.TIMESTAMPS
         ]
 
-    def create_stream(self, hotwords: Optional[str] = None) -> ParaformerStream:
+    def create_stream(self) -> ParaformerStream:
         """创建包装后的识别流"""
-        return ParaformerStream(self.recognizer, sample_rate=self.config.sample_rate, hotwords=hotwords)
+        return ParaformerStream(self.recognizer, sample_rate=self.config.sample_rate)
 
     def decode_stream(
         self,
@@ -177,9 +177,6 @@ class ParaformerEngine(BaseASREngine):
             list(res.tokens), list(res.timestamps)
         )
 
-    def update_hotwords(self, hotwords: List[str]):
-        """Paraformer 暂不支持动态更新热词"""
-        pass
 
     def cleanup(self):
         """释放资源"""

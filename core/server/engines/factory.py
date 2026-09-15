@@ -56,7 +56,10 @@ class EngineFactory:
         loader = EngineFactory._ASR_LOADERS[model_type]
         EngineClass, ConfigClass, ArgsObj = loader()
         
-        config_data = {k: v for k, v in ArgsObj.__dict__.items() if not k.startswith('_')}
+        # 旧本机配置中已移除功能的字段不再传入引擎。
+        from dataclasses import fields
+        accepted = {field.name for field in fields(ConfigClass)}
+        config_data = {k: v for k, v in ArgsObj.__dict__.items() if k in accepted}
         config = ConfigClass(**config_data)
         
         return EngineClass(config)

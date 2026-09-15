@@ -34,7 +34,7 @@ class QwenASREngine(BaseASREngine):
             EngineCapabilities.PUNC
         ]
 
-    def create_stream(self, hotwords: Optional[str] = None) -> QwenASRStream:
+    def create_stream(self) -> QwenASRStream:
         """创建识别流"""
         return QwenASRStream()
 
@@ -86,9 +86,6 @@ class QwenASREngine(BaseASREngine):
         stream.result.text = res.text
         # Qwen 纯 ASR 模式下暂不支持 token 级时间戳，由 server_recognize 自动补齐
 
-    def update_hotwords(self, hotwords: List[str]):
-        """Qwen 暂不支持热词动态更新"""
-        pass
 
     def cleanup(self):
         """释放资源"""

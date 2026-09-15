@@ -61,11 +61,6 @@ class ModelLoader:
             if EngineCapabilities.TIMESTAMPS not in caps:
                 self._load_align_model()
 
-            # 5. 加载热词 (如果引擎支持 HOTWORDS 能力)
-            if EngineCapabilities.HOTWORDS in caps and Config.hotwords_path.exists():
-                hotwords = [l.strip() for l in Config.hotwords_path.read_text('utf-8').splitlines() 
-                           if l.strip() and not l.strip().startswith('#')]
-                self.recognizer.update_hotwords(hotwords)
 
             logger.info(f"全系统初始化完成，耗时: {time.time() - t1:.2f}s")
             

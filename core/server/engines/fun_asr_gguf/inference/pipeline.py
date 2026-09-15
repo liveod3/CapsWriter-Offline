@@ -54,25 +54,20 @@ class InferencePipeline:
 
         # 2. CTC Decoding
         reporter.print("\n[3] CTC 解码...")
-        (ctc_results, hotwords, ctc_times), timings.ctc = timer(
+        (ctc_results, ctc_times), timings.ctc = timer(
             self.models.ctc_decoder.decode,
             enc_output, 
             self.models.config.enable_ctc, 
-            self.models.config.max_hotwords, 
-            top_k = self.models.config.ctc_topk
         )
         reporter.print(f"    CTC: {''.join([r.text for r in ctc_results])}")
-        reporter.print(f"    热词: {hotwords}")
         t_detail = " | ".join([f"{k}:{v*1000:.1f}ms" for k, v in ctc_times.items() if v > 0])
         reporter.print(f"    耗时: {timings.ctc*1000:.2f}ms ({t_detail})")
 
         # 3. Prompt Builder
         reporter.print("\n[4] 准备 Prompt...")
         (p_embd, s_embd, n_p, n_s, p_text), timings.prepare = timer(
-            self.models.prompt_builder.build_prompt, hotwords, language, context
+            self.models.prompt_builder.build_prompt, language, context
         )
-        if reporter.verbose and reporter.skip_technical is False:
-            reporter.print("-" * 15 + " Prefix Prompt " + "-" * 15 + "\n" + p_text + "\n" + "-" * 40)
         reporter.print(f"    Prefix: {n_p} tokens")
         reporter.print(f"    Suffix: {n_s} tokens")
 
@@ -119,7 +114,7 @@ class InferencePipeline:
         return DecodeResult(
             text=text, ctc_results=ctc_results, aligned=aligned,
             audio_embd=audio_embd, n_prefix=n_p, n_suffix=n_s,
-            n_gen=llm_res.n_gen, timings=timings, hotwords=hotwords,
+            n_gen=llm_res.n_gen, timings=timings,
             is_aborted=llm_res.is_aborted
         )
 

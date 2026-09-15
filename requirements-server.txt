@@ -8,11 +8,9 @@ onnxruntime-directml
 # basic
 rich
 websockets
-watchdog
-pypinyin
 
 # tray and image
-pystray
+pystray==0.19.5
 Pillow
 
 markdown

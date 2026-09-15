@@ -59,8 +59,6 @@ class Models:
             tokens_path=self.config.tokens_path,
             onnx_provider=self.config.onnx_provider,
             dml_pad_to=self.config.dml_pad_to,
-            hotwords=self.config.hotwords,
-            similar_threshold=self.config.similar_threshold
         )
 
         # 3. GGUF LLM Decoder

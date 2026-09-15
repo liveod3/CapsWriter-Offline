@@ -7,19 +7,15 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Any, Optional
 from . import logger
-from .hotword.hot_phoneme import PhonemeCorrector
-from .radar import HotwordRadar
-from .integrator import ResultIntegrator
 
 @dataclass
 class Token:
     text: str
     timestamp: float
-    is_hotword: bool = False
 
 class CTCTokenizer:
     """
-    适配器模式：将 Nano 的 Base64 词表包装成满足 HotwordRadar 要求的接口
+    Nano CTC 分词器接口
     """
     def __init__(self, id2token, encode_fn=None):
         self.id2token = id2token
@@ -52,7 +48,7 @@ class CTCTokenizer:
 
 class CTCDecoder:
     """FunASR CTC 推理与解码器 (多阶段内部流水线)"""
-    def __init__(self, model_path: str, tokens_path: str, onnx_provider: str = 'CPU', dml_pad_to: int = 30, hotwords: Optional[List[str]] = None, similar_threshold: float = 0.6):
+    def __init__(self, model_path: str, tokens_path: str, onnx_provider: str = 'CPU', dml_pad_to: int = 30):
         self.model_path = model_path
         self.tokens_path = tokens_path
         self.onnx_provider = onnx_provider.upper()
@@ -63,12 +59,6 @@ class CTCDecoder:
         self.input_dtype = np.float32
         self.tokenizer = None   # CTCTokenizer 包装器
         self._load_tokens()
-        
-        # 音素热词、CTC热词
-        self.corrector = PhonemeCorrector(threshold=1.0, similar_threshold=similar_threshold)
-        self.radar = HotwordRadar([], self.tokenizer)
-        self.integrator = ResultIntegrator()
-        self.update_hotwords(hotwords)
         
         self._initialize_session()
         self.warmup()
@@ -121,11 +111,6 @@ class CTCDecoder:
         if self.blank_id is None:
             self.blank_id = max(self.id2token.keys()) if self.id2token else 0
             
-    def update_hotwords(self, hotwords: List[str]):
-        """动态更新热词列表"""
-        self.corrector.update_hotwords(hotwords)
-        self.radar.update_hotwords(hotwords)
-        logger.info(f"[CTC] 热词已更新 (热词数: {len(hotwords)})")
 
     def warmup(self):
         if self.dml_pad_to <= 0:
@@ -138,58 +123,21 @@ class CTCDecoder:
 
     # ================================================================
     # 对外唯一入口：decode()
-    # 返回三元组 (ctc_results, hotwords, t_stats)
+    # 返回 CTC tokens 与耗时
     # ================================================================
 
-    def decode(self, enc_output: np.ndarray, enable_ctc: bool, max_hotwords: int = 10, top_k: int = 10) -> Tuple[List[Token], List[str], Dict[str, float]]:
-        """
-        完整解码流水线（黑箱）。
-        内部按顺序执行：ONNX推理 → 贪婪解码 → 雷达扫描 → 整合 → 拼音纠错
-        
-        Returns:
-            ctc_results: 贪婪解码或整合后的 Token 列表
-            hotwords:    综合检测到的热词文本列表
-            t_stats:     各阶段耗时字典
-        """
-        t_stats = {"infer": 0.0, "decode": 0.0, "radar": 0.0, "integrate": 0.0, "hotword": 0.0}
+    def decode(self, enc_output: np.ndarray, enable_ctc: bool) -> tuple:
+        """CTC 仅用于原始文本与时间戳，不执行词表替换。"""
+        stats = {"infer": 0.0, "decode": 0.0}
         if not enable_ctc or self.sess is None:
-            return [], [], t_stats
-
-        # ---- 阶段 1: ONNX 推理 (获取 Top-K) ----
-        t0 = time.perf_counter()
-        topk_log_probs, topk_indices = self._infer(enc_output)
-        t_stats["infer"] = time.perf_counter() - t0
-        
-        # ---- 阶段 2: 贪婪解码 (Top-1) ----
-        t0 = time.perf_counter()
-        indices_2d = topk_indices[0]        # [T, K]
-        top1_indices = indices_2d[:, 0]     # [T]
-        ctc_text, ctc_results = self._greedy_decode(top1_indices)
-        t_stats["decode"] = time.perf_counter() - t0
-        
-        # ---- 阶段 3: 雷达扫描 (Top-K 空间) ----
-        t0 = time.perf_counter()
-        topk_probs = np.exp(topk_log_probs[0])
-        detected_hotwords = self.radar.scan(indices_2d, topk_probs, top_k=top_k, blank_id=self.blank_id)
-        t_stats["radar"] = time.perf_counter() - t0
-        
-        # ---- 阶段 4: 整合 (Greedy + 热词 → 替换) ----
-        t0 = time.perf_counter()
-        if detected_hotwords and ctc_results:
-            ctc_text, ctc_results = self._integrate(ctc_results, detected_hotwords)
-        t_stats["integrate"] = time.perf_counter() - t0
-        
-        # ---- 阶段 5: 拼音纠错 (补充热词) ----
-        t0 = time.perf_counter()
-        hotwords = [h["text"] for h in detected_hotwords]
-        if self.corrector and self.corrector.hotwords and ctc_text:
-            corrected_text, extra_hotwords = self._correct(ctc_text, max_hotwords)
-            hotwords = list(set(hotwords) | set(extra_hotwords))
-            t_stats["hotword"] = time.perf_counter() - t0
-        else:
-            t_stats["hotword"] = time.perf_counter() - t0
-            
-        return ctc_results, hotwords, t_stats
+            return [], stats
+        started = time.perf_counter()
+        _, indices = self._infer(enc_output)
+        stats["infer"] = time.perf_counter() - started
+        started = time.perf_counter()
+        _, results = self._greedy_decode(indices[0, :, 0])
+        stats["decode"] = time.perf_counter() - started
+        return results, stats
 
     # ================================================================
     # 内部阶段方法
@@ -206,29 +154,7 @@ class CTCDecoder:
         return ctc_text, ctc_results
 
 
-    def _integrate(self, ctc_results: List[Token], detected_hotwords: List[Dict]) -> Tuple[str, List[Token]]:
-        """阶段 4: 将雷达命中的热词整合进贪婪结果"""
-        if self.integrator is None:
-            return "".join([r.text for r in ctc_results]), ctc_results
-        
-        greedy_fmt = [{"text": r.text, "timestamp": r.timestamp} for r in ctc_results]
-        integrated_list = self.integrator.integrate(greedy_fmt, detected_hotwords)
-        
-        # 将整合结果转回 Token 列表
-        new_results = [
-            Token(text=r["text"], timestamp=r["timestamp"], is_hotword=r.get("is_hotword", False))
-            for r in integrated_list
-        ]
-        new_text = "".join([r.text for r in new_results])
-        return new_text, new_results
 
-    def _correct(self, text: str, max_hotwords: int) -> Tuple[str, List[str]]:
-        """阶段 5: 拼音纠错，返回 (纠错后文本, 额外发现的热词列表)"""
-        res = self.corrector.correct(text, k=max_hotwords)
-        candidates = set()
-        for _, hw, _ in res.matchs: candidates.add(hw)
-        for _, hw, _ in res.similars: candidates.add(hw)
-        return res.text, list(candidates)
 
 
 
