@@ -35,18 +35,24 @@ jobs:
           -r requirements-server.txt
           -r requirements-dev.txt
 
+      - name: Initialize default configuration
+        shell: pwsh
+        run: |
+          if (!(Test-Path config_client.py)) { Copy-Item config_templates/config_client_template.py config_client.py }
+          if (!(Test-Path config_server.py)) { Copy-Item config_templates/config_server_template.py config_server.py }
+
       - name: Compile Python sources
         run: >-
           python -m compileall -q
-          start_client.py start_server.py config_client.py config_server.py core LLM
+          start_client.py start_server.py config_client.py config_server.py config_templates core LLM
 
       - name: Lint
-        run: python -m ruff check start_client.py start_server.py config_client.py config_server.py core LLM tests
+        run: python -m ruff check start_client.py start_server.py config_client.py config_server.py config_templates core LLM tests
 
       - name: Type-check critical paths
         run: >-
           python -m mypy core/protocol.py core/server/schema.py
-          core/server/merger core/client/hotword/hot_rule.py
+          core/server/merger
           core/tools/format_tools.py
 
       - name: Run unit tests with coverage

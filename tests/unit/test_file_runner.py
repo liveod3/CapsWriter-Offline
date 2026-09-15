@@ -23,7 +23,6 @@ def test_file_runner_does_not_read_input_without_interactive_stdin():
     app = SimpleNamespace(
         state=SimpleNamespace(),
         ws=SimpleNamespace(),
-        hotword=SimpleNamespace(start=lambda **_kwargs: None, stop=lambda: None),
     )
     runner = FileRunner(app, [], output_formats=frozenset({'txt'}))
 

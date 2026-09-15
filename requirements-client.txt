@@ -9,23 +9,19 @@ keyboard
 pynput
 pyclip
 sounddevice
-watchdog
+comtypes; sys_platform == 'win32'
 
 # network and api 
 websockets
-openai
-ollama
 httpx
 
 # data process
 numpy
-numba
-pypinyin
 srt
 rapidfuzz
 
 # tray and image
-pystray
+pystray==0.19.5
 Pillow
 tkhtmlview
 

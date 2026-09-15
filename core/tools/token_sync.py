@@ -1,17 +1,17 @@
 # coding: utf-8
 """
-将格式化后的文本中的标点/热词/ITN 同步回 token 序列
+将格式化后的文本中的标点/ITN 同步回 token 序列
 
-格式化器（PuncModel + ITN + HotwordReplace）会在 text 中插入标点、改写内容和
-替换热词，但 tokens 列表从未更新，导致 JSON 导出的 tokens 缺标点/不正确。
+格式化器（PuncModel + ITN）会在 text 中插入标点、改写内容和
+格式化文本，但 tokens 列表从未更新，导致 JSON 导出的 tokens 缺标点/不正确。
 
 本模块通过 SequenceMatcher 对比格式化前后的文本差异，
-将差异注入 token 序列，同时处理 ITN、热词替换等场景。
+将差异注入 token 序列，同时处理 ITN等场景。
 
 升级说明（v2）：
 - expand + merge 策略：先将多字符 token 展开为单字符，再执行 SequenceMatcher 对齐，
   避免多字符 token 被局部修改时丢字符（如 "cloud" → "Claude" 中 "l" 被跳过的问题）。
-- _handle_insert 不再只保留标点：所有插入文本（热词、标点等）都用 _tokenize_replacement
+- _handle_insert 不再只保留标点：所有插入文本（标点等）都用 _tokenize_replacement
   切分后完整保留。
 """
 
@@ -79,7 +79,7 @@ def sync_tokens_from_text(
     用 SequenceMatcher 对比 ``raw_text``（tokens 拼接）和 ``formatted_text``：
     - 'equal': 输出对应的原始 token（不重复）
     - 'insert': 用 _tokenize_replacement 切分并插入（不限于标点）
-    - 'replace': 找出被替换的原始 token，用格式化后的新文本替换（ITN / 热词兼容）
+    - 'replace': 找出被替换的原始 token，用格式化后的新文本替换（ITN 兼容）
     - 'delete': 跳过被删除的原始 token
 
     升级策略：先展开多字符 token 为单字符（expand），使 SequenceMatcher 的
@@ -89,7 +89,7 @@ def sync_tokens_from_text(
     Args:
         raw_tokens: 原始 token 列表
         raw_timestamps: 对应的时间戳列表
-        formatted_text: 格式化后的文本（含标点 / ITN / 热词）
+        formatted_text: 格式化后的文本（含标点 / ITN）
 
     Returns:
         (new_tokens, new_timestamps) 同步后的 token 序列
@@ -163,7 +163,7 @@ def _handle_insert(formatted_text, fi1, fi2,
     """'insert' — 将插入文本完整切分为 token（不限于标点）
 
     升级后：所有插入内容都用 _tokenize_replacement 切分后保留，
-    不再只保留标点。适用于标点插入、热词新增、空格调整等场景。
+    不再只保留标点。适用于标点插入、空格调整等场景。
     """
     text = formatted_text[fi1:fi2]
     if not text:

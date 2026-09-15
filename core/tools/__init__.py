@@ -10,7 +10,6 @@
 - empty_working_set: Windows 内存管理
 - format_tools: 文本格式化（中英文空格调整）
 - my_status: Rich Status 扩展
-- hot_sub_*: 热词替换工具
 - srt_from_txt: SRT 字幕生成
 - window_detector: 窗口检测
 """

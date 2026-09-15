@@ -111,6 +111,9 @@ class ShortcutTask:
         self._launch_generation += 1
         generation = self._launch_generation
 
+        if getattr(self.state, 'dictation_manually_paused', False):
+            show_status_hint('Dictation is paused. Resume from the tray menu.', duration_ms=2000)
+            return False
         if self.state.dictation_paused:
             resumed = self.app.resume_dictation(show_hint=False, silent_stream=True)
             if not resumed:
@@ -123,9 +126,12 @@ class ShortcutTask:
         self.recording_start_time = time.time()
         self.is_recording = True
 
+        from core.client.caret_context import foreground_window
+        target_window = foreground_window()
+
         # 将开始标志放入队列
         asyncio.run_coroutine_threadsafe(
-            self.state.queue_in.put({'type': 'begin', 'time': self.recording_start_time, 'data': None}),
+            self.state.queue_in.put({'type': 'begin', 'time': self.recording_start_time, 'data': None, 'target_window': target_window}),
             self.app.loop
         )
 

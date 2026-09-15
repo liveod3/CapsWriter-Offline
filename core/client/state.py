@@ -69,7 +69,7 @@ class ClientState:
         recording: 是否正在录音
         recording_start_time: 录音开始时间戳
         audio_files: 任务ID到音频文件路径的映射
-        last_recognition_text: 最近一次识别的最终文本（热词替换后），供"添加纠错记录"使用
+        last_recognition_text: 最近一次识别的最终文本，用于保留 ASR 原文
     """
 
     queue_in: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -81,10 +81,12 @@ class ClientState:
     recording: bool = False
     recording_start_time: float = 0.0
     dictation_paused: bool = False
+    dictation_manually_paused: bool = False
+    task_contexts: dict = field(default_factory=dict)
     last_activity_time: float = field(default_factory=time.time)
     audio_files: Dict[str, Path] = field(default_factory=dict)
 
-    # 最近一次识别结果（用于手动添加纠错记录）
+    # 最近一次识别结果（未经 LLM 处理）
     last_recognition_text: Optional[str] = None
     
     # 最近一次输出内容（如果是 LLM 润色，则是润色结果；否则是原始识别结果）
@@ -123,6 +125,8 @@ class ClientState:
         self.recording = False
         self.recording_start_time = 0.0
         self.dictation_paused = False
+        self.dictation_manually_paused = False
+        self.task_contexts.clear()
         self.last_activity_time = time.time()
         self.audio_files.clear()
         

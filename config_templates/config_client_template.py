@@ -33,10 +33,10 @@ class ClientConfig:
     # 快捷键配置列表
     shortcuts = [
         {
-            'key': 'ctrl_r',     # 监听大写锁定键
+            'key': 'ctrl_r',     # 监听右 Ctrl 键
             'type': 'keyboard',     # 是键盘快捷键
-            'suppress': False,      # 阻塞按键（短按会补发）
-            'hold_mode': False,      # 长按模式
+            'suppress': False,      # 不阻塞原按键
+            'hold_mode': False,      # 切换模式：单击开始，再次单击结束
             'enabled': True         # 启用此快捷键
         },
         {
@@ -56,10 +56,9 @@ class ClientConfig:
 
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
 
-    save_audio = True           # 是否保存录音文件
+    save_audio = False           # 是否保存录音文件
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
     
-    context = ''                # 提示词上下文，用于辅助 Fun-ASR-Nano 模型识别（例如输入人名、地名、专业术语等）
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）
 
     trash_punc = '，。,.'       # 识别结果要消除的末尾标点
@@ -69,12 +68,27 @@ class ClientConfig:
     traditional_convert = False     # 是否将识别结果转换为繁体中文
     traditional_locale = 'zh-hant'  # 繁体地区：'zh-hant'（标准繁体）, 'zh-tw'（台湾繁体）, 'zh-hk'（香港繁体）
 
-    hot = True                 # 是否启用热词替换（统一 RAG 匹配）
-    hot_thresh = 0.85           # RAG 替换热词阈值（高阈值，用于实际替换）
-    hot_similar = 0.6           # RAG 相似热词阈值（低阈值，用于 LLM 上下文）
-    hot_rule = True             # 是否启用自定义规则替换（基于正则表达式）
 
-    llm_enabled = True          # 是否启用 LLM 润色功能，需要配置 LLM/ 目录下的角色文件
+    llm_enabled = False          # 是否启用无会话文本动作（LLM/*.toml）
+
+    # 独立保存听写文字；不要求同时保存麦克风音频。
+    save_transcripts = True
+    transcript_dir = 'logs/transcripts'
+    transcript_save_original = False
+    save_llm_records = False
+
+    # 自动读取本次听写起点附近的文本；关闭时不访问文本控件。
+    caret_context_enabled = False
+    caret_context_before_chars = 800
+    caret_context_after_chars = 200
+
+    # 最多一个自动预设；None 表示仅显式口令触发，受 llm_enabled 总开关控制。
+    llm_default_preset = 'correct_asr'
+    llm_config_dir = 'LLM'
+    # 诊断日志按年/月保留，0 表示不自动清理；不控制识别文字归档。
+    save_diagnostic_logs = True
+    diagnostic_log_retention_days = 30
+
     llm_stop_key = 'esc'        # 中断 LLM 输出的快捷键
 
     enable_tray = True          # 客户端默认启用托盘图标功能

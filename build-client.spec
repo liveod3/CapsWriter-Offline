@@ -68,12 +68,13 @@ hiddenimports += [
     'pyclip',
     'numpy',
     'sounddevice',
-    'pypinyin',
-    'watchdog',
     'typer',
     'srt',
     'PIL',           # Pillow 用于托盘图标
     'PIL.Image',
+    'comtypes.client',
+    'comtypes.tools.codegenerator',
+    'pystray._win32',
     'pystray',       # 托盘图标库
     'rich._unicode_data.unicode17-0-0',
 ]
@@ -179,13 +180,13 @@ coll = COLLECT(
 my_files = [
     ('config_templates/config_client_template.py', 'config_client.py'),
     ('core_client.py', 'core_client.py'),
-    ('hot.txt', 'hot.txt'),
-    ('hot-server.txt', 'hot-server.txt'),
-    ('hot-rule.txt', 'hot-rule.txt'),
     ('readme.md', 'readme.md'),
 ]
 my_folders = []     # 使用软链接，不再复制
 dest_root = join('dist', basename(coll.name))
+
+from build_llm import copy_llm_configuration
+copy_llm_configuration('.', dest_root)
 
 # 复制文件夹中的文件
 for folder in my_folders:
@@ -214,7 +215,7 @@ from platform import system
 from subprocess import run
 
 if system() == 'Windows':
-    link_folders = ['assets', 'core', 'LLM', 'docs', 'log']
+    link_folders = ['assets', 'core', 'docs', 'log']
     for folder in link_folders:
         if not exists(folder):
             continue

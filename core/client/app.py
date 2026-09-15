@@ -30,8 +30,8 @@ from .shortcut.shortcut_config import Shortcut
 
 from .udp.udp_control import UDPController
 
-from .hotword.manager import HotwordManager
-from .llm.llm_handler import LLMHandler
+from .llm.service import TextActionService
+from .caret_context import CaretContextCapture
 from .output.text_output import TextOutput
 from .diary.diary_writer import DiaryWriter
 from core.tools.empty_working_set import empty_current_working_set
@@ -60,18 +60,12 @@ class CapsWriterClient:
         # 初始化状态容器
         self.state = ClientState(app=self)
 
-        # 初始化热词管理器
-        self.hotword = HotwordManager(
-            hotword_files=None,
-            threshold=Config.hot_thresh,
-            similar_threshold=Config.hot_similar
-        )
-
-        # 4. 初始化 LLM 润色系统
-        self.llm = LLMHandler(app=self)
+        self.llm = TextActionService(Config, self.base_dir, status_callback=show_status_hint)
+        self.caret_context = CaretContextCapture(Config, self.base_dir)
         
         self.output = TextOutput()
-        self.diary = DiaryWriter(base_path=self.base_dir)
+        self.diary = DiaryWriter(base_path=self.base_dir / getattr(Config, 'transcript_dir', 'logs/transcripts'))
+        self.action_records = DiaryWriter(base_path=self.base_dir / 'logs' / 'text-actions')
 
         # 初始化各管理器
         self.ws = WebSocketManager(self)
@@ -132,7 +126,7 @@ class CapsWriterClient:
             if idle_for < Config.idle_suspend_seconds:
                 continue
 
-            paused = self.pause_dictation(show_hint=False)
+            paused = self.pause_dictation(show_hint=False, manual=False)
             if paused:
                 message = '听写已闲置挂起：麦克风已释放'
                 logger.info(message)
@@ -140,7 +134,7 @@ class CapsWriterClient:
                 show_status_hint('听写已闲置挂起', duration_ms=1800, dot_color='#F59E0B')
                 self.state.last_activity_time = time.time()
 
-    def pause_dictation(self, show_hint: bool = True) -> bool:
+    def pause_dictation(self, show_hint: bool = True, *, manual: bool = True) -> bool:
         """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
         if self.state.recording:
             if show_hint:
@@ -150,6 +144,8 @@ class CapsWriterClient:
                 show_status_hint(message, duration_ms=1600, dot_color='#F59E0B')
             return False
 
+        if manual:
+            self.state.dictation_manually_paused = True
         if self.state.dictation_paused:
             return True
 
@@ -177,6 +173,7 @@ class CapsWriterClient:
             return False
 
         self.state.dictation_paused = False
+        self.state.dictation_manually_paused = False
         set_dictation_paused(False)
         logger.info("听写恢复流程已启动：音频流已重新打开，等待设备就绪")
         self.mark_user_activity()
@@ -248,7 +245,7 @@ class CapsWriterClient:
         self.tray.stop()
 
         # 3. 关闭监控
-        self.hotword.stop()
+        self.caret_context.close()
         self.llm.stop()
 
         # 4. 关闭 WebSocket 连接

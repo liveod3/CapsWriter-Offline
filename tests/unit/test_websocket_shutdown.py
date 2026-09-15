@@ -28,8 +28,9 @@ def test_client_stop_requests_processor_exit_before_closing_connection():
         processor=SimpleNamespace(request_exit=lambda: calls.append("processor"))
     )
     app.stop_idle_suspend_monitor = Mock()
-    for name in ("udp", "shortcut", "stream", "tray", "hotword", "llm"):
+    for name in ("udp", "shortcut", "stream", "tray", "llm"):
         setattr(app, name, SimpleNamespace(stop=Mock()))
+    app.caret_context = SimpleNamespace(close=Mock())
     app.ws = SimpleNamespace(close_sync=lambda: calls.append("websocket"))
     app.state = SimpleNamespace(reset=Mock())
     app.loop = SimpleNamespace(stop=Mock())

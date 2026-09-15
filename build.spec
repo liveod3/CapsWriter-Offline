@@ -67,13 +67,14 @@ hiddenimports += [
     'pyclip', 
     'numpy',
     'sounddevice',
-    'pypinyin',
-    'watchdog',
     'typer',
     'srt',
     'sherpa_onnx',
     'PIL',           # Pillow 用于托盘图标
     'PIL.Image',
+    'comtypes.client',
+    'comtypes.tools.codegenerator',
+    'pystray._win32',
     'pystray',       # 托盘图标库
 ]
 
@@ -248,14 +249,14 @@ my_files = [
     ('config_templates/config_server_template.py', 'config_server.py'),
     ('core_server.py', 'core_server.py'),
     ('core_client.py', 'core_client.py'),
-    ('hot.txt', 'hot.txt'),
-    ('hot-server.txt', 'hot-server.txt'),
-    ('hot-rule.txt', 'hot-rule.txt'),
     ('readme.md', 'readme.md'),
     ('LICENSE', 'LICENSE'),
 ]
 my_folders = []     # 这里是要复制的文件夹
 dest_root = join('dist', basename(coll.name))
+
+from build_llm import copy_llm_configuration
+copy_llm_configuration('.', dest_root)
 
 # 复制文件夹中的文件
 for folder in my_folders:
@@ -284,7 +285,7 @@ from platform import system
 from subprocess import run
 
 if system() == 'Windows':
-    link_folders = ['models', 'assets', 'core', 'LLM', 'docs', 'log']  
+    link_folders = ['models', 'assets', 'core', 'docs', 'log']
     for folder in link_folders:
         if not exists(folder):
             continue

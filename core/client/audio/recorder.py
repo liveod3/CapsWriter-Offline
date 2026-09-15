@@ -53,6 +53,7 @@ class AudioRecorder:
         self._start_time: float = 0.0
         self._duration: float = 0.0
         self._cache: list = []
+        self._context = ''
 
     @property
     def state(self) -> ClientState:
@@ -68,6 +69,7 @@ class AudioRecorder:
         """发送消息到服务端"""
         if not self._ws_manager.is_connected:
             if message.is_final:
+                self.state.task_contexts.pop(message.task_id, None)
                 self.state.pop_audio_file(message.task_id)
                 console.print('[ui.error]✗ 服务端未连接，录音未发送[/]\n')
                 logger.warning("服务端未连接，无法发送音频数据")
@@ -76,6 +78,7 @@ class AudioRecorder:
         # 使用 WebSocketManager 发送协议消息
         success = await self._ws_manager.send(message)
         if not success and message.is_final:
+            self.state.task_contexts.pop(message.task_id, None)
             self.state.pop_audio_file(message.task_id)
             # 具体错误日志由 WebSocketManager 记录
     
@@ -106,6 +109,13 @@ class AudioRecorder:
                 
                 if task['type'] == 'begin':
                     self._start_time = task['time']
+                    from core.client.caret_context import asr_reference
+                    target = task.get('target_window', 0)
+                    context = await self.app.caret_context.capture(target)
+                    self._context = asr_reference(context)
+                    if len(self.state.task_contexts) >= 64:
+                        self.state.task_contexts.pop(next(iter(self.state.task_contexts)))
+                    self.state.task_contexts[self.task_id] = (context, target)
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
                 elif task['type'] == 'data':
@@ -125,6 +135,7 @@ class AudioRecorder:
                     
                     # 获取音频数据
                     if self._cache:
+                        self._cache.append(task['data'])
                         data = np.concatenate(self._cache)
                         self._cache.clear()
                     else:
@@ -146,10 +157,10 @@ class AudioRecorder:
                         time_start=self._start_time,
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
-                        context=Config.context,
+                        context=self._context,
                         language=Config.language,
                     )
-                    asyncio.create_task(self._send_message(message))
+                    await self._send_message(message)
                     
                 elif task['type'] == 'finish':
                     # 如果有缓存的数据未发送，先发送缓存
@@ -180,10 +191,10 @@ class AudioRecorder:
                             time_start=self._start_time,
                             seg_duration=Config.mic_seg_duration,
                             seg_overlap=Config.mic_seg_overlap,
-                            context=Config.context,
+                            context=self._context,
                             language=Config.language,
                         )
-                        asyncio.create_task(self._send_message(message))
+                        await self._send_message(message)
 
                     # 完成写入本地文件
                     if Config.save_audio and self._file_manager:
@@ -204,13 +215,19 @@ class AudioRecorder:
                         time_start=self._start_time,
                         seg_duration=Config.mic_seg_duration,
                         seg_overlap=Config.mic_seg_overlap,
-                        context=Config.context,
+                        context=self._context,
                         language=Config.language,
                     )
-                    asyncio.create_task(self._send_message(message))
+                    await self._send_message(message)
                     break
                     
+        except asyncio.CancelledError:
+            self.state.task_contexts.pop(self.task_id, None)
+            if self._file_manager:
+                self._file_manager.finish()
+            raise
         except Exception as e:
+            self.state.task_contexts.pop(self.task_id, None)
             logger.error(f"录音任务错误: {e}", exc_info=True)
     
     def get_file_manager(self) -> Optional[AudioFileManager]:

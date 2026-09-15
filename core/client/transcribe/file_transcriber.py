@@ -32,7 +32,6 @@ from core.protocol import AudioMessage, RecognitionMessage
 from .media_tool import MediaTool
 from .result_handler import ResultHandler
 from . import logger
-from core.tools.token_sync import sync_tokens_from_text
 
 if TYPE_CHECKING:
     from core.client.state import ClientState
@@ -358,7 +357,7 @@ class FileTranscriber:
                     time_start=time_start,
                     seg_duration=Config.file_seg_duration,
                     seg_overlap=Config.file_seg_overlap,
-                    context=Config.context,
+                    context='',
                     language=Config.language,
                 )
                 await self._send_window.acquire()
@@ -382,7 +381,7 @@ class FileTranscriber:
                 time_start=time_start,
                 seg_duration=Config.file_seg_duration,
                 seg_overlap=Config.file_seg_overlap,
-                context=Config.context,
+                context='',
                 language=Config.language,
             )
             if not await self._ws_manager.send(final_message):
@@ -441,8 +440,6 @@ class FileTranscriber:
 
         self._stop_progress()
 
-        # 应用热词并同步 tokens
-        self._apply_hotwords(message)
 
         # 调用结果处理器进行保存和格式化
         text_display, sequence, output_paths = ResultHandler.save_results(
@@ -480,40 +477,6 @@ class FileTranscriber:
         )
         return True
 
-    def _apply_hotwords(self, message: RecognitionMessage) -> None:
-        """对识别结果应用热词替换并同步 tokens"""
-        text_accu = message.text_accu or message.text
-        corrected = text_accu
-
-        # 1. 音素热词替换
-        if Config.hot:
-            correction = self.app.hotword.get_phoneme_corrector().correct(text_accu, k=10)
-            corrected = correction.text
-            # 记录热词匹配日志
-            for origin, hw, score in correction.matches:
-                logger.info(f"热词匹配: 「{origin}」→「{hw}」(分数={score:.2f})")
-                console.print(
-                    f'    [ui.label]热词匹配[/]  '
-                    f'[ui.value]「{origin}」[/] → [ui.success]「{hw}」[/] '
-                    f'[ui.muted]({score:.2f})[/]'
-                )
-            for origin, hw, score in correction.similars:
-                logger.debug(f"热词参考: 「{origin}」≈「{hw}」(分数={score:.2f})")
-
-        # 2. 规则替换
-        if Config.hot_rule:
-            corrected = self.app.hotword.get_rule_corrector().substitute(corrected)
-
-        # 3. 有变化则同步到 tokens 并更新 message
-        if corrected != text_accu and message.tokens:
-            new_tokens, new_timestamps = sync_tokens_from_text(
-                message.tokens, message.timestamps, corrected
-            )
-            message.text_accu = corrected
-            message.text = corrected
-            message.tokens = new_tokens
-            message.timestamps = new_timestamps
-            logger.debug(f"热词修正: {text_accu[:60]} → {corrected[:60]}")
 
     async def close(self) -> None:
         """释放资源，关闭 WebSocket 连接"""

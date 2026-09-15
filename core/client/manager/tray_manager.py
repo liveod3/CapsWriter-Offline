@@ -1,107 +1,244 @@
-# coding: utf-8
+"""客户端托盘：常用动作、静态配置入口与无会话文本处理。"""
+
+from __future__ import annotations
+import asyncio
 import os
-from . import logger
-import os, sys, subprocess
+import subprocess
+import time
+from pathlib import Path
+
 from config_client import ClientConfig as Config
+from core.ui.menu_model import MenuAction
+from . import logger
 
 
 class TrayManager:
-    """
-    托盘管理器：负责系统托盘图标的初始化、菜单构建及回调处理。
-    """
     def __init__(self, app):
         self.app = app
+        self._action_running = False
 
     @property
     def state(self):
         return self.app.state
 
+    def _open(self, path):
+        path = Path(path)
+        if not path.exists() and not path.suffix:
+            path.mkdir(parents=True, exist_ok=True)
+        try:
+            if path.name == "providers.toml":
+                from core.client.llm.config import ensure_provider_file
+
+                path = ensure_provider_file(path.parent)
+            if path.suffix in {".py", ".toml"}:
+                # 不调用 .py 默认关联，避免编辑配置意外执行 Python。
+                subprocess.Popen(["notepad.exe", str(path)])
+            else:
+                os.startfile(str(path))
+        except OSError as exc:
+            logger.warning("Cannot open settings or history: %s", type(exc).__name__)
+            from core.ui import show_status_hint
+
+            show_status_hint("Could not open this file or folder.", duration_ms=2500)
+
+    def menu_actions(self):
+        root = self.app.base_dir
+        text_enabled = lambda _item: bool(
+            getattr(Config, "llm_enabled", False)
+            and self.state.last_recognition_text
+            and not self._action_running
+        )
+        return [
+            MenuAction(
+                lambda _item: "Resume dictation"
+                if self.state.dictation_paused
+                else "Pause dictation",
+                self._toggle_pause,
+                "Pause releases the microphone. Resume explicitly to use dictation again.",
+                lambda _item: "resume" if self.state.dictation_paused else "pause",
+            ),
+            MenuAction(
+                "Copy last result",
+                self._copy_result,
+                "Copy the most recent output to the clipboard.",
+                "copy",
+                enabled=lambda _item: bool(self.state.last_output_text),
+            ),
+            MenuAction(
+                "Text actions",
+                tooltip="Process the last transcript and copy the result.",
+                icon="text",
+                children=[
+                    MenuAction(
+                        "Correct transcription",
+                        lambda: self._text_action("correct_asr"),
+                        "Correct the last transcript and copy the complete result.",
+                        "text",
+                        text_enabled,
+                    ),
+                    MenuAction(
+                        "Translate",
+                        lambda: self._text_action("translate"),
+                        "Translate the last transcript and copy the complete result.",
+                        "translate",
+                        text_enabled,
+                    ),
+                    MenuAction(
+                        "Cancel text action",
+                        self.app.llm.cancel,
+                        "Cancel the current text request. Keep the original transcript.",
+                        "pause",
+                    ),
+                ],
+            ),
+            MenuAction(
+                "Open history",
+                lambda: self._open(root / getattr(Config, "transcript_dir", "logs/transcripts")),
+                "Open saved transcripts, organized by year and month.",
+                "history",
+            ),
+            MenuAction(
+                "Settings",
+                tooltip="Edit client settings and text action configuration.",
+                icon="settings",
+                children=[
+                    MenuAction(
+                        "Client settings…",
+                        lambda: self._open(root / "config_client.py"),
+                        "Edit client settings. Restart the client to apply changes.",
+                        "settings",
+                    ),
+                    MenuAction(
+                        "Provider connections…",
+                        lambda: self._open(self.app.llm.directory / "providers.toml"),
+                        "Edit local connections and API keys. This file is excluded from Git.",
+                        "settings",
+                    ),
+                    MenuAction(
+                        "Text presets…",
+                        lambda: self._open(self.app.llm.directory / "presets.toml"),
+                        "Edit prompts and voice triggers. Changes apply to the next request.",
+                        "text",
+                    ),
+                ],
+            ),
+            MenuAction(
+                "Troubleshooting",
+                tooltip="Reconnect the microphone or inspect diagnostics.",
+                icon="tools",
+                children=[
+                    MenuAction(
+                        "Reconnect microphone",
+                        self._reconnect,
+                        "Reopen the microphone. Resume dictation first if paused.",
+                        "microphone",
+                        enabled=lambda _item: not self.state.dictation_paused,
+                    ),
+                    MenuAction(
+                        "Open diagnostic logs",
+                        lambda: self._open(root / "logs" / "diagnostics"),
+                        "Open dated diagnostic logs. These are separate from transcript history.",
+                        "folder",
+                    ),
+                    MenuAction(
+                        "Copy original transcription",
+                        self._copy_original,
+                        "Copy the last ASR result before any text action.",
+                        "copy",
+                        enabled=lambda _item: bool(self.state.last_recognition_text),
+                    ),
+                ],
+            ),
+        ]
+
     def start(self):
-        """初始化系统托盘图标"""
         if not Config.enable_tray:
             return
+        from ..ui import enable_min_to_tray
 
-        try:
-            from ..ui import enable_min_to_tray
-        except ImportError as e:
-            logger.warning(f"托盘模块导入失败，跳过托盘功能: {e}")
-            return
-
-        # 获取图标路径
-        icon_path = os.path.join(self.app.base_dir, 'assets', 'client-icon.ico')
-        
-        # 启用托盘
         enable_min_to_tray(
-            'CapsWriter Client',
-            icon_path,
+            "CapsWriter Client",
+            str(self.app.base_dir / "assets" / "client-icon.ico"),
             exit_callback=self.app.stop,
-            more_options=[
-                ('⏯️ 暂停/恢复听写', self._toggle_dictation_pause),
-                ('📋 复制结果', self._copy_last_result),
-                ('📝 上下文', self._add_context),
-                ('✨ 热词', self._add_hotword),
-                ('🧹 清除记忆', self._clear_memory),
-                ('♻️ 重开音频', self._restart_audio),
-            ]
+            more_options=self.menu_actions(),
         )
-        logger.info("托盘图标已启用")
 
     def stop(self):
-        """停止托盘图标"""
-        if not Config.enable_tray:
-            return
-            
-        try:
+        if Config.enable_tray:
             from ..ui import stop_tray
+
             stop_tray()
-            logger.info("TrayManager: 托盘图标已卸载")
-        except Exception as e:
-            logger.debug(f"TrayManager: 卸载托盘时发生错误: {e}")
 
-    def _restart_audio(self):
-        """重启音频流回调"""
-        if hasattr(self.app, 'stream') and self.app.stream:
-            self.app.stream.reopen()
-            logger.info("用户请求重启音频")
+    def _toggle_pause(self):
+        self._schedule(asyncio.to_thread(self.app.toggle_dictation_pause))
 
-    def _toggle_dictation_pause(self):
-        """暂停/恢复听写回调"""
-        self.app.toggle_dictation_pause()
+    def _reconnect(self):
+        async def reopen():
+            if self.state.recording:
+                from core.ui import show_status_hint
 
-    def _clear_memory(self):
-        """清除 LLM 对话历史回调"""
-        from ..ui import toast
-        if self.app.llm:
-            self.app.llm.clear_history()
-            toast("清除成功：已清除所有角色的对话历史记录", duration=3000, bg="#075077")
+                show_status_hint(
+                    "Finish recording before reconnecting the microphone.", duration_ms=2000
+                )
+                return
+            if not self.state.dictation_paused:
+                await asyncio.to_thread(self.app.stream.reopen)
 
-    def _add_hotword(self):
-        """用系统默认方式打开热词文件回调"""
-        
-        target = os.path.abspath('hot.txt')
-        if sys.platform == 'win32':
-            os.startfile(target)
-        elif sys.platform == 'darwin':
-            subprocess.Popen(['open', target])
-        else:
-            subprocess.Popen(['xdg-open', target])
+        self._schedule(reopen())
 
-    def _add_context(self):
-        """打开编辑上下文界面回调"""
+    def _schedule(self, coroutine):
+        loop = self.app.loop
+        if loop.is_closed() or getattr(self.app, "_stopping", False):
+            coroutine.close()
+            return False
         try:
-            from ..ui import on_edit_context
-            on_edit_context()
-        except ImportError as e:
-            logger.warning(f"无法导入上下文菜单处理器: {e}")
+            asyncio.run_coroutine_threadsafe(coroutine, loop)
+            return True
+        except RuntimeError:
+            coroutine.close()
+            return False
 
-    def _copy_last_result(self):
-        """复制最后一次识别结果到剪贴板回调"""
-        text = self.state.last_output_text
-        if text:
-            from ..llm.llm_clipboard import copy_to_clipboard
-            copy_to_clipboard(text)
+    def _copy_result(self):
+        if self.state.last_output_text:
+            from core.client.clipboard import copy_to_clipboard
 
-    def _request_exit(self, icon=None, item=None):
-        """托盘图标引用的退出回调"""
-        logger.info("托盘退出: 用户点击退出菜单，准备清理资源并退出")
-        self.app.stop()
+            copy_to_clipboard(self.state.last_output_text)
+
+    def _copy_original(self):
+        if self.state.last_recognition_text:
+            from core.client.clipboard import copy_to_clipboard
+
+            copy_to_clipboard(self.state.last_recognition_text)
+
+    def _text_action(self, preset_id):
+        text = self.state.last_recognition_text
+        if not text or self._action_running:
+            return
+        self._action_running = True
+
+        async def run():
+            try:
+                result = await self.app.llm.process(text, preset_id=preset_id)
+                if result.cancelled or getattr(self.app, "_stopping", False):
+                    return
+                self.state.set_output_text(result.text)
+                self._copy_result()
+                if result.processed and getattr(Config, "save_llm_records", False):
+                    await asyncio.to_thread(
+                        self.app.action_records.write,
+                        result.text,
+                        time.time(),
+                        action_input=result.input_text,
+                    )
+                from core.ui import show_status_hint
+
+                show_status_hint(
+                    (result.error_message or "Text action failed.") + " Original copied."
+                    if result.error else "Result copied.",
+                    duration_ms=5000 if result.error else 2500,
+                )
+            finally:
+                self._action_running = False
+
+        if not self._schedule(run()):
+            self._action_running = False

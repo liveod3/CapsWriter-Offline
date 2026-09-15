@@ -22,7 +22,6 @@ include = [
     "core/server/connection/ws_recv.py",
     "core/server/worker/task_handler.py",
     "core/server/merger/*.py",
-    "core/client/hotword/hot_rule.py",
     "core/tools/format_tools.py",
 ]
 omit = [

@@ -231,8 +231,6 @@ class FileRunner:
         formats = ' / '.join(name.upper() for name in sorted(self.output_formats))
         TipsDisplay.show_file_tips(total, formats)
 
-        # 加载热词资源
-        self.app.hotword.start(announce=False)
 
         succeeded_count = 0
         failed_count = 0
@@ -332,7 +330,4 @@ class FileRunner:
             logger.error(f"文件模式运行异常: {e}", exc_info=True)
             raise
         finally:
-            try:
-                self.app.hotword.stop()
-            finally:
-                task_log.close()
+            task_log.close()

@@ -41,8 +41,7 @@ class MicRunner:
         if Config.udp_control:
             self.app.udp.start()
 
-        # 5. 开启后台服务 (热词、LLM)
-        self.app.hotword.start()
+        # 5. 开启文本动作的取消快捷键
         self.app.llm.start()
 
         # 6. 开启闲置自动挂起监控

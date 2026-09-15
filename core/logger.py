@@ -83,25 +83,41 @@ class Logger:
             from config_client import BASE_DIR
             log_dir = os.path.join(BASE_DIR, 'logs')
 
-        # 创建日志目录
-        Path(log_dir).mkdir(parents=True, exist_ok=True)
+        from config_client import ClientConfig
+        if getattr(ClientConfig, 'save_diagnostic_logs', True):
+            # 创建日志目录
+            Path(log_dir).mkdir(parents=True, exist_ok=True)
 
 
-        # 1. 文件处理器（根据传入 level 记录）
-        file_name_prefix = log_filename or name or 'root'
-        log_file = os.path.join(log_dir, f'{file_name_prefix}_latest.log')
-        formatter = logging.Formatter(
-            fmt='%(asctime)s.%(msecs)03d %(levelname)-5s [%(filename)20s:%(lineno)-3d] %(message)s',
-            datefmt='%H:%M:%S'
-        )
-        file_handler = TruncatingFileHandler(
-            log_file,
-            maxBytes=max_bytes,
-            encoding='utf-8'
-        )
-        file_handler.setLevel(file_log_level)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
+            # 1. 文件处理器（根据传入 level 记录）
+            file_name_prefix = log_filename or name or 'root'
+            log_file = os.path.join(log_dir, f'{file_name_prefix}_latest.log')
+            formatter = logging.Formatter(
+                fmt='%(asctime)s.%(msecs)03d %(levelname)-5s [%(filename)20s:%(lineno)-3d] %(message)s',
+                datefmt='%H:%M:%S'
+            )
+            file_handler = TruncatingFileHandler(
+                log_file,
+                maxBytes=max_bytes,
+                encoding='utf-8'
+            )
+            file_handler.setLevel(file_log_level)
+            file_handler.setFormatter(formatter)
+            logger.addHandler(file_handler)
+
+            # latest 保留快速排障入口；独立归档按年/月保存，不包含音频文件。
+            from core.log_archive import DiagnosticArchiveHandler
+            try:
+                archive = DiagnosticArchiveHandler(
+                    Path(log_dir), file_name_prefix,
+                    getattr(ClientConfig, 'diagnostic_log_retention_days', 30))
+                archive.setFormatter(logging.Formatter(
+                    '%(asctime)s %(levelname)s [%(name)s] %(message)s'))
+                archive.setLevel(file_log_level)
+                logger.addHandler(archive)
+            except (OSError, ValueError):
+                # 归档失败不妨碍录音或 latest 日志；避免递归调用日志配置。
+                pass
 
         # 2. 控制台处理器（固定 WARNING 及以上，使用 rich 渲染）
         stream_handler = RichHandler(
