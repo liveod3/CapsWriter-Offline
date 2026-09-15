@@ -209,8 +209,9 @@ def test_edited_presets_take_effect_on_next_request(tmp_path):
     transport = SimpleNamespace(complete=AsyncMock(return_value="text"))
     service = TextActionService(config(llm_enabled=True), tmp_path, transport)
     asyncio.run(service.process("text"))
+    original_prompt = load_catalog(directory).presets["correct_asr"].system_prompt
     preset_path.write_text(
-        preset_path.read_text(encoding="utf-8").replace("你负责保守地", "请务必保守地"),
+        preset_path.read_text(encoding="utf-8").replace(original_prompt, "仅输出本次转写。"),
         encoding="utf-8",
     )
     asyncio.run(service.process("text"))
