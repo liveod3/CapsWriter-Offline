@@ -2,159 +2,77 @@
 
 ![demo](assets/demo.png)
 
-> **按住 CapsLock 说话，松开就上屏。就这么简单。**
+面向 Windows 的语音输入与文件转录工具。默认右 Ctrl 或鼠标 X2，按一次开始录音、再按一次结束并输入文字；已有安装以本机配置为准。
 
-**CapsWriter-Offline** 是一个专为 Windows 打造的**完全离线**语音输入工具。
+默认识别链路可完全离线。LLM 文本处理默认关闭，启用云 Provider 后会外发当次文本；光标参考和 UDP 也需按各自配置判断。当前没有覆盖所有组件的严格离线总开关。
 
-## ✨ 核心特性
+## 功能
 
--   **语音输入**：按住 `CapsLock键` 或 `鼠标侧键X2` 说话，松开即输入，超低延迟，默认去除末尾逗句号。支持对讲机模式和单击录音模式。
--   **文件转录**：音视频文件往客户端 exe 一丢，字幕 (`.srt`)、文本 (`.txt`)、时间戳 (`.json`) 统统都有。
--   **数字 ITN**：自动将「十五六个」转为「15~16个」，支持各种复杂数字格式。
--   **文本动作**：可选的单次纠错与翻译，Provider 与提示词分开配置，无会话历史，默认关闭 LLM。
--   **托盘菜单**：英文选项、统一深蓝图标和悬停说明，提供暂停、复制、文本动作、记录与配置入口。
--   **光标参考**：可选读取当前输入框光标附近的有限文本，每次录音重新采样，默认关闭。
--   **C/S 架构**：服务端与客户端分离，虽然 Win7 老电脑跑不了服务端模型，但最少能用客户端输入。
--   **文字归档**：按年/月/日保存识别记录，可以独立于录音保存开启。
--   **录音保存**：可选 MP3（有 FFmpeg）或 WAV，当前默认关闭，不影响文字归档。
+- 语音输入：支持切换或长按录音、暂停恢复、录音及处理状态提示。
+- 文件转录：支持媒体文件与目录，输出 SRT、TXT 和时间戳 JSON；可用配套 TXT/JSON 重建字幕。
+- 识别引擎：Paraformer、SenseVoice-Small、Fun-ASR-Nano、Qwen3-ASR，按模型能力选择 CPU 或 GPU。
+- 文本动作：可选单次纠错、翻译与光标参考，无会话历史。
+- 独立记录：文字默认保存到 `logs/transcripts/YYYY/MM/DD.md`；音频和 LLM 动作记录默认关闭，可分别开启。
 
-**CapsWriter-Offline** 的精髓在于：**默认识别链路可完全离线**（云 LLM 功能除外）、**响应极快**、**高准确率** 且 **高度自定义**。我追求的是一种「如臂使指」的流畅感，让它成为一个专属的一体化输入利器。无需安装，一个U盘就能带走，随插随用，保密电脑也能用。
+主要目标平台为 Windows 10/11（64 位）。Windows 7、Linux 和 macOS 尚未验证或提供当前版本的兼容保证。
 
-以下为支持的模型：
+## 快速开始
 
-| 引擎名 | 准确性 | 速度 | 格式 | 显卡加速 |
-|------|-------|------|------|---------|
-| Paraformer | ★★★☆☆ | ★★★★★ | ONNX | ❌ |
-| SenseVoice-Small | ★★★☆☆ | ★★★★★ | ONNX | ✅ |
-| Fun-ASR-Nano | ★★★★☆ | ★★★★☆ | ONNX + GGUF | ✅ |
-| Qwen3-ASR | ★★★★★ | ★★★☆☆ | ONNX + GGUF | ✅ |
+1. 按[环境依赖说明](docs/环境依赖安装说明.md)准备 VC++ 运行库；文件转录需要 PATH 中可找到 FFmpeg。
+2. 下载 [软件发行包](https://github.com/HaujetZhao/CapsWriter-Offline/releases/latest)，按[模型说明](docs/模型下载的若干问题.md)下载并放置模型。
+3. 启动 `start_server.exe`，再启动 `start_client.exe`。默认启用托盘菜单。
+4. 按右 Ctrl 或鼠标 X2 开始录音，再按一次结束。快捷键与录音模式可在 `config_client.py` 中调整。
 
+发行包与当前工作区可能有差异；[更新日志](docs/CHANGELOG.md)区分未发布改动和历史版本。
 
-性能参考（20s 音频转录延迟）：
+## 从源码运行
 
-| 模型 | CPU U9-285H | GPU RTX5050 |
-|------|------------|------------|
-| Paraformer | 0.6s | - |
-| SenseVoice-Small | 0.6s | 0.15s |
-| Fun-ASR-Nano | 2.0s | 0.5s |
-| Qwen3-ASR-1.7B | 4.0s | 1.0s |
+环境选择、依赖安装与开发检查见 [AGENTS.md](AGENTS.md)。当前工作区使用 Conda 环境 `capswriter`；以下 `python` 指该环境的解释器。
 
-详细功能说明请参考 [`docs/`](docs/) 目录：
-- [环境依赖安装说明](docs/环境依赖安装说明.md) — VC++ 运行库、FFmpeg 安装
-- [文本动作与记录](docs/文本动作与记录.md) — 托盘说明、光标参考、Provider/预设、翻译与独立归档
-- [识别语言如何配置](docs/识别语言如何配置.md) — 各引擎语言支持范围与配置方法
-- [文件转录功能如何使用](docs/文件转录功能如何使用.md) — 拖拽转字幕、时间戳对齐
-- [显卡加速的若干问题](docs/显卡加速的若干问题.md) — DirectML、Vulkan 加速配置
-- [模型下载的若干问题](docs/模型下载的若干问题.md) — 引擎选择、模型下载、目录结构
-- [局域网连接安全配置](docs/局域网连接安全配置.md) — LAN 令牌认证、TLS 与令牌轮换
-- [常见问题](docs/常见问题.md) — FAQ
-- [更新日志](docs/CHANGELOG.md) 
-
-
-## 💻 平台支持
-
-目前**仅能保证在 Windows 10/11 (64位) 下完美运行**。
-
-- **Linux**：暂无环境进行测试和打包，无法保证兼容性。
-- **MacOS**：由于底层的 `keyboard` 库已放弃支持 MacOS，且系统限制极多，暂时无法支持。
-
-[LazyTyper](https://lazytyper.com/) 和 [闪电说](https://shandianshuo.cn/) 也是很优秀的作品，都有离线引擎，都支持 Windows Linux 与 MacOS，并都有漂亮的图形化页面，推荐使用。
-
-CapsWriter 的特别之处在于追求：
-
-- 无感输入
-- 本地识别可完全离线；云 LLM 按配置外发当前文本
-- 低延迟，尽量做到硬件极限的最快速度
-- 可选的文本处理预设与独立文字记录
-
-
-## 🎬 快速开始
-
-1.  **准备环境**：确保安装了 [VC++ 运行库](https://learn.microsoft.com/zh-cn/cpp/windows/latest-supported-vc-redist)。若要使用文件转录功能，还需安装 [ffmpeg](https://ffmpeg.org/download.html) 并确保其在系统 PATH 中。
-2.  **下载解压**：下载 [Latest Release](https://github.com/HaujetZhao/CapsWriter-Offline/releases/latest) 里的软件本体，再到 [Models Release](https://github.com/HaujetZhao/CapsWriter-Offline/releases/tag/models) 下载模型压缩包，将模型解压，放入 `models` 文件夹中对应模型的文件夹里。
-3.  **启动服务**：双击 `start_server.exe`，**它会自动最小化到托盘菜单**。
-4.  **启动听写**：双击 `start_client.exe`，**它会自动最小化到托盘菜单**。
-5.  **开始录音**：当前模板使用右 Ctrl 或鼠标 X2，按一次开始、再按一次结束。已有安装以 `config_client.py` 的快捷键和 `hold_mode` 为准。
-
-从源码测试时，可在 PowerShell 中运行 `./start_capswriter.ps1`，脚本会自动定位 `capswriter` Conda 环境，并分别打开服务端和客户端终端。使用 `-ServerOnly` 或 `-ClientOnly` 可只启动一端，使用 `-WhatIf` 可只预览启动操作。
-
-源码客户端提供正式命令行入口：
-
-```powershell
-# 实时麦克风输入
-python start_client.py mic
-
-# 转写媒体或文件夹，并覆盖本次输出格式
-python start_client.py transcribe --format srt,txt,json "D:\Videos"
-
-# 使用指定文本和时间戳数据重建字幕
-python start_client.py rebuild-srt --text "edited.txt" --json "timestamps.json"
-```
-
-执行 `python start_client.py --help` 可查看完整参数。打包版继续兼容双击启动、
-拖拽媒体，以及同时拖入一个 TXT 和一个 JSON 来重建 SRT。
-
-
-## ⚙️ 个性化配置
-
-实际运行配置仍是根目录的 `config_server.py` 和 `config_client.py`，但这两个文件是
-本机配置，已从 Git 跟踪中移除。首次从源码运行时，请先从默认模板复制：
+首次运行，仅在本机配置不存在时复制模板：
 
 ```powershell
 if (!(Test-Path config_server.py)) { Copy-Item config_templates/config_server_template.py config_server.py }
 if (!(Test-Path config_client.py)) { Copy-Item config_templates/config_client_template.py config_client.py }
 ```
 
-这些命令会把模板复制到根目录，并在复制时去掉 `_template` 后缀。不要移动或直接
-重命名模板本身。然后编辑根目录的两个配置文件；Git 不会记录其中的本机设置。受版本控制的默认
-模板位于 [`config_templates/`](config_templates/)。项目升级新增或调整配置项时，请将
-模板中的结构变化手动合并到本机配置，不要直接覆盖已经定制的文件。
+在两个终端分别执行：
 
+```powershell
+python start_server.py
+python start_client.py mic
+```
 
-## 🛠️ 常见问题
+本机也可运行 `./start_capswriter.ps1`，脚本会定位 `capswriter` 环境并打开两个终端；支持 `-ServerOnly`、`-ClientOnly` 和预览用的 `-WhatIf`。
 
+文件转录需要服务端；字幕重建不需要服务端或麦克风：
 
-**Q: 为什么按了没反应？**  
-A: 请确认 `start_client.exe` 的黑窗口还在运行。若想在管理员权限运行的程序中输入，也需以管理员权限运行客户端。
+```powershell
+python start_client.py transcribe --format srt,txt,json "D:\Videos"
+python start_client.py rebuild-srt --text "edited.txt" --json "timestamps.json"
+python start_client.py --help
+```
 
-**Q: 为什么识别结果没字？**  
-A: 到 `年/月/assets` 文件夹中检查录音文件，看是不是没有录到音；听听录音效果，是不是麦克风太差，建议使用桌面 USB 麦克风；检查麦克风权限。
+打包版支持拖拽媒体，以及同时拖入配套 TXT 和 JSON 重建 SRT。
 
-**Q: 想要隐藏黑窗口？**  
-A: 点击托盘菜单即可隐藏黑窗口。
+## 配置与文档
 
-**Q: 如何开机启动？**  
-A: `Win+R` 输入 `shell:startup` 打开启动文件夹，将服务端、客户端的快捷方式放进去即可。
+实际运行读取根目录的 `config_client.py` 和 `config_server.py`，它们是 Git 忽略的本机配置。默认值与字段说明见[配置模板](config_templates/README.md)。升级时只合并必要字段，保留已有设备、模型、快捷键和开关。
 
-更多问题请参阅 [docs/常见问题.md](docs/常见问题.md)。
+| 需要了解 | 文档 |
+| --- | --- |
+| Provider、预设、光标参考、记录开关与旧配置迁移 | [文本动作与记录](docs/文本动作与记录.md) |
+| 媒体转录、输出格式与字幕重建 | [文件转录](docs/文件转录功能如何使用.md) |
+| 模型选择与下载 | [模型说明](docs/模型下载的若干问题.md) |
+| 识别语言 | [语言配置](docs/识别语言如何配置.md) |
+| DirectML、Vulkan 与对齐进程 | [显卡加速](docs/显卡加速的若干问题.md) |
+| LAN 认证与 TLS | [局域网连接](docs/局域网连接安全配置.md) |
+| 输入、麦克风与记录排障 | [常见问题](docs/常见问题.md) |
+| 当前开发计划 | [TODO](TODO.md) |
+| 历史改动 | [CHANGELOG](docs/CHANGELOG.md) |
 
+## 致谢
 
-## 🚀 我的其他优质项目推荐
+本项目基于 [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx) 与 [FunASR](https://github.com/alibaba-damo-academy/FunASR) 等开源项目。感谢原作者、贡献者及捐助者。
 
-| 项目名称 | 说明 | 体验地址 |
-| :--- | :--- | :--- |
-| [**IME_Indicator**](https://github.com/HaujetZhao/IME_Indicator) | Windows 输入法中英状态指示器 | [下载即用](https://github.com/HaujetZhao/IME_Indicator/releases/latest/download/IME-Indicator.exe) |
-| [**Rust-Tray**](https://github.com/HaujetZhao/Rust-Tray) | 将控制台最小化到托盘图标的工具 | [下载即用](https://github.com/HaujetZhao/Rust-Tray/releases/latest/download/Tray.exe) |
-| [**Gallery-Viewer**](https://github.com/HaujetZhao/Gallery-Viewer-HTML) | 网页端图库查看器，纯 HTML 实现 | [点击即用](https://haujetzhao.github.io/Gallery-Viewer-HTML/) |
-| [**全景图片查看器**](https://github.com/HaujetZhao/Panorama-Viewer-HTML) | 单个网页实现全景照片、视频查看 | [点击即用](https://haujetzhao.github.io/Panorama-Viewer-HTML/) |
-| [**图标生成器**](https://github.com/HaujetZhao/Font-Awesome-Icon-Generator-HTML) | 使用 Font-Awesome 生成网站 Icon | [点击即用](https://haujetzhao.github.io/Font-Awesome-Icon-Generator-HTML/) |
-| [**五笔编码反查**](https://github.com/HaujetZhao/wubi86-revert-query) | 86 五笔编码在线反查 | [点击即用](https://haujetzhao.github.io/wubi86-revert-query/) |
-| [**快捷键映射图**](https://github.com/HaujetZhao/ShortcutMapper_Chinese) | 可视化、交互式的快捷键映射图 (中文版) | [点击即用](https://haujetzhao.github.io/ShortcutMapper_Chinese/) |
-
-
-## ❤️ 致谢
-
-本项目基于以下优秀的开源项目：
-
--   [Sherpa-ONNX](https://github.com/k2-fsa/sherpa-onnx)
--   [FunASR](https://github.com/alibaba-damo-academy/FunASR)
-
-感谢 Google Antigravity、Anthropic Claude、GLM、DeepSeek，如果不是这些编程助手，许多功能（例如基于音素的热词检索算法）我是无力实现的。
-
-特别感谢那些慷慨解囊的捐助者，你们的捐助让我用在了购买这些优质的 AI 编程助手服务，并最终将这些成果反馈到了软件的更新里。
-
-
-如果觉得好用，欢迎点个 Star 或者打赏支持：
-
-
-![sponsor](assets/sponsor.jpg)	
+![sponsor](assets/sponsor.jpg)
