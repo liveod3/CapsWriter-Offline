@@ -58,7 +58,8 @@ def config(**values):
 def test_catalog_separates_connections_and_presets():
     catalog = load_catalog(ROOT / "LLM")
     assert set(catalog.presets) == {"correct_asr", "translate"}
-    assert catalog.presets["correct_asr"].use_caret_context is False
+    assert catalog.presets["correct_asr"].use_caret_context is True
+    assert catalog.presets["translate"].use_caret_context is False
     preset, text = catalog.select("翻译：今天有点冷", "correct_asr")
     assert preset.id == "translate"
     assert text == "今天有点冷"
@@ -135,16 +136,26 @@ def test_empty_transcription_never_calls_provider(tmp_path):
     transport.complete.assert_not_called()
 
 
-def test_requests_are_stateless_and_context_is_opt_in():
+@pytest.mark.parametrize("use_context", [False, True])
+def test_requests_are_stateless_and_context_is_opt_in(use_context):
+    path = ROOT / "LLM/presets.toml"
+    if not use_context:
+        path.write_text(path.read_text(encoding="utf-8").replace(
+            "use_caret_context = true", "use_caret_context = false", 1), encoding="utf-8")
+
     async def run():
         transport = SimpleNamespace(complete=AsyncMock(side_effect=["一", "二"]))
         service = TextActionService(config(llm_enabled=True), ROOT, transport)
-        await service.process("first", context="private surrounding text")
+        reference = "左侧文字\n[Insertion point]\n右侧文字"
+        await service.process("first", context=reference)
         await service.process("second")
         first = transport.complete.call_args_list[0].args[1]
         second = transport.complete.call_args_list[1].args[1]
         assert len(first) == len(second) == 2
-        assert json.loads(first[1]["content"]) == {"transcript": "first"}
+        expected = {"transcript": "first"}
+        if use_context:
+            expected["surrounding_text_reference"] = reference
+        assert json.loads(first[1]["content"]) == expected
         assert json.loads(second[1]["content"]) == {"transcript": "second"}
 
     asyncio.run(run())
