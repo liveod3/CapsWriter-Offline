@@ -5,7 +5,7 @@
 ## 先确认事实来源
 
 - 当前字段、默认值与版本：以 [配置模板](config_templates/README.md) 及其两个 Python 模板为规范源；实际运行读取根目录被忽略的本机配置。不要用模板整体覆盖用户设置。
-- 当前工作项与产品方向：见 [TODO.md](TODO.md)。其中英文 UI 迁移是专项计划，开发沟通仍优先使用中文。
+- Product direction and active work: see [TODO.md](TODO.md). User-facing UI is planned to support multiple languages; maintained internal material is moving to English. Follow the language rule in AGENTS.md; communicate with the user in their preferred language.
 - 历史判断：见 [2026-08-08 审计归档](docs/archive/PROJECT_AUDIT_REPORT-2026-08-08.md)，不能直接当作当前缺陷清单或通过验证的证据。
 - 运行环境与检查命令：使用 AGENTS.md 第 3、6 节，不另写机器专用 Python 路径或第二套 Conda 环境名。
 

@@ -107,7 +107,7 @@ python start_client.py rebuild-srt --text "校对.txt" --json "原始.json"
 1. 先执行 `git status --short`，把已有修改视为用户工作。不要重置、覆盖或顺手格式化无关文件。
 2. 阅读目标模块、它的调用方、状态对象和配置项；跨客户端/服务端的改动还必须阅读 `core/protocol.py`。
 3. 优先做最小、可审查的改动。不要在修复业务问题时批量改写 vendored/export 代码。
-4. 保持 UTF-8。沟通、开发文档、计划、说明和新增注释优先使用中文。普通修复沿用目标模块现有界面风格；`TODO.md` 已规划英文产品文案迁移，执行该专项时按其范围与术语实施，不要把中文沟通偏好理解为禁止英文 UI，也不要在无关修复中批量翻译。
+4. Keep UTF-8. Communicate with the user in their preferred language. New or substantially rewritten internal documentation, plans, comments/docstrings, diagnostic terminal output and logs use English. User-facing text follows the multilingual UI plan in `TODO.md`; keep stable IDs separate from translated labels. Migrate existing internal material incrementally, preserving user content, language fixtures, recognition rules, task-specific prompts and upstream attribution. Do not bulk-translate unrelated files or historical records.
 5. 不得把 API Key、访问令牌、私人音频、识别文本、剪贴板内容、日志或真实模型路径提交到仓库。新增密钥读取时优先使用环境变量或本地未跟踪配置。
 6. 配置兼容性是产品能力。新增配置项应有安全默认值，并用 `getattr(..., default)` 或迁移逻辑兼容旧配置/发行包。
 7. 修改配置字段、默认值、说明或 `__version__` 时，以 `config_templates/` 中的模板为提交对象；若根目录本机配置存在，还应只合并必要的结构变化并保留用户取值。不得只修改被忽略的根配置，因为这类变化不会进入提交。

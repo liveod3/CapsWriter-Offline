@@ -1,177 +1,51 @@
 # CapsWriter-Offline TODO
 
-本文件是项目当前待办与优先级的唯一入口。历史证据和 2026-08-08 时点的判断见
-[`docs/archive/PROJECT_AUDIT_REPORT-2026-08-08.md`](docs/archive/PROJECT_AUDIT_REPORT-2026-08-08.md)。
+Active work only. Last audited: 2026-09-16. The [current audit](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md) records source findings, 14 synthetic reproductions, automated checks and runtime limits; it does not certify real hardware, models or release artifacts.
+Completed work belongs in [CHANGELOG](docs/CHANGELOG.md); audit reports are evidence, not a second backlog.
+Keep one entry per outcome, with scope and a completion criterion. Remove completed entries; add speculative features only when selected for development. P0 addresses existing reliability/privacy failures; P1 combines requested features and evidenced hardening; P2 is an optional safeguard. Priorities indicate order, not delivery dates or measured failure frequency.
 
-约定：
+## P0 — Reliability and privacy
 
-- `P0`：发布前必须处理的安全、隐私、稳定性和可复现性问题。
-- `P1`：下一轮产品化的主线工作。
-- `P2`：有价值但不应阻塞当前主线的增强项。
-- 审计中的 AUD-01～AUD-06 已完成主体修复，不在此重复列为缺陷；未完成或仅部分完成的事项均保留在下方。
-- 每个任务完成时，应同时补齐适用的自动化测试、用户文档和 Windows 实机验证记录。
+- [ ] **Isolate tasks across connections.** Key worker sessions and scheduling buffers by `(socket_id, task_id)` through processing, result delivery and cleanup. Done when two connections reusing the same task ID cannot mix audio/results or remove each other's state. [Evidence: A01](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a01--cross-connection-task-identity).
+- [ ] **Stabilize recording ownership, recovery and shutdown.** Allow one microphone task to own capture; bound buffering, keep blocking writes off the capture/event-loop path, reject stale callbacks and deduplicate recovery. Reset state on readiness timeout/cancel and close recording processes on failure/exit. Isolate private PortAudio reinitialization. Done when mock regressions and Windows device switch, unplug, idle resume and exit checks show no competing recorders, stuck states or late restarts. [Evidence: A02](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a02--recording-ownership-and-recovery).
+- [ ] **Guarantee terminal task outcomes and bounded recovery.** Add compatible task error/cancel semantics, deadlines and cleanup; supervise ASR/aligner startup, death and hangs, and back off or stop permanent send/queue failures. Schedule shutdown on owning threads. Done when injected worker, queue and connection failures produce one terminal outcome, clear pending state and neither spin nor flood logs. [Evidence: A03](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a03--terminal-outcomes-and-process-supervision).
+- [ ] **Remove recognition content from routine diagnostics.** Replace raw/formatted recognition text and content-bearing errors with IDs, lengths, timings and error categories across client/server. Keep explicit content records separate. Done when synthetic sensitive-text tests show that disabling content records leaves no transcription or prompt text in diagnostic sinks. Ship independently of the logging redesign. [Evidence: A04](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a04--recognition-text-in-default-diagnostics).
 
-## P0：审计遗留与发布基线
+## P1 — Requested features
 
-### 音频生命周期（AUD-10，部分缓解）
+### Multilingual interface
 
-- [ ] 将音频启动、停止、暂停、恢复、重开和退出收敛到单一 `AudioLifecycleController` 状态机。
-- [ ] 对重开请求做 single-flight/事件去重；用 generation ID 阻止旧音频流回调影响新流。
-- [ ] finished callback 只投递命令，不创建不受控的重开线程，也不直接操作 PortAudio。
-- [ ] 用停止事件和带超时的 `join` 回收设备监控、闲置和重开线程。
-- [ ] 移除或隔离对 sounddevice 私有 `_terminate()`/`_initialize()` API 的常规依赖，并给失败路径明确降级。
-- [ ] 在 Windows 实机覆盖默认设备切换、拔插、蓝牙切换、暂停/恢复、异常结束和退出竞态；连续执行 100 次时不得死锁、重复建流或泄漏线程。
+- [ ] **Add UI localization.** Extract tray menus/tooltips, dialogs, buttons, notifications and status/error messages into locale resources with stable IDs, a saved preference and a fallback. Proposed initial locales: English and Simplified Chinese. Keep UI language independent of ASR language and LLM translation targets. Done when selected locales cover the main dictation/file/LLM flows, preserve actions and shortcuts, and fit mixed-DPI displays. This replaces the earlier English-only UI plan.
 
-### 依赖与可复现发布（AUD-07）
+### English for internal material
 
-- [ ] 声明并验证支持的 Python 小版本；避免只依赖开发机上恰好可用的 Python 3.11 环境。
-- [ ] 为直接依赖设置兼容范围，分别建立 Windows CPU、DirectML、Vulkan 的可复现约束/锁文件。
-- [ ] 在托管 Windows CI 中持续运行质量门禁和发布 smoke，并验证干净 Windows VM 的安装、打包与旧配置升级。
-- [ ] 锁定依赖后生成 SBOM，并运行 `pip-audit` 或等价工具；记录已知例外和更新流程。
+- [ ] **Standardize project-owned internals on English.** Migrate developer/Agent documentation, plans, comments/docstrings, internal identifiers where needed, diagnostic terminal output, logs and internal exceptions. Keep localized product text in UI resources; CLI help and other user-facing terminal messages follow the localization policy. Preserve user text, language test fixtures, recognition rules and task-specific prompts; avoid mechanical edits to vendored code or historical records. Use incremental migration and a scoped text check with documented exceptions. Done when maintained internal material is English and public IDs, configuration compatibility and recognition behavior remain intact.
 
-### LLM 密钥与配置安全（AUD-08）
+### LLM cost estimates and alerts
 
-- [x] 删除 Python 角色；公开 Provider 模板不含凭据，本机被忽略的 providers.toml 支持直接填写 Key 或环境变量。
-- [ ] 检查 `LLM/` 中现有掩码/示例值是否曾由真实密钥派生；如有可能，轮换并撤销旧密钥。
-- [ ] 在 pre-commit/CI 加入 secret scanning 和占位符校验，避免“示例密钥可运行”或真实密钥误提交。
-- [x] 统一 Provider URL、模型、超时与空 Key 错误；不自动重试。
+- [ ] **Track estimated LLM spending and notify users.** Capture provider usage when available; otherwise label token estimates and unknown usage explicitly. Maintain configurable model rates with currency, source and update date, accounting for supported input/output/cache/reasoning token categories without double counting. Show per-request and cumulative estimates, with configurable budget thresholds and deduplicated alerts. Missing rates, cancellations and failed requests must not appear as confirmed zero cost; local/custom endpoints need explicit pricing assumptions. Done when mocked usage, missing data, rate changes and threshold crossings behave correctly, alerts can be disabled, and records contain usage/cost metadata without prompts or transcription text. Estimates are not provider invoices. Entry points: [provider](core/client/llm/provider.py), [service](core/client/llm/service.py).
 
-### 隐私与数据生命周期（AUD-09）
+### Logging and record management
 
-- [x] 文字、音频、文本动作记录与诊断日志独立保存；文字归档不依赖 `save_audio`。
-- [ ] 默认采用最小留存；为每类数据提供保存位置、保留期、自动清理和一键清理。
-- [ ] 增加“严格离线”总开关，并用自动化测试确认该模式下不存在非 loopback 网络连接。
-- [ ] 增加 Provider 图形化配置与外发类别说明；当前 TOML 显式配置，调用状态显示 Local/Remote，仅发送本次转写和预设允许的光标参考。
-- [ ] 默认日志不记录完整听写、选区、Prompt、LLM 输出或密钥；诊断信息优先记录长度、耗时、组件、错误类型和任务 ID 前缀。
-- [ ] 继续核对历史文档中的离线承诺；当前 README 和新功能说明已区分本地识别与 LLM/UDP 外发。
+- [ ] **Consolidate logging infrastructure and controls.** Rationalize latest/archived diagnostics, console and Toast routing, per-run transcription logs, transcript history and LLM action records. Decouple server settings from client configuration and give shared multiprocess sinks explicit ownership. Use consistent event fields, severity and retention policies while keeping diagnostics, user content and audio independently configurable. Preserve existing data or provide an explicit migration; cleanup must stay within owned files. Done when sink ownership, locations/settings, English diagnostics, redaction, retention and shutdown are predictable and save-switch combinations are tested. [Evidence: A08](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a08--logging-ownership-and-retention).
 
-### 异常与重试策略（AUD-11）
+## P1 — Audited hardening
 
-- [ ] 定义协议、认证、设备、模型、配置和取消等领域异常，只在进程/线程/任务边界捕获宽泛异常。
-- [ ] 修复 `ws_send()` 等永久故障下无退避的无限循环；瞬态错误指数退避，永久错误停止组件并通知用户。
-- [ ] 为重复错误增加日志限频和结构化上下文，避免日志洪泛与高 CPU。
-- [ ] 审查只写 debug、用户表面“没反应”的失败路径，为可操作错误提供托盘、状态浮窗或终端提示。
+- [ ] **Enforce audio, result and engine contracts.** Validate finite samples/results, field types, token/timestamp consistency and pending-task ownership; keep slicing sample-aligned. Make accepted chunk/overlap/in-flight settings guarantee progress and respect engine limits without silent truncation. Done when malformed inputs fail cleanly and fractional durations, a one-chunk window and oversized engine segments have regression coverage. [Evidence: A05](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a05--audio-result-and-engine-contracts).
+- [ ] **Preserve content when output fails.** Save enabled records independently of text injection/broadcast errors; avoid restoring over a newer clipboard copy. Reserve file outputs safely and report partial-format failures without silent overwrite. Done when mocked injection failures, concurrent writes and clipboard changes preserve recoverable text and existing user data. [Evidence: A06](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a06--output-failure-and-content-persistence).
+- [ ] **Expose timestamp quality.** Carry timestamp source/quality through results and JSON, and warn or require an explicit policy before exporting estimated alignment as SRT. Keep text available when alignment fails. Done when missing/failed alignment cannot silently appear as measured word timing in export or subtitle rebuild. [Evidence: A07](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a07--unlabelled-estimated-timestamps).
+- [ ] **Close the UI host safely.** Give the existing Tk host a stop/destroy/join path and reject late queued work; settle task-owned status on timeout, cancel and exit. Done when shutdown and late-callback tests pass, followed by Windows focus/DPI checks. A complete Toast replacement is not required by current evidence. [Evidence: A09](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a09--tk-host-shutdown).
+- [ ] **Build reproducible, data-safe Windows releases.** Define supported Python/runtime/backend constraints, package from clean staging, exclude private/generated content and verify required licenses. Cover both package variants, dependency compatibility, startup, missing models and configuration upgrades. Current smoke checks only EXE existence. Done when artifact content checks and recorded clean-machine launch/upgrade results pass for supported configurations; document bundled code origins. [Evidence: A10](docs/archive/PROJECT_AUDIT_REPORT-2026-09-16.md#a10--release-reproducibility-and-artifact-safety).
 
-### 协议与 LAN 后续加固
+## P2 — Optional safeguard
 
-- [ ] 将 WorkerState 会话与 TaskBuffer 缓冲从仅按 `task_id` 索引改为 `(socket_id, task_id)`，同步流水线、结果返回与清理；补充不同连接复用同一 task ID 的隔离回归，避免把连接内音频缓存隔离误当作完整会话隔离。
-- [ ] 完成协议版本协商与显式取消，保证旧客户端有可理解的失败响应。
-- [ ] 为 LAN 模式增加令牌轮换/撤销、认证失败限频、活跃客户端查看与断开能力。
-- [ ] 保持本机模式仅监听 loopback；跨不可信网络继续强制 TLS 或可信反向代理。
+- [ ] **Add a strict offline mode.** Block non-loopback ASR, LLM and UDP connections when enabled, using actual endpoints rather than provider names. Define a safe policy for explicitly configured non-loopback UDP control, which currently has no command authentication. Done when mock network-boundary tests cover every path and blocked features have a localized explanation. This strengthens the current local-ASR promise; it is not needed to make default offline recognition work.
 
-## P1：英文界面与产品文案
+## Validation still required
 
-目标是先交付一致的英文单语言产品界面，同时把高频文案集中管理；在确定需要多语言前，不急于引入完整翻译框架。按 2026-08-09 的静态盘点基线，工作涉及约 30 处 GUI/状态文案、94 处终端输出、381 处中文日志调用，以及异常文本、配置说明和 LLM 角色名称；后续代码已经增加了少量文案，实施前需重新生成清单。粗略工作量为 6～11 人日，不含完整多语言框架和模型实机回归。
+Use [AGENTS.md](AGENTS.md) for routine checks; do not copy its full matrix into this backlog. Before the next release, record results for:
 
-### 功能取舍与命名决策
+- [ ] Windows interaction: real/Bluetooth microphones, idle resume, shortcuts, cancellation/disconnect, focus/admin boundaries, tray tooltips and mixed DPI; UI Automation in Notepad, browsers, Office and Electron.
+- [ ] Real models/providers: ASR and alignment quality/resource behavior, correction insertion/punctuation and actual provider error fields; reproduce the [intermittent Qwen ASR report](docs/BUG-2026-08-09-QWEN-ASR-RUNTIME-HALLUCINATION.md) before assigning a cause. Mock success does not close these checks.
 
-- [x] 按用户决定完整移除两端热词及替换功能，旧本机文件备份后退出运行链路。
-- [x] Provider 与静态 Prompt 预设分离；默认提供 ASR 纠错和翻译，没有助理层级或会话。
-
-### 文案规范与命名
-
-- [ ] 建立简短英文文案规范：sentence case、动词优先、无表情符号、无“助手大小”等拟人化层级、避免重复解释和产品经理式口号。
-- [x] 托盘动态显示 Pause/Resume dictation、Show/Hide console。
-- [x] 采用 Correct transcription、Translate 和 LLM actions，不再提供助理角色。
-- [x] 此功能已移除，不再重新命名或保留菜单入口。
-- [x] 托盘使用 Reconnect microphone。其余音频日志随后续文案专项统一。
-- [ ] 统一后续功能文案；当前托盘使用 Copy last result、Open history；不存在 Context 或 Clear memory 菜单。
-
-### 迁移范围
-
-- [ ] 迁移托盘右键菜单、对话框、按钮、通知、录音状态和错误提示，并检查固定宽度、换行、字体、DPI 与多显示器布局。
-- [ ] 迁移客户端/服务端启动终端、进度提示、警告、异常和协议关闭原因；同一事件不得在不同模块使用不同术语。
-- [ ] 迁移运行日志并统一组件名、时态和严重级别；不要为了英文迁移增加敏感内容。
-- [ ] 迁移面向用户的配置说明、生成文件标题和 LLM 角色展示名。
-- [ ] 集中高频状态文案和稳定 action/role ID，避免业务逻辑继续以中文显示名作为键。
-- [ ] 增加中文运行时文本静态扫描与有理由的 allowlist，防止新中文 UI/日志回流。
-
-### 明确不做机械翻译的内容
-
-- [ ] 保留中文识别所需 ITN、`zhconv`、标点规则、ASR Prompt 与测试语料；词表替换已按独立功能决定移除。
-- [ ] 不批量改写 `core/server/engines/*/export/`、GGUF/转换工具或其他上游派生代码中的文本。
-- [ ] LLM system prompt 按角色能力单独评估；显示名可以英文，中文处理 Prompt 不应只因界面英文而翻译。
-
-### 验收
-
-- [ ] 手工走查托盘全部菜单、短按/长按/切换模式、暂停恢复、短录音取消、断线重连、文件转录、LLM 停止和退出清理。
-- [ ] 检查主屏/副屏、不同 DPI、管理员窗口和无终端打包版；确保状态浮窗与其他窗口不重叠。
-- [ ] 后续纯文案迁移不得改动协议枚举、预设 ID 或识别算法；相关测试必须继续通过。
-
-## P1：功能收敛与产品化
-
-### 产品信息架构
-
-- [ ] 后续产品入口围绕听写、文件转录、文本动作与记录设置收敛；不恢复已移除的词表和对话功能。
-- [ ] 将强制对齐、ASR 引擎选择、GPU 预热和资源卸载保留为内部能力或 Advanced 设置。
-- [ ] 清理硬编码的微信、Telegram、股票软件等应用特例，改成可编辑的应用档案。
-
-### 状态浮窗与旧 Toast 收敛
-
-- [ ] 删除并替换仓库原有 Toast 机制：从 `ToastMessageManager` 中抽出独立、可显式启动和关闭的 Tk UI 宿主；短通知迁移到状态浮窗；为 LLM 长结果提供明确的粘贴、剪贴板或独立结果视图，不把长文本塞进状态提示；旧角色输出已移除，待替换其他 Toast 调用后，删除 `toast*.py`、相关导出、专属依赖和文档。
-- [ ] 将现有听写浮窗升级为状态驱动的 `StatusOverlayManager`：统一 `IDLE/PREPARING/RECORDING/PAUSED/FAILED` 状态，使用任务 token/generation 管理显示所有权和迟到回调，为消息建立频道、优先级、覆盖与去重策略；准备超时必须同步取消失败任务并复位录音/托盘状态，主状态增加异常清理与退出回收，并覆盖并发快捷键、晚到音频、无回调、不同 DPI/显示器和 no-activate Windows 实机测试。
-
-### 文件转录与字幕
-
-- [ ] 在托盘提供 `Transcribe files…`，支持多文件队列、进度、失败重试、暂停恢复、输出目录和格式选择。
-- [ ] 说明字幕重建所需的配套 `.txt`/`.json`，不要把任意 `.srt`/`.vtt` 都暗示为可无损重建。
-- [ ] 保证实时听写低延迟优先，同时让文件任务获得最低吞吐，后续支持断点恢复与任务历史。
-
-### 文本动作与光标参考（2026-09-14）
-
-- [x] correction 提示词按插入点左右文字决定片段首尾标点，支持句中定语衔接、前置并列分隔及已有冒号/顿号去重；只输出插入片段，参考不足时回退普通纠错。预设允许引用已捕获的光标参考，读取总开关仍需显式开启（2026-09-15；mock 验证参考传递与开关隔离，真实模型插入效果待验证）。
-- [x] 按 Google 官方错误格式细化 LLM 网络/HTTP/生成失败诊断，记录受控原因、重试等待提示及耗时；token 截断等非完整输出保留原文（2026-09-15；默认套件通过，真实云端错误待验证）。
-- [x] 补齐转写、LLM 准备和等待的持续状态、Tk 队列及任务隔离（2026-09-15；默认套件通过，Windows 交互待验证）。
-- [ ] 实机验证持续处理提示的首帧延迟、连续录音、断网/取消、多显示器 DPI 与焦点保持；用真实 Gemini 响应核对兼容端点实际返回的错误字段。
-- [x] 适度提高 correction 提示词的纠错力度：结合本次转写整句及前后句修正同音/近音错误，去除无意义语气词和口吃重复，整理并列顿号及断句；保留原意和有效语气，光标参考继续按开关提供（2026-09-15；已做本地加载与 mock 回归，真实模型效果待验证）。
-- [x] 删除两端词表检索/强制替换、旧角色执行与会话历史，更新配置和迁移说明。
-- [x] Provider/预设采用静态 TOML；单一默认预设可关闭，显式口令覆盖默认，每次仅发一个请求。
-- [x] LLM actions 提供全部开启/关闭及润色、翻译独立开关；动态显示动作与 On/Off/Partly on，立即生效并保存本机配置。能力可同时启用，每次由默认预设或口令选择单一请求；移除处理上一条与取消菜单，动作状态提示由 5 秒缩短至 2.5 秒（2026-09-15）。
-- [x] 修复总开关被 pystray 注入 icon 参数而失效；文案改为 Currently on/off/partly on，保存成功明确提示。默认翻译被关闭时回退到已开启的润色；补充真实菜单分发、事件循环、配置落盘/重载及下一次请求的回归验证。
-- [x] 默认关闭光标参考；隔离进程按次读取、密码/选区/超时降级，所有音频分片复用快照。
-- [x] 完整结果后上屏；取消与焦点变化不自动输出，失败可取回原文。
-- [x] 文字/音频/动作记录独立保存，诊断日志按月轮转并限定清理范围。
-- [ ] 验证 Notepad、浏览器、Office、Electron 编辑器的 UI Automation 支持与管理员权限边界。
-- [ ] 验证原生菜单 Tooltip 的多显示器、混合 DPI、键盘导航和退出资源清理。
-- [ ] 对真实 ASR 模型做移除替换前后的固定语音回归；模型自行误识别不应归因于已删除替换链路。
-
-### 应用输出与集成
-
-- [ ] 将 paste/type、末尾标点、自动回车、快捷键、语言和 LLM 行为做成应用档案。
-- [ ] 将标点选项简化为 `Keep` / `Remove` / `Smart`，高级规则另行配置。
-- [ ] 将 UDP 控制/输出标为 Advanced/Experimental；协议结构化、版本化、限制消息大小，并在非本机使用时增加认证和隐私警告。
-
-## P1：文档与仓库卫生
-
-### 文档漂移（AUD-12）
-
-- [x] README 已按当前模板说明右 Ctrl/X2 切换模式；本机配置优先，启动流程已有快捷键提示。
-- [ ] 以 `config_templates/config_client_template.py` 和 `config_templates/config_server_template.py` 中的 `__version__` 为规范源，自动校验两者一致并同步发布文档；根目录本机配置只做兼容检查，不覆盖用户取值。
-- [x] 清理 `CLAUDE.md` 中过期的 2.5-alpha、角色清单和机器专用 Python 路径；公共规则统一到 `AGENTS.md`，移除旧环境及临时脚本留存偏好，补齐 CLI、测试/CI、对齐进程与离线边界说明。
-- [x] quality 初始化缺失根配置并检查模板；pre-commit compileall 不再依赖本机配置。
-
-### 仓库卫生与来源（AUD-13）
-
-- [ ] 确认 `core/client/shortcut/shortcut_manager.py.bak` 没有独有内容后，从版本控制移除。
-- [ ] 收紧 `.gitignore` 对测试、`*.spec` 和本地文件的过宽规则，确保重要源码和打包配置不会被静默忽略。
-- [ ] 为 vendored/export/GGUF 代码补充 `NOTICE`、来源版本、许可证和更新流程；可共享的只读工具逐步去重，模型差异保留适配器。
-- [ ] 将 notebook、benchmark、`models/Ollama-Polish.py`、`block_mouse_forward.py` 等实验工具移出普通产品入口，或明确标为开发工具。
-
-## P2：后续增强候选
-
-- [ ] 首次运行诊断向导：麦克风、采样、VC++ Runtime、FFmpeg、模型、端口、防火墙、Provider 和 GPU 后端检查，附脱敏诊断报告。
-- [ ] 带 schema 的图形化配置中心：快捷键录制、设备/模型选择、参数校验和安全默认值。
-- [ ] 识别质量基准面板：同一音频比较准确度、RTF、首 token 延迟和资源占用。
-- [ ] 可选 VAD/智能结束，但保留当前无 VAD 的默认路径和必要上下文。
-- [ ] 字幕校对、说话人分离、章节检测和单段重新对齐。
-- [ ] LLM 本地降级和上下文白名单；云端失败时不得阻塞原始听写上屏。
-- [ ] 稳定的 ASR/标点/对齐引擎插件接口和模型元数据检查。
-- [ ] 本地延迟瀑布图与脱敏诊断包，不包含音频、完整文本、密钥或选区。
-
-## 尚未完成的验证记录
-
-- [ ] 在真实麦克风、蓝牙设备、多显示器、管理员窗口和全局快捷键环境完成 Windows 交互回归。
-- [ ] 验证各 ASR、标点与对齐模型的准确率、RTF、显存/内存和 GPU 后端行为。
-- [ ] 验证 PyInstaller client/server 在干净机器启动、旧配置升级和无模型错误提示。
-- [ ] 对损坏、无权限和不可执行的 FFmpeg 做故障注入，验证 WAV 降级和归档完整性。
-- [ ] 继续完善 Windows 光标/焦点与真实服务兼容性回归；mock 已覆盖静态配置重读、单次路由、取消、失败与上下文 opt-in；严格离线总开关仍未实现。
+Removed from the active backlog: completed migration history, old string counts/effort estimates, duplicate validation lists and unselected ideas (configuration dashboards, application profiles, VAD, diarization, benchmark panels and engine plugins). Their removal is a scope decision, not evidence of implementation; Git history retains earlier proposals.
