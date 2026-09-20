@@ -1,6 +1,8 @@
 # P0 stage 2a — Recording ownership and bounded capture
 
-Status: implemented on 2026-09-20; awaiting user acceptance before stage 2b.
+Status: accepted by the user after rapid start/stop recordings interleaved with delayed LLM processing remained independent. Other device, shutdown and failure checks were not separately reported; their automated coverage does not certify hardware behavior.
+
+Delivery workflow from stage 2b onward: implement and run automated checks, hand off for manual acceptance, then commit only after the user confirms, before starting the next stage.
 
 ## Behavior and scope
 
