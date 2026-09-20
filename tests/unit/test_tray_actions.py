@@ -8,6 +8,7 @@ import pytest
 
 from core.client.manager.tray_manager import TrayManager
 from core.client.app import CapsWriterClient
+from core.client.state import ClientState
 from core.client.llm.settings import llm_options, save_llm_options
 
 
@@ -28,9 +29,8 @@ def test_menu_removes_legacy_features_and_has_descriptions():
 def test_manual_and_idle_pause_have_different_wakeup_policy():
     for manual in (True, False):
         app = CapsWriterClient.__new__(CapsWriterClient)
-        app.state = SimpleNamespace(
-            recording=False, dictation_paused=False, dictation_manually_paused=False
-        )
+        app.state = ClientState()
+        app._stopping = False
         app.stream = SimpleNamespace(stop=Mock())
         with patch("core.client.app.set_dictation_paused"):
             assert app.pause_dictation(show_hint=False, manual=manual)

@@ -303,8 +303,7 @@ class ShortcutManager:
 
         # 取消所有任务
         for task in self.tasks.values():
-            if task.is_recording:
-                task.cancel()
+            task.close()
 
         # 关闭线程池
         self._pool.shutdown(wait=False)

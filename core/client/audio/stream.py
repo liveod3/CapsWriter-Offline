@@ -150,28 +150,22 @@ class AudioStreamManager:
         
         当音频流接收到新数据时调用，将数据放入异步队列中。
         """
+        capture = getattr(self.state, 'capture', None)
         # stream.start() 返回不代表硬件已经开始交付数据；首个回调才是真正就绪。
         event = ready_event or self._ready_event
+        if event is not self._ready_event:
+            return
         if not event.is_set():
             event.set()
-            logger.info("音频设备已就绪：收到首个音频数据块")
 
         # 只在录音状态时处理数据
         if not self.state.recording:
             return
         
-        import asyncio
-        
-        # 将数据放入队列
-        if self.app.loop and self.state.queue_in:
-            asyncio.run_coroutine_threadsafe(
-                self.state.queue_in.put({
-                    'type': 'data',
-                    'time': time.time(),
-                    'data': indata.copy(),
-                }),
-                self.app.loop
-            )
+        # A retained snapshot can only append to its own recording. finish()
+        # closes that bridge before another shortcut can publish a new one.
+        if capture is not None:
+            capture.push_audio(indata, time.time())
     
     def _on_stream_finished(self) -> None:
         """音频流结束回调"""
@@ -306,6 +300,7 @@ class AudioStreamManager:
         Args:
             keep_monitor: 是否保持监控线程的运行标志。在重载驱动重建流时，应设为 True。
         """
+        self._ready_event = threading.Event()
         if not self._running:
             if not keep_monitor:
                 self._monitor_running = False

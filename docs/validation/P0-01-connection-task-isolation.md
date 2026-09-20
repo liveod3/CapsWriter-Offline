@@ -61,4 +61,4 @@ Use the updated source checkout and the existing `capswriter` environment. Resta
 
 Report each manual item as pass/fail/not run. For failures, note which client was doing what, whether the other client continued, and any content-free error category. There is no need to share private audio, transcripts or complete logs.
 
-Acceptance recorded; the next implementation batch will address recording ownership.
+Acceptance recorded; the next implementation batch is [stage 2a: recording ownership](P0-02a-recording-ownership.md).

@@ -8,6 +8,7 @@ import pytest
 
 from core.client.processing_status import ProcessingStatus
 from core.client.shortcut.task import ShortcutTask
+from core.client.state import ClientState
 from core.ui.recording_indicator import _RecordingIndicator
 
 
@@ -44,20 +45,19 @@ def test_finish_shows_transcribing_before_enqueuing_final_audio(monkeypatch):
     events = []
     app = SimpleNamespace(
         mark_user_activity=Mock(), progress=SimpleNamespace(begin=lambda _: events.append("status")),
-        state=SimpleNamespace(stop_recording=Mock(), queue_in=asyncio.Queue()), loop=Mock(),
+        state=ClientState(), loop=Mock(),
     )
     task = ShortcutTask(app, SimpleNamespace(key="ctrl_r", is_toggle_key=lambda: False))
     task._progress_id = "task"
     task.task = Future()
+    task.is_recording = True
+    task._capture = SimpleNamespace(finish=lambda: events.append('enqueue'))
+    app.state.capture = task._capture
+    app.state.recording_owner = task
     task._status = Mock()
     monkeypatch.setattr("core.client.shortcut.task.hide_recording_indicator", Mock())
     monkeypatch.setattr("core.client.shortcut.task.set_recording_state", Mock())
-
-    def submit(coro, loop):
-        events.append("enqueue")
-        coro.close()
-
-    monkeypatch.setattr("core.client.shortcut.task.asyncio.run_coroutine_threadsafe", submit)
+    monkeypatch.setattr("core.client.shortcut.task.hide_status_hint", Mock())
     task.finish()
     assert events == ["status", "enqueue"]
 

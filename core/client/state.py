@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import time
+from threading import RLock
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Dict, Any
@@ -79,6 +80,11 @@ class ClientState:
     app: Optional[CapsWriterClient] = None
 
     recording: bool = False
+    # Serialize shortcut ownership changes; callbacks use the capture snapshot.
+    recording_lock: Any = field(default_factory=RLock, repr=False)
+    recording_owner: Any = field(default=None, repr=False)
+    capture: Any = field(default=None, repr=False)
+    recording_futures: set = field(default_factory=set, repr=False)
     recording_start_time: float = 0.0
     dictation_paused: bool = False
     dictation_manually_paused: bool = False
@@ -122,8 +128,13 @@ class ClientState:
             self.stream = None
         
         # 重置其他状态
-        self.recording = False
-        self.recording_start_time = 0.0
+        with self.recording_lock:
+            if self.capture is not None:
+                self.capture.cancel()
+            self.capture = None
+            self.recording_owner = None
+            self.recording = False
+            self.recording_start_time = 0.0
         self.dictation_paused = False
         self.dictation_manually_paused = False
         self.task_contexts.clear()
@@ -203,5 +214,3 @@ class ClientState:
             text: 输出文本内容
         """
         self.last_output_text = text
-
-

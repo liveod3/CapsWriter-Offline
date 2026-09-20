@@ -19,6 +19,7 @@ import websockets
 from config_client import ClientConfig as Config
 from core.client.state import console
 from core.client.audio.file_manager import AudioFileManager
+from core.client.audio.capture import CaptureSession
 from core.client.connection import WebSocketManager
 from core.protocol import AudioMessage
 from . import logger
@@ -84,13 +85,16 @@ class AudioRecorder:
             self.state.pop_audio_file(message.task_id)
             # 具体错误日志由 WebSocketManager 记录
     
-    async def record_and_send(self) -> None:
+    async def record_and_send(self, capture=None) -> None:
         """
         录音并发送数据
         
         从队列中读取音频数据，保存到文件（如果启用），
         并发送到服务端进行识别。
         """
+        # Freeze the input source for this recorder, including while it drains
+        # after a new recording has already claimed the microphone.
+        input_queue = capture if capture is not None else self.state.queue_in
         try:
             # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
             logger.debug(f"创建录音任务，任务ID: {self.task_id}")
@@ -105,8 +109,13 @@ class AudioRecorder:
                 self._file_manager = AudioFileManager()
             
             # 从队列读取数据
-            while task := await self.state.queue_in.get():
-                self.state.queue_in.task_done()
+            while task := await input_queue.get():
+                if capture is None:
+                    input_queue.task_done()
+                if task['type'] == 'cancel':
+                    raise asyncio.CancelledError
+                if task['type'] == 'overflow':
+                    raise RuntimeError('CaptureBufferOverflow')
                 
                 if task['type'] == 'begin':
                     self._start_time = task['time']
@@ -122,6 +131,8 @@ class AudioRecorder:
                 elif task['type'] == 'data':
                     # 在阈值之前积攒音频数据
                     if task['time'] - self._start_time < Config.threshold:
+                        if len(self._cache) >= CaptureSession.MAX_PENDING_BLOCKS:
+                            raise RuntimeError('CaptureBufferOverflow')
                         self._cache.append(task['data'])
                         continue
                     
@@ -225,13 +236,18 @@ class AudioRecorder:
         except asyncio.CancelledError:
             self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
-            if self._file_manager:
-                self._file_manager.finish()
             raise
         except Exception as e:
             self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
             logger.error(f"录音任务错误: {e}", exc_info=True)
+            raise
+        finally:
+            self._cache.clear()
+            if capture is not None:
+                capture.cancel()
+            if self._file_manager:
+                self._file_manager.finish()
     
     def get_file_manager(self) -> Optional[AudioFileManager]:
         """获取当前的文件管理器"""

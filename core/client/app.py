@@ -138,6 +138,13 @@ class CapsWriterClient:
                 self.state.last_activity_time = time.time()
 
     def pause_dictation(self, show_hint: bool = True, *, manual: bool = True) -> bool:
+        """Serialize pause with shortcut capture ownership changes."""
+        with self.state.recording_lock:
+            if self._stopping:
+                return False
+            return self._pause_dictation_locked(show_hint, manual=manual)
+
+    def _pause_dictation_locked(self, show_hint: bool = True, *, manual: bool = True) -> bool:
         """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
         if self.state.recording:
             if show_hint:
@@ -164,6 +171,13 @@ class CapsWriterClient:
         return True
 
     def resume_dictation(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
+        """Serialize resume with pause and shortcut ownership changes."""
+        with self.state.recording_lock:
+            if self._stopping:
+                return False
+            return self._resume_dictation_locked(show_hint, silent_stream)
+
+    def _resume_dictation_locked(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
         """恢复听写并重新打开麦克风流。"""
         if not self.state.dictation_paused:
             return True

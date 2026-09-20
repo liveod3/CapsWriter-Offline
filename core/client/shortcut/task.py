@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 import asyncio
+from concurrent.futures import Future
 import time
 from threading import Event, Thread
 from typing import TYPE_CHECKING, Optional
@@ -21,6 +22,7 @@ from core.ui.recording_indicator import (
     show_status_hint,
 )
 from core.ui.tray import set_recording_state
+from core.client.audio.capture import CaptureSession
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -38,6 +40,7 @@ class ShortcutTask:
     """
 
     AUDIO_READY_TIMEOUT = 5.0
+    MAX_PENDING_RECORDERS = 8
 
     def __init__(self, app: CapsWriterClient, shortcut: Shortcut, recorder_class=None):
         """
@@ -53,11 +56,14 @@ class ShortcutTask:
         self._recorder_class = recorder_class
 
         # 任务状态
-        self.task: Optional[asyncio.Future] = None
+        self.task: Optional[Future] = None
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
         self._launch_generation: int = 0
         self._progress_id: str | None = None
+        self._capture = None
+        self._pending_recorders = set()
+        self._ready_cancel = Event()
 
         # hold_mode 状态跟踪
         self.pressed: bool = False
@@ -83,32 +89,51 @@ class ShortcutTask:
         return self._recorder_class(self.app)
 
     def _show_recording_ready(self, generation: int, clear_preparing_hint: bool) -> None:
-        """仅为当前仍在进行的录音显示就绪状态。"""
+        """Publish readiness only while this generation owns capture."""
         if generation != self._launch_generation or not self.is_recording:
             return
-
-        if clear_preparing_hint:
-            hide_status_hint()
-        self._status.start()
-        show_recording_indicator()
-        set_recording_state(True)
+        with self.state.recording_lock:
+            if generation != self._launch_generation or not self.is_recording:
+                return
+            if clear_preparing_hint:
+                hide_status_hint()
+            self._status.start()
+            show_recording_indicator()
+            set_recording_state(True)
 
     def _wait_for_audio_ready(self, ready_event: Event, generation: int) -> None:
-        """在后台等待首个音频回调，不阻塞快捷键线程。"""
-        if not ready_event.wait(timeout=self.AUDIO_READY_TIMEOUT):
-            if generation == self._launch_generation and self.is_recording:
-                message = '麦克风准备超时，请重试'
-                logger.info(f"[{self.shortcut.key}] {message}")
-                console.print(f'\n[ui.error]●[/] [ui.value]{message}[/]')
-                show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
+        """Wait off the shortcut thread and reset ownership after a timeout."""
+        deadline = time.monotonic() + self.AUDIO_READY_TIMEOUT
+        while generation == self._launch_generation and self.is_recording:
+            if self.app.stream.is_ready(ready_event):
+                self._show_recording_ready(generation, clear_preparing_hint=True)
+                return
+            if time.monotonic() >= deadline:
+                break
+            if self._ready_cancel.wait(timeout=0.05):
+                return
+        if generation != self._launch_generation or not self.is_recording:
             return
-
-        if self.app.stream.is_ready(ready_event):
-            self._show_recording_ready(generation, clear_preparing_hint=True)
+        with self.state.recording_lock:
+            if generation != self._launch_generation or not self.is_recording:
+                return
+            self.cancel()
+            logger.warning('Microphone readiness timed out; capture released')
+            show_status_hint('麦克风准备超时，请重试', duration_ms=2200, dot_color='#EF4444')
 
     def launch(self) -> bool:
-        """启动录音任务"""
+        """Atomically claim the microphone across all shortcut tasks."""
         self.app.mark_user_activity()
+        with self.state.recording_lock:
+            if getattr(self.app, '_stopping', False) or self.state.recording_owner is not None:
+                return False
+            if len(self.state.recording_futures) >= self.MAX_PENDING_RECORDERS:
+                show_status_hint('Previous recordings are still sending. Please wait.',
+                                 duration_ms=2200)
+                return False
+            return self._launch_locked()
+
+    def _launch_locked(self) -> bool:
         self._launch_generation += 1
         generation = self._launch_generation
 
@@ -121,24 +146,42 @@ class ShortcutTask:
                 logger.warning(f"[{self.shortcut.key}] 恢复听写失败，跳过本次录音")
                 return False
 
-        logger.info(f"[{self.shortcut.key}] 触发：开始录音")
+        if not self.app.loop.is_running() or self.app.loop.is_closed():
+            return False
+        capture = None
+        try:
+            from core.client.caret_context import foreground_window
+            target_window = foreground_window()
+            recorder = self._get_recorder()
+            self.recording_start_time = time.time()
+            capture = CaptureSession(self.app.loop, self.recording_start_time, target_window)
+            self._capture = capture
+            self._ready_cancel = Event()
+            self._progress_id = recorder.task_id
+            self.is_recording = True
+            self.state.recording_owner = self
+            self.state.capture = capture
+            self.state.start_recording(self.recording_start_time)
+            self.task = None
+            coroutine = recorder.record_and_send(capture)
+            try:
+                self.task = asyncio.run_coroutine_threadsafe(coroutine, self.app.loop)
+            except RuntimeError:
+                coroutine.close()
+                raise
+            self._pending_recorders.add(self.task)
+            self.state.recording_futures.add(self.task)
+            self.task.add_done_callback(
+                lambda future: self._recorder_done(future, capture, recorder.task_id)
+            )
+        except Exception as exc:
+            if capture is not None and self._capture is capture:
+                self.cancel()
+            logger.error(f'Could not start recording: {type(exc).__name__}')
+            return False
 
-        # 记录开始时间
-        self.recording_start_time = time.time()
-        self.is_recording = True
-
-        from core.client.caret_context import foreground_window
-        target_window = foreground_window()
-
-        # 将开始标志放入队列
-        asyncio.run_coroutine_threadsafe(
-            self.state.queue_in.put({'type': 'begin', 'time': self.recording_start_time, 'data': None, 'target_window': target_window}),
-            self.app.loop
-        )
-
-        # 更新录音状态
-        self.state.start_recording(self.recording_start_time)
-
+        if not self.is_recording:
+            return False
         # stream.start() 后硬件可能仍在唤醒；只在首个音频块到达后提示可以说话。
         ready_event = self.app.stream.get_ready_event()
         if self.app.stream.is_ready(ready_event):
@@ -155,56 +198,72 @@ class ShortcutTask:
                 name=f'audio-ready-{self.shortcut.key}',
             ).start()
 
-        # 启动识别任务
-        recorder = self._get_recorder()
-        self._progress_id = recorder.task_id
-        self.task = asyncio.run_coroutine_threadsafe(
-            recorder.record_and_send(),
-            self.app.loop,
-        )
         return True
 
-    def cancel(self) -> None:
-        """取消录音任务（时间过短）"""
-        logger.debug(f"[{self.shortcut.key}] 取消录音任务（时间过短）")
-        self.app.mark_user_activity()
-        if self._progress_id:
-            self.app.progress.finish(self._progress_id)
-
+    def _release_capture_locked(self) -> None:
+        """Release only this task's current microphone ownership."""
         self._launch_generation += 1
+        self._ready_cancel.set()
         self.is_recording = False
-        self.state.stop_recording()
-        self._status.stop()
-        hide_recording_indicator()
-        set_recording_state(False)
+        if self.state.recording_owner is self and self.state.capture is self._capture:
+            self.state.capture = None
+            self.state.recording_owner = None
+            self.state.stop_recording()
+            self._status.stop()
+            hide_recording_indicator()
+            hide_status_hint()
+            set_recording_state(False)
 
-        if self.task is not None:
-            self.task.cancel()
-            self.task = None
+    def _recorder_done(self, future, capture, progress_id):
+        """Ignore old completion callbacks when a newer recording is active."""
+        error = None if future.cancelled() else future.exception()
+        with self.state.recording_lock:
+            self._pending_recorders.discard(future)
+            self.state.recording_futures.discard(future)
+            if self.task is future:
+                self.task = None
+            if self._capture is capture and self.is_recording:
+                capture.cancel()
+                self._release_capture_locked()
+                self.app.progress.finish(progress_id)
+            if error is not None:
+                logger.error(f'Recording worker failed: {type(error).__name__}')
+                if self.state.recording_owner is None and not getattr(self.app, '_stopping', False):
+                    message = ('Recording stopped: audio buffer is full. Please retry.'
+                               if str(error) == 'CaptureBufferOverflow' else
+                               'Recording failed. Please retry.')
+                    show_status_hint(message, duration_ms=3500, dot_color='#EF4444')
+
+    def cancel(self) -> None:
+        """Cancel this recording without changing another shortcut's state."""
+        with self.state.recording_lock:
+            self.app.mark_user_activity()
+            if self._capture is not None:
+                self._capture.cancel()
+            if self._progress_id:
+                self.app.progress.finish(self._progress_id)
+            self._release_capture_locked()
+            if self.task is not None:
+                future, self.task = self.task, None
+                future.cancel()
+
+    def close(self) -> None:
+        """Cancel active capture and any older recorder still draining its tail."""
+        with self.state.recording_lock:
+            self.cancel()
+            for future in list(self._pending_recorders):
+                future.cancel()
 
     def finish(self) -> None:
-        """完成录音任务"""
-        logger.info(f"[{self.shortcut.key}] 释放：完成录音")
-        self.app.mark_user_activity()
-        # 在等待音频队列排空、发送尾包及 ASR 结果之前立即提示。
-        if self._progress_id and self.task is not None and not self.task.done():
-            self.app.progress.begin(self._progress_id)
-
-        self._launch_generation += 1
-        self.is_recording = False
-        self.state.stop_recording()
-        self._status.stop()
-        hide_recording_indicator()
-        set_recording_state(False)
-
-        asyncio.run_coroutine_threadsafe(
-            self.state.queue_in.put({
-                'type': 'finish',
-                'time': time.time(),
-                'data': None
-            }),
-            self.app.loop
-        )
+        """Close this capture's input while its private queue drains."""
+        with self.state.recording_lock:
+            if not self.is_recording or self.state.recording_owner is not self:
+                return
+            self.app.mark_user_activity()
+            if self._progress_id and self.task is not None and not self.task.done():
+                self.app.progress.begin(self._progress_id)
+            self._capture.finish()
+            self._release_capture_locked()
 
         # 执行 restore（可恢复按键 + 非阻塞模式）
         # 阻塞模式下按键不会发送到系统，状态不会改变，不需要恢复
