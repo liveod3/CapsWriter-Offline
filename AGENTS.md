@@ -217,7 +217,7 @@ CI 现状与限制：
 - `core/client/audio/stream.py`：PortAudio 生命周期、设备监控和多线程竞态。
 - `core/client/app.py`、`core/client/shortcut/`：闲置挂起、暂停恢复与录音状态竞态。
 - `core/server/connection/`：已有 local/LAN 认证模式、输入/队列上限和连接内按 task 的音频缓存；继续审查认证兼容、边界错误与断线清理，协议版本协商及显式取消仍待完善。
-- `core/server/state.py`、`core/server/worker/task_handler.py`：Worker 会话和调度缓冲仍仅以 `task_id` 为键；连接内缓存隔离不等于跨连接同 ID 已隔离。修改会话标识时需把 `(socket_id, task_id)` 贯穿调度、合并、返回与清理。
+- `core/server/state.py`, `core/server/worker/task_handler.py`: Worker sessions and scheduling buffers use `(socket_id, task_id)` keys. Preserve this identity through processing, result routing and cleanup; collision regressions are in `tests/unit/test_connection_task_isolation.py`. Stage 1 was accepted by the user; see `docs/validation/P0-01-connection-task-isolation.md` for the exact manual scope.
 - `core/server/worker/task_handler.py`：调度语义直接影响实时听写延迟和文件任务公平性。
 - `core/server/worker/process_manager.py`、`core/server/worker/aligner_worker.py`：ASR/对齐器进程的启动、超时、闲置退出和异常重启；GPU 后端资源需按进程边界隔离。
 - `core/client/llm/` 与 `LLM/`：Provider 配置、云端数据外发和密钥管理。

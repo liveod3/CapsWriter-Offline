@@ -62,7 +62,7 @@ class TaskPipeline:
         """
         try:
             logger.info(f"任务 {task.task_id[:8]}, 语言={task.language}, 类型={task.type}")
-            is_first_segment = task.task_id not in self.state.sessions
+            is_first_segment = task.key not in self.state.sessions
             session = self.state.get_session(task.task_id, task.socket_id, task.type)
             result = session.result
 

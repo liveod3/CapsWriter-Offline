@@ -1,11 +1,7 @@
 # coding: utf-8
-"""
-识别任务处理器
+"""Process queued audio and return recognition results to the main process.
 
-负责监听任务队列、执行识别流水线并将结果返回主进程。
-
-公平调度：按 task_id 轮转取任务处理，防止单个持续生产的任务淹没队列。
-同 task 内保持 FIFO 顺序，跨 task 间轮转调度。
+Schedule (socket_id, task_id) pairs round-robin, preserving FIFO within each pair.
 """
 
 from collections import OrderedDict, deque
@@ -15,47 +11,49 @@ import queue
 from config_server import ServerConfig as Config
 from .pipeline import TaskPipeline
 from ..state import WorkerState
+from ..schema import TaskKey
 from .gpu_boost import GpuBoostManager
 from .gpu_monitor import GpuMemoryMonitor
 from . import logger
 
 
 class TaskBuffer:
-    """按 task_id 分组缓冲，支持跨 session 轮转出队。"""
+    """Buffer connection-scoped tasks for round-robin scheduling."""
     def __init__(self, state: WorkerState):
         self.state = state
-        self._buffers: OrderedDict[str, deque] = OrderedDict()
+        self._buffers: OrderedDict[TaskKey, deque] = OrderedDict()
 
     def enqueue(self, task):
-        """将任务放入对应 task_id 的缓冲尾部（同 session 内 FIFO）。
-        首次遇到新 task_id 时预创建 session。"""
-        tid = task.task_id
-        if tid not in self._buffers:
-            self._buffers[tid] = deque()
-            self.state.get_session(tid, task.socket_id, task.type)
-        self._buffers[tid].append(task)
+        """Append a fragment and ensure its owning session exists."""
+        key = task.key
+        if key not in self._buffers:
+            self._buffers[key] = deque()
+            self.state.get_session(task.task_id, task.socket_id, task.type)
+        self._buffers[key].append(task)
 
     def pop(self):
         """轮转取出一个 session 的下一个任务。没有待处理任务时返回 None。"""
         if not self._buffers:
             return None
 
-        tid, buf = next(iter(self._buffers.items()))
+        key, buf = next(iter(self._buffers.items()))
         task = buf.popleft()
 
         if buf:
-            self._buffers.move_to_end(tid)
+            self._buffers.move_to_end(key)
         else:
-            del self._buffers[tid]
+            del self._buffers[key]
 
         return task
 
     def cleanup_tasks(self):
-        """清理已断开连接的 session 的缓冲任务。"""
-        for tid in list(self._buffers):
-            if tid not in self.state.sessions:
-                logger.debug(f"清理断开连接的 session: {tid[:8]}")
-                del self._buffers[tid]
+        """Remove buffered fragments whose owning sessions were removed."""
+        for key in list(self._buffers):
+            if key not in self.state.sessions:
+                logger.debug(
+                    f"Removed buffered session: socket={key[0][:8]}, task={key[1][:8]}"
+                )
+                del self._buffers[key]
 
     @property
     def is_empty(self) -> bool:
@@ -134,6 +132,7 @@ class TaskHandler:
                 else:
                     task = self.queue_in.get(timeout=0.02)
             except queue.Empty:
+                self.cleanup()
                 if self.buffer.is_empty:
                     self.cleanup_engines()
                     continue
@@ -186,7 +185,7 @@ class TaskHandler:
         else:
             logger.debug(f"客户端已断连，丢弃待发送结果: {task.task_id[:8]}")
         if result.is_final:
-            self.state.sessions.pop(task.task_id, None)
+            self.state.sessions.pop(task.key, None)
 
     def loop(self):
         """核心任务循环：drain 队列 → 清理断连 → 轮转执行一个。"""
@@ -198,6 +197,7 @@ class TaskHandler:
                     if not self.drain_queue():
                         break
 
+                    self.cleanup()
                     task = self.buffer.pop()
                     if task is None:
                         continue

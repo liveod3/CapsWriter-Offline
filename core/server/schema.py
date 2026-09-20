@@ -10,6 +10,10 @@ from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
 
+# Internal identity; task IDs are unique only within a connection.
+TaskKey = tuple[str, str]
+
+
 @dataclass
 class Task:
     """
@@ -42,6 +46,11 @@ class Task:
     language: str = 'auto'
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
+
+    @property
+    def key(self) -> TaskKey:
+        """Return the connection-scoped identity used by the worker."""
+        return self.socket_id, self.task_id
 
 
 @dataclass
@@ -88,11 +97,7 @@ class Result:
 
 @dataclass
 class RecognitionSession:
-    """
-    识别会话
-    
-    封装单个 task_id 的所有中间识别状态。
-    """
+    """Intermediate recognition state for one (socket_id, task_id) pair."""
     task_id: str
     result: Result
     # 未来可在此扩展会话级状态，如 N-best 假设、中间特征缓存等

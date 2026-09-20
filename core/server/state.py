@@ -15,7 +15,7 @@ import websockets
 from rich.console import Console
 from config_server import ServerConfig as Config
 
-from core.server.schema import Result, RecognitionSession
+from core.server.schema import Result, RecognitionSession, TaskKey
 
 if TYPE_CHECKING:
     from .app import CapsWriterServer
@@ -68,35 +68,31 @@ class ServerState:
 
 @dataclass
 class WorkerState:
-    """
-    识别子进程运行状态
-    
-    存储识别 Worker 进程运行时的状态：
-    - sessions: 活跃识别会话，以 task_id 为键
-    """
-    # 识别会话集
-    sessions: Dict[str, RecognitionSession] = field(default_factory=dict)
+    """Worker state with sessions keyed by (socket_id, task_id)."""
+    sessions: Dict[TaskKey, RecognitionSession] = field(default_factory=dict)
     
     # GPU 加速状态
     gpu_boosted: bool = False       # 当前是否已执行 GPU 加速
     gpu_last_active: float = 0.0    # 上次任务活跃时间，用于超时取消加速
 
-    def get_session(self, task_id: str, socket_id: str = '', source: str = '') -> RecognitionSession:
-        """获取或创建识别会话"""
-        if task_id not in self.sessions:
+    def get_session(self, task_id: str, socket_id: str, source: str = '') -> RecognitionSession:
+        """Get or create a session owned by the specified connection."""
+        key = (socket_id, task_id)
+        if key not in self.sessions:
             result = Result(task_id=task_id, socket_id=socket_id, type=source)
-            self.sessions[task_id] = RecognitionSession(task_id=task_id, result=result)
-        return self.sessions[task_id]
+            self.sessions[key] = RecognitionSession(task_id=task_id, result=result)
+        return self.sessions[key]
     
     def cleanup_sessions(self, sockets_id: ListProxy) -> int:
-        """清理已断开连接的客户端 session"""
-        stale_ids = [
-            sid for sid, session in list(self.sessions.items())
-            if session.result.socket_id not in sockets_id
+        """Remove sessions whose owning connections have disconnected."""
+        active_sockets = set(sockets_id)
+        stale_keys = [
+            key for key in self.sessions
+            if key[0] not in active_sockets
         ]
-        for sid in stale_ids:
-            self.sessions.pop(sid, None)
-        if stale_ids:
+        for key in stale_keys:
+            self.sessions.pop(key, None)
+        if stale_keys:
             from . import logger
-            logger.debug(f"清理了 {len(stale_ids)} 个已断开连接的 session")
-        return len(stale_ids)
+            logger.debug(f"Removed {len(stale_keys)} disconnected sessions")
+        return len(stale_keys)

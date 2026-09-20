@@ -1,5 +1,10 @@
 # 更新日志
 
+## 2026-09-20 — Unreleased
+
+- Isolate worker sessions and scheduler buffers by `(socket_id, task_id)`. Completing or disconnecting one connection no longer removes another connection's same-ID task state. Clean disconnected sessions during idle polling and before selecting buffered work.
+- Add 15 synthetic regressions covering colliding IDs, FIFO/round-robin scheduling, audio/text/token separation, final cleanup, disconnects, serialization and result delivery. Stage 1 passed the default suite (206 tests) and was accepted by the user after dictation, concurrent file/dictation and dual-file checks. Concurrent dictation latency remains a separate follow-up. See the [stage 1 record](validation/P0-01-connection-task-isolation.md).
+
 ## 2026-09-15 工作区更新（未发布）
 
 - 默认纠错预设要求明确数值使用半角阿拉伯数字，保留单位、精度及编号前导零；固定词语与不确定数量不机械转换，日期格式暂不处理。
