@@ -87,6 +87,11 @@ class CapsWriterClient:
         self._idle_suspend_thread = None
         self._active_runner = None
         self._stopping = False
+        self._shutdown_lock = threading.Lock()
+        self._dictation_control_lock = threading.RLock()
+        self._shutdown_future = None
+        self._runner_task = None
+        self._idle_stop = threading.Event()
 
     def mark_user_activity(self) -> None:
         """标记用户活跃时间，用于闲置自动挂起判断。"""
@@ -100,6 +105,7 @@ class CapsWriterClient:
             return
 
         self._idle_suspend_running = True
+        self._idle_stop.clear()
         self._idle_suspend_thread = threading.Thread(
             target=self._idle_suspend_loop,
             daemon=True,
@@ -111,12 +117,18 @@ class CapsWriterClient:
     def stop_idle_suspend_monitor(self) -> None:
         """停止闲置自动挂起监控线程。"""
         self._idle_suspend_running = False
-        self._idle_suspend_thread = None
+        self._idle_stop.set()
+        thread = self._idle_suspend_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=3)
+            if not thread.is_alive():
+                self._idle_suspend_thread = None
 
     def _idle_suspend_loop(self) -> None:
         """闲置检测循环：超过阈值后自动挂起听写。"""
         while self._idle_suspend_running:
-            time.sleep(1.0)
+            if self._idle_stop.wait(1.0) or self._stopping:
+                break
 
             if not Config.enable_idle_suspend:
                 continue
@@ -139,27 +151,23 @@ class CapsWriterClient:
 
     def pause_dictation(self, show_hint: bool = True, *, manual: bool = True) -> bool:
         """Serialize pause with shortcut capture ownership changes."""
-        with self.state.recording_lock:
-            if self._stopping:
-                return False
+        with self._dictation_control_lock:
             return self._pause_dictation_locked(show_hint, manual=manual)
 
     def _pause_dictation_locked(self, show_hint: bool = True, *, manual: bool = True) -> bool:
         """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
-        if self.state.recording:
-            if show_hint:
-                message = '当前正在录音，稍后再暂停'
-                logger.info(message)
-                console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
-                show_status_hint(message, duration_ms=1600, dot_color='#F59E0B')
-            return False
-
-        if manual:
-            self.state.dictation_manually_paused = True
-        if self.state.dictation_paused:
-            return True
-
-        self.state.dictation_paused = True
+        with self.state.recording_lock:
+            if self._stopping:
+                return False
+            if self.state.recording:
+                if show_hint:
+                    show_status_hint('当前正在录音，稍后再暂停', duration_ms=1600, dot_color='#F59E0B')
+                return False
+            if manual:
+                self.state.dictation_manually_paused = True
+            if self.state.dictation_paused:
+                return True
+            self.state.dictation_paused = True
         # 先发布挂起状态，再释放录音流并保留只读设备监控，避免监控线程误重开麦克风。
         self.stream.stop(keep_monitor=True)
         set_dictation_paused(True)
@@ -172,15 +180,16 @@ class CapsWriterClient:
 
     def resume_dictation(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
         """Serialize resume with pause and shortcut ownership changes."""
-        with self.state.recording_lock:
-            if self._stopping:
-                return False
+        with self._dictation_control_lock:
             return self._resume_dictation_locked(show_hint, silent_stream)
 
     def _resume_dictation_locked(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
         """恢复听写并重新打开麦克风流。"""
-        if not self.state.dictation_paused:
-            return True
+        with self.state.recording_lock:
+            if self._stopping:
+                return False
+            if not self.state.dictation_paused:
+                return True
 
         stream = self.stream.start(silent=silent_stream, force=True)
         if stream is None:
@@ -189,8 +198,11 @@ class CapsWriterClient:
                 show_status_hint('恢复听写失败：无法打开麦克风', duration_ms=2000, dot_color='#EF4444')
             return False
 
-        self.state.dictation_paused = False
-        self.state.dictation_manually_paused = False
+        with self.state.recording_lock:
+            if self._stopping:
+                return False
+            self.state.dictation_paused = False
+            self.state.dictation_manually_paused = False
         set_dictation_paused(False)
         logger.info("听写恢复流程已启动：音频流已重新打开，等待设备就绪")
         self.mark_user_activity()
@@ -217,7 +229,13 @@ class CapsWriterClient:
 
     def _show_resume_hint_when_ready(self, ready_event: threading.Event) -> None:
         """托盘恢复时，等设备真正交付音频后再提示恢复完成。"""
-        if not ready_event.wait(timeout=5.0):
+        deadline = time.monotonic() + 5.0
+        while not self._stopping and not ready_event.is_set() and time.monotonic() < deadline:
+            if self._idle_stop.wait(0.05):
+                return
+        if self._stopping:
+            return
+        if not ready_event.is_set():
             if not self.state.dictation_paused and ready_event is self.stream.get_ready_event():
                 message = '麦克风准备超时，请重试'
                 logger.info(message)
@@ -238,50 +256,53 @@ class CapsWriterClient:
         return self.pause_dictation(show_hint=True)
 
     def stop(self):
-        """
-        统一释放所有资源（清理顺序：硬件 -> 托盘 -> WebSocket -> State）
-        """
-        if self._stopping:
-            return
-        self._stopping = True
+        """Request shutdown from any thread without stopping the owning loop early."""
+        with self._shutdown_lock:
+            if self._stopping:
+                return
+            self._stopping = True
+            self.stream.request_shutdown()
+            self._idle_stop.set()
+            if not self.loop.is_closed():
+                self._shutdown_future = asyncio.run_coroutine_threadsafe(self._shutdown(), self.loop)
+
+    async def _shutdown(self):
+        """Keep the event loop alive until recording and hardware cleanup finishes."""
         self.progress.close()
-
-        logger.info("正在执行 CapsWriterClient 资源释放...")
-
-        # 先终止结果处理循环，防止关闭当前连接后触发自动重连。
         processor = getattr(self._active_runner, 'processor', None)
         if processor is not None:
             processor.request_exit()
+        self.ws.begin_shutdown()
 
-        # 1. 停止核心运行组件
-        self.stop_idle_suspend_monitor()
-        self.udp.stop()
-        self.shortcut.stop()
-        self.stream.stop()
+        async def release(operation):
+            try:
+                await asyncio.to_thread(operation)
+            except Exception as exc:
+                logger.warning('Shutdown operation failed: %s', type(exc).__name__)
 
-        # 2. 托盘资源
-        self.tray.stop()
-
-        # 3. 关闭监控
-        self.caret_context.close()
-        self.llm.stop()
-
-        # 4. 关闭 WebSocket 连接
-        self.ws.close_sync()
-
-        # 5. 重置 State
+        await release(self.stop_idle_suspend_monitor)
+        await release(self.udp.stop)
+        await release(self.shortcut.stop)
+        await release(self.caret_context.close)
+        await release(self.llm.stop)
+        # Future.cancel() reports done before its asyncio coroutine finishes.
+        # The separate task set includes file-writer and hardware-resume cleanup.
+        await asyncio.sleep(0)
+        recordings = list(self.state.recording_tasks)
+        for recording in recordings:
+            recording.cancel()
+        if recordings:
+            await asyncio.gather(*recordings, return_exceptions=True)
+        await release(self.stream.close)
+        await release(self.tray.stop)
         try:
-            self.state.reset()
-        except Exception as e:
-            logger.warning(f"重置状态时发生错误: {e}")
-
-        # 麦克风模式由 ResultProcessor 在关闭连接后自然返回，让关闭握手有
-        # 机会完成；其他模式仍沿用主动停止事件循环的退出方式。
-        if processor is None:
-            self.loop.stop()
-
-        logger.info("资源释放完成")
-        console.print('[ui.muted]CapsWriter 已退出。[/]')
+            await self.ws.close()
+        except Exception as exc:
+            logger.warning('Connection close failed: %s', type(exc).__name__)
+        if self._runner_task is not None and not self._runner_task.done():
+            self._runner_task.cancel()
+        await release(self.state.reset)
+        logger.info('Client resource cleanup complete')
 
 
     def start(self) -> int:
@@ -318,9 +339,17 @@ class CapsWriterClient:
         self._active_runner = runner
         
         try:
-            succeeded = self.loop.run_until_complete(runner.run())
-        except RuntimeError:
+            self._runner_task = self.loop.create_task(runner.run())
+            succeeded = self.loop.run_until_complete(self._runner_task)
+        except asyncio.CancelledError:
             if not self._stopping:
                 raise
             return 0
+        finally:
+            self.stop()
+            if self._shutdown_future is not None:
+                self.loop.run_until_complete(asyncio.wrap_future(self._shutdown_future, loop=self.loop))
+            self.loop.run_until_complete(self.loop.shutdown_asyncgens())
+            self.loop.run_until_complete(self.loop.shutdown_default_executor())
+            self.loop.close()
         return 0 if succeeded is not False else 1

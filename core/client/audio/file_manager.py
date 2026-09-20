@@ -13,9 +13,11 @@ import shutil
 import tempfile
 import time
 import wave
+import os
+from threading import Event, Lock
 from os import makedirs
 from pathlib import Path
-from subprocess import DEVNULL, PIPE, Popen
+from subprocess import DEVNULL, PIPE, Popen, TimeoutExpired
 from typing import Optional, Tuple, Union
 
 import numpy as np
@@ -40,12 +42,16 @@ class AudioFileManager:
     """
     
     SAMPLE_RATE = 48000
+    FINISH_TIMEOUT = 5.0
+    KILL_TIMEOUT = 2.0
     
     def __init__(self):
         """初始化音频文件管理器"""
         self.file_path: Optional[Path] = None
         self.file_handle: Optional[AudioWriter] = None
         self.channels: int = 1
+        self._aborted = Event()
+        self._process_lock = Lock()
         self._ffmpeg_path = shutil.which('ffmpeg')
         self._has_ffmpeg = self._ffmpeg_path is not None
         
@@ -65,6 +71,8 @@ class AudioFileManager:
         Returns:
             (文件路径, 文件写入句柄) 元组
         """
+        if self._aborted.is_set():
+            raise RuntimeError('AudioWriterAborted')
         self.channels = channels
         
         # 构建目录和文件名
@@ -77,8 +85,11 @@ class AudioFileManager:
         makedirs(folder_path, exist_ok=True)
         
         # 创建临时文件名
-        file_path = tempfile.mktemp(prefix=f'({time_ymdhms})', dir=folder_path)
-        file_path = Path(file_path)
+        suffix = '.mp3' if self._ffmpeg_path else '.wav'
+        fd, reserved_path = tempfile.mkstemp(
+            prefix=f'({time_ymdhms})', suffix=suffix, dir=folder_path)
+        os.close(fd)
+        file_path = Path(reserved_path)
         
         if self._ffmpeg_path:
             # 使用 FFmpeg 输出 MP3
@@ -98,24 +109,41 @@ class AudioFileManager:
                     stdin=PIPE,
                     stdout=DEVNULL,
                     stderr=DEVNULL,
+                    bufsize=0,
                 )
                 logger.debug(f"创建 MP3 文件: {file_path}")
             except OSError as exc:
                 logger.warning(f"FFmpeg 启动失败，将降级为 WAV 格式: {exc}")
                 self._ffmpeg_path = None
                 self._has_ffmpeg = False
+                # Only remove the empty file reserved by this failed create.
+                file_path.unlink()
+                fd, reserved_path = tempfile.mkstemp(
+                    prefix=f'({time_ymdhms})', suffix='.wav', dir=folder_path)
+                os.close(fd)
+                file_path = Path(reserved_path)
 
         if not self._ffmpeg_path:
             # 使用 wave 模块输出 WAV
             file_path = file_path.with_suffix('.wav')
             file_handle = wave.open(str(file_path), 'w')
-            file_handle.setnchannels(channels)
-            file_handle.setsampwidth(2)  # 16-bit
-            file_handle.setframerate(self.SAMPLE_RATE)
+            try:
+                file_handle.setnchannels(channels)
+                file_handle.setsampwidth(2)  # 16-bit
+                file_handle.setframerate(self.SAMPLE_RATE)
+            except Exception:
+                file_handle.close()
+                raise
             logger.debug(f"创建 WAV 文件: {file_path}")
         
         self.file_path = file_path
-        self.file_handle = file_handle
+        with self._process_lock:
+            self.file_handle = file_handle
+            aborted = self._aborted.is_set()
+        if aborted:
+            self.abort()
+            self.finish()
+            raise RuntimeError('AudioWriterAborted')
         
         return file_path, file_handle
     
@@ -129,11 +157,20 @@ class AudioFileManager:
         if self.file_handle is None:
             logger.warning("尝试写入数据但文件未打开")
             return
+        if self._aborted.is_set():
+            raise RuntimeError('AudioWriterAborted')
         
         if isinstance(self.file_handle, Popen):
             # FFmpeg 进程
-            self.file_handle.stdin.write(data.tobytes())
-            self.file_handle.stdin.flush()
+            # Unbuffered pipes may accept only part of a block.
+            payload = memoryview(data.tobytes())
+            while payload:
+                if self._aborted.is_set():
+                    raise RuntimeError('AudioWriterAborted')
+                written = self.file_handle.stdin.write(payload)
+                if not written:
+                    raise BrokenPipeError('AudioEncoderPipeClosed')
+                payload = payload[written:]
         elif isinstance(self.file_handle, wave.Wave_write):
             # WAV 文件：转换 float32 -> int16
             int_data = (data * (2**15 - 1)).astype(np.int16).tobytes()
@@ -149,19 +186,42 @@ class AudioFileManager:
         if self.file_handle is None:
             return self.file_path
         
+        handle = self.file_handle
         try:
-            if isinstance(self.file_handle, Popen):
-                self.file_handle.stdin.close()
-                logger.debug("FFmpeg 进程已关闭")
-            elif isinstance(self.file_handle, wave.Wave_write):
-                self.file_handle.close()
-                logger.debug("WAV 文件已关闭")
-        except Exception as e:
-            logger.error(f"关闭音频文件时发生错误: {e}")
+            if isinstance(handle, Popen):
+                try:
+                    handle.stdin.close()
+                    returncode = handle.wait(timeout=self.FINISH_TIMEOUT)
+                except (TimeoutExpired, OSError):
+                    if handle.poll() is None:
+                        handle.kill()
+                    handle.wait(timeout=self.KILL_TIMEOUT)
+                    raise RuntimeError('AudioEncoderFinishFailed') from None
+                if returncode != 0 and not self._aborted.is_set():
+                    raise RuntimeError('AudioEncoderFailed')
+            elif isinstance(handle, wave.Wave_write):
+                handle.close()
         finally:
-            self.file_handle = None
+            with self._process_lock:
+                self.file_handle = None
         
         return self.file_path
+
+    def abort(self) -> None:
+        """Interrupt a blocked pipe write without closing its handle concurrently.
+
+        The serial writer owns stdin and finish(); killing the child unblocks
+        a write, and finish() reaps the child after that write returns.
+        """
+        self._aborted.set()
+        with self._process_lock:
+            handle = self.file_handle
+        if isinstance(handle, Popen) and handle.poll() is None:
+            try:
+                handle.kill()
+            except OSError:
+                if handle.poll() is None:
+                    raise
     
     def rename(self, text: str, time_start: float) -> Optional[Path]:
         """

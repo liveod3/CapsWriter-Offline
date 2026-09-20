@@ -20,6 +20,7 @@ from config_client import ClientConfig as Config
 from core.client.state import console
 from core.ui.recording_indicator import show_status_hint
 from . import logger
+from .portaudio_compat import refresh_devices
 
 if TYPE_CHECKING:
     from core.client.state import ClientState
@@ -63,6 +64,10 @@ class AudioStreamManager:
         self._last_input_device = None
         self._monitor_thread = None
         self._monitor_running = False
+        self._shutdown = threading.Event()
+        self._monitor_wakeup = threading.Event()
+        self._recovery_requested = None
+        self._last_recovery = 0.0
 
     @property
     def state(self) -> ClientState:
@@ -105,7 +110,7 @@ class AudioStreamManager:
 
     def _handle_monitored_device(self, device_name: str) -> None:
         """处理监控线程观察到的设备，挂起时只更新状态，不重新占用麦克风。"""
-        if not device_name:
+        if self._shutdown.is_set() or not device_name or self.state.recording:
             return
 
         if self._last_input_device and device_name != self._last_input_device:
@@ -125,12 +130,8 @@ class AudioStreamManager:
 
     def _query_monitored_input_device(self):
         """查询监控目标；挂起且无流时先刷新 PortAudio 的设备枚举缓存。"""
-        if self.state.dictation_paused and not self._running:
-            try:
-                sd._terminate()
-                sd._initialize()
-            except Exception as e:
-                logger.debug(f"挂起期间刷新 PortAudio 设备枚举失败: {e}")
+        if not self._running and self.state.stream is None:
+            refresh_devices(sd)
 
         return sd.query_devices(
             device=self._get_input_device_selector(),
@@ -153,7 +154,7 @@ class AudioStreamManager:
         capture = getattr(self.state, 'capture', None)
         # stream.start() 返回不代表硬件已经开始交付数据；首个回调才是真正就绪。
         event = ready_event or self._ready_event
-        if event is not self._ready_event:
+        if self._shutdown.is_set() or event is not self._ready_event:
             return
         if not event.is_set():
             event.set()
@@ -167,23 +168,69 @@ class AudioStreamManager:
         if capture is not None:
             capture.push_audio(indata, time.time())
     
-    def _on_stream_finished(self) -> None:
-        """音频流结束回调"""
-        if not threading.main_thread().is_alive():
+    def _on_stream_finished(self, ready_event=None) -> None:
+        """Notify the single recovery owner; never close or log in this callback."""
+        event = ready_event or self._ready_event
+        if (self._shutdown.is_set() or not self._running
+                or event is not self._ready_event):
             return
-        if not self._running:
+        self._recovery_requested = event
+        self._monitor_wakeup.set()
+
+    def _cancel_interrupted_capture(self):
+        """Cancel only the capture interrupted by this device failure."""
+        capture = getattr(self.state, 'capture', None)
+        if capture is None:
             return
-        
-        logger.info("音频流意外结束，正在尝试重启...")
-        # PortAudio 的 finished_callback 运行在 PortAudio 内部线程上，
-        # 禁止在此线程内直接调用 stream.close()（会死锁）。
-        # 改为新建守护线程异步执行重启，立即返回回调。
-        threading.Thread(target=self.reopen, daemon=True, name="stream-reopen").start()
+
+        def cancel():
+            with self.state.recording_lock:
+                if self.state.capture is not capture:
+                    return
+                owner = self.state.recording_owner
+                if owner is not None:
+                    owner.cancel()
+                    show_status_hint('Microphone disconnected. Please retry after recovery.',
+                                     duration_ms=3000, dot_color='#EF4444')
+        try:
+            self.app.loop.call_soon_threadsafe(cancel)
+        except RuntimeError:
+            pass
+
+    def _ensure_monitor_locked(self):
+        if self._shutdown.is_set():
+            return
+        if self._monitor_thread is not None and self._monitor_thread.is_alive():
+            self._monitor_running = True
+            return
+        self._monitor_running = True
+        self._monitor_thread = threading.Thread(
+            target=self._device_monitor_loop, daemon=True, name='audio-device-monitor')
+        self._monitor_thread.start()
 
     def _device_monitor_loop(self) -> None:
         """后台静默监控系统默认输入设备变化的循环"""
-        while self._monitor_running:
-            time.sleep(4.0)  # 每 4 秒检测一次硬件状态
+        while self._monitor_running and not self._shutdown.is_set():
+            self._monitor_wakeup.wait(4.0)
+            self._monitor_wakeup.clear()
+            if not self._monitor_running or self._shutdown.is_set():
+                break
+            # Repeated backend failures must not create a hot restart loop.
+            delay = 1.0 - (time.monotonic() - self._last_recovery)
+            if delay > 0 and self._shutdown.wait(delay):
+                break
+            with self._stream_lock:
+                event = self._recovery_requested
+                self._recovery_requested = None
+                if (event is self._ready_event and event is not None
+                        and self._running and not self.state.dictation_paused):
+                    self._last_recovery = time.monotonic()
+                    self._cancel_interrupted_capture()
+                    try:
+                        self.reopen()
+                    except Exception as exc:
+                        logger.warning('Audio recovery failed: %s', type(exc).__name__)
+                    continue
             
             # 如果用户当前正在录音说话，绝对不要打断当前的音频流。
             # 挂起期间仍可只读查询默认设备，但不会重新打开麦克风。
@@ -193,9 +240,11 @@ class AudioStreamManager:
             try:
                 # 持锁查询，防止与 reopen() 内的 PortAudio 重初始化并发访问
                 with self._stream_lock:
+                    if self._shutdown.is_set() or not self._monitor_running:
+                        break
                     device = self._query_monitored_input_device()
-                current_device_name = device.get('name')
-                self._handle_monitored_device(current_device_name)
+                    current_device_name = device.get('name')
+                    self._handle_monitored_device(current_device_name)
 
             except Exception as e:
                 logger.debug(f"后台硬件监听循环异常: {e}")
@@ -206,6 +255,9 @@ class AudioStreamManager:
     def start(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
         """在线程安全的生命周期锁内启动音频流。"""
         with self._stream_lock:
+            if self._shutdown.is_set():
+                return None
+            self._ensure_monitor_locked()
             return self._start_locked(silent=silent, force=force)
 
     def _start_locked(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
@@ -218,6 +270,8 @@ class AudioStreamManager:
         Returns:
             创建的音频输入流，如果失败返回 None
         """
+        if self._shutdown.is_set():
+            return None
         if self._running:
             logger.debug("音频流已在运行，跳过启动")
             return self.state.stream
@@ -225,6 +279,11 @@ class AudioStreamManager:
         if self.state.dictation_paused and not force:
             logger.debug("当前处于听写挂起状态，跳过启动音频流")
             return None
+        if self.state.stream is not None:
+            try:
+                self._stop_locked(keep_monitor=True)
+            except Exception:
+                return None
             
         # 检测音频设备
         device_selector = self._get_input_device_selector()
@@ -245,7 +304,8 @@ class AudioStreamManager:
                 f"选择方式: {selection_mode}"
             )
         except UnicodeDecodeError:
-            logger.warning("无法获取音频设备名称（编码问题）")
+            logger.warning('Could not decode input device information')
+            return None
         except (ValueError, sd.PortAudioError) as e:
             if device_selector is None:
                 logger.error(f"未找到系统默认麦克风设备: {e}")
@@ -254,6 +314,7 @@ class AudioStreamManager:
             return None
         
         # 创建音频流
+        stream = None
         try:
             ready_event = threading.Event()
             self._ready_event = ready_event
@@ -264,9 +325,14 @@ class AudioStreamManager:
                 dtype="float32",
                 channels=self._channels,
                 callback=partial(self._audio_callback, ready_event=ready_event),
-                finished_callback=self._on_stream_finished,
+                finished_callback=partial(self._on_stream_finished, ready_event=ready_event),
             )
+            self.state.stream = stream
+            self._running = True
             stream.start()
+            if self._shutdown.is_set():
+                self._stop_locked(keep_monitor=False)
+                return None
             
             self.state.stream = stream
             self._running = True
@@ -276,22 +342,29 @@ class AudioStreamManager:
                 f"块大小={int(self.BLOCK_DURATION * self.SAMPLE_RATE)}"
             )
 
-            # 启动或确保硬件监听线程就绪
-            if not self._monitor_running:
-                self._monitor_running = True
-                self._monitor_thread = threading.Thread(target=self._device_monitor_loop, daemon=True)
-                self._monitor_thread.start()
-
             return stream
             
         except Exception as e:
             logger.error(f"创建音频流失败: {e}", exc_info=True)
+            self._running = False
+            self._ready_event = threading.Event()
+            if stream is not None:
+                try:
+                    stream.close()
+                except Exception:
+                    logger.warning('Failed to close partially started input stream')
+                else:
+                    self.state.stream = None
             return None
     
     def stop(self, keep_monitor: bool = False) -> None:
         """在线程安全的生命周期锁内停止音频流。"""
-        with self._stream_lock:
-            self._stop_locked(keep_monitor=keep_monitor)
+        try:
+            with self._stream_lock:
+                self._stop_locked(keep_monitor=keep_monitor)
+        finally:
+            if not keep_monitor:
+                self._join_monitor()
 
     def _stop_locked(self, keep_monitor: bool = False) -> None:
         """
@@ -301,18 +374,14 @@ class AudioStreamManager:
             keep_monitor: 是否保持监控线程的运行标志。在重载驱动重建流时，应设为 True。
         """
         self._ready_event = threading.Event()
-        if not self._running:
-            if not keep_monitor:
-                self._monitor_running = False
-                self._monitor_thread = None
-            return
+        self._recovery_requested = None
             
         self._running = False  # 标记为停止
 
         # 仅在需要彻底释放硬件服务时关闭后台监听线程
         if not keep_monitor:
             self._monitor_running = False
-            self._monitor_thread = None
+            self._monitor_wakeup.set()
 
         if self.state.stream is not None:
             try:
@@ -320,8 +389,28 @@ class AudioStreamManager:
                 logger.debug("音频流已停止")
             except Exception as e:
                 logger.debug(f"停止音频流时发生错误: {e}")
-            finally:
+                raise
+            else:
                 self.state.stream = None
+
+    def _join_monitor(self):
+        thread = self._monitor_thread
+        if thread is not None and thread is not threading.current_thread():
+            thread.join(timeout=3.0)
+            if not thread.is_alive():
+                self._monitor_thread = None
+            else:
+                logger.warning('Audio monitor has not exited before the shutdown deadline')
+
+    def request_shutdown(self):
+        """Publish the permanent stop barrier before waiting for backend calls."""
+        self._shutdown.set()
+        self._monitor_wakeup.set()
+
+    def close(self):
+        """Stop the backend and join the one monitor/recovery owner."""
+        self.request_shutdown()
+        self.stop()
     
     def reopen(self) -> Optional[sd.InputStream]:
         """
@@ -333,6 +422,8 @@ class AudioStreamManager:
         logger.info("正在重启音频流...")
         
         with self._stream_lock:
+            if self._shutdown.is_set() or self.state.dictation_paused:
+                return None
             # 停止旧流，但指示监控线程保持运行，防止其被销毁
             self.stop(keep_monitor=True)
 
@@ -341,14 +432,11 @@ class AudioStreamManager:
             # 这是私有 API，在 Windows 上行为不可靠，且存在与监控线程的竞态，
             # 可导致 access violation 崩溃（进程直接退出，无任何 Python 异常记录）。
             # sd._terminate() + sd._initialize() 足以刷新设备枚举。
-            try:
-                sd._terminate()
-                sd._initialize()
-            except Exception as e:
-                logger.warning(f"重载 PortAudio 时发生警告: {e}")
+            refresh_devices(sd)
 
             # 等待设备稳定
-            time.sleep(0.1)
+            if self._shutdown.wait(0.1):
+                return None
 
             # 启动新流
             return self.start()

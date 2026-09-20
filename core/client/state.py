@@ -85,6 +85,7 @@ class ClientState:
     recording_owner: Any = field(default=None, repr=False)
     capture: Any = field(default=None, repr=False)
     recording_futures: set = field(default_factory=set, repr=False)
+    recording_tasks: set = field(default_factory=set, repr=False)
     recording_start_time: float = 0.0
     dictation_paused: bool = False
     dictation_manually_paused: bool = False

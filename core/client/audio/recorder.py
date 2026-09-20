@@ -20,6 +20,7 @@ from config_client import ClientConfig as Config
 from core.client.state import console
 from core.client.audio.file_manager import AudioFileManager
 from core.client.audio.capture import CaptureSession
+from core.client.audio.file_writer import AsyncAudioWriter
 from core.client.connection import WebSocketManager
 from core.protocol import AudioMessage
 from . import logger
@@ -55,6 +56,7 @@ class AudioRecorder:
         self._duration: float = 0.0
         self._cache: list = []
         self._context = ''
+        self._writer = None
 
     @property
     def state(self) -> ClientState:
@@ -95,6 +97,7 @@ class AudioRecorder:
         # Freeze the input source for this recorder, including while it drains
         # after a new recording has already claimed the microphone.
         input_queue = capture if capture is not None else self.state.queue_in
+        completed = False
         try:
             # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
             logger.debug(f"创建录音任务，任务ID: {self.task_id}")
@@ -106,7 +109,8 @@ class AudioRecorder:
             # 音频文件管理
             file_path = None
             if Config.save_audio:
-                self._file_manager = AudioFileManager()
+                self._file_manager = await asyncio.to_thread(AudioFileManager)
+                self._writer = AsyncAudioWriter(self._file_manager)
             
             # 从队列读取数据
             while task := await input_queue.get():
@@ -137,8 +141,8 @@ class AudioRecorder:
                         continue
                     
                     # 创建音频文件
-                    if Config.save_audio and self._file_manager and file_path is None:
-                        file_path, _ = self._file_manager.create(
+                    if self._writer and file_path is None:
+                        file_path, _ = await self._writer.call(self._file_manager.create,
                             task['data'].shape[1],
                             self._start_time
                         )
@@ -155,8 +159,8 @@ class AudioRecorder:
                     
                     # 保存音频至本地文件
                     self._duration += len(data) / 48000
-                    if Config.save_audio and self._file_manager:
-                        self._file_manager.write(data)
+                    if self._writer:
+                        await self._writer.call(self._file_manager.write, data)
                     
                     # 发送音频数据用于识别
                     message = AudioMessage(
@@ -181,8 +185,8 @@ class AudioRecorder:
                         self._cache.clear()
 
                         # 短录音可能在阈值前就结束，此时需要先创建文件再写入
-                        if Config.save_audio and self._file_manager and file_path is None:
-                            file_path, _ = self._file_manager.create(
+                        if self._writer and file_path is None:
+                            file_path, _ = await self._writer.call(self._file_manager.create,
                                 data.shape[1],
                                 self._start_time
                             )
@@ -190,8 +194,8 @@ class AudioRecorder:
                             logger.debug(f"创建音频文件(短录音): {file_path}")
                         
                         self._duration += len(data) / 48000
-                        if Config.save_audio and self._file_manager:
-                            self._file_manager.write(data)
+                        if self._writer:
+                            await self._writer.call(self._file_manager.write, data)
 
                         message = AudioMessage(
                             task_id=self.task_id,
@@ -209,8 +213,8 @@ class AudioRecorder:
                         await self._send_message(message)
 
                     # 完成写入本地文件
-                    if Config.save_audio and self._file_manager:
-                        self._file_manager.finish()
+                    if self._writer:
+                        await self._writer.close()
                         logger.debug("完成音频文件写入")
                     
                     console.print(
@@ -231,6 +235,7 @@ class AudioRecorder:
                         language=Config.language,
                     )
                     await self._send_message(message)
+                    completed = True
                     break
                     
         except asyncio.CancelledError:
@@ -246,8 +251,10 @@ class AudioRecorder:
             self._cache.clear()
             if capture is not None:
                 capture.cancel()
-            if self._file_manager:
-                self._file_manager.finish()
+            if not completed:
+                self.state.pop_audio_file(self.task_id)
+            if self._writer:
+                await self._writer.close(abort=not completed)
     
     def get_file_manager(self) -> Optional[AudioFileManager]:
         """获取当前的文件管理器"""

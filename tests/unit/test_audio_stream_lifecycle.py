@@ -191,6 +191,7 @@ def test_stop_disables_monitor_when_stream_is_already_stopped() -> None:
     manager = make_manager()
     manager._monitor_running = True
     manager._monitor_thread = Mock()
+    manager._monitor_thread.is_alive.return_value = False
 
     manager.stop()
 
@@ -207,27 +208,24 @@ def test_reopen_serializes_stop_driver_refresh_and_start() -> None:
         patch.object(manager, "start", return_value=replacement) as start,
         patch("core.client.audio.stream.sd._terminate") as terminate,
         patch("core.client.audio.stream.sd._initialize") as initialize,
-        patch("core.client.audio.stream.time.sleep") as sleep,
+        patch.object(manager._shutdown, 'wait', return_value=False) as wait,
     ):
         assert manager.reopen() is replacement
 
     stop.assert_called_once_with(keep_monitor=True)
     terminate.assert_called_once_with()
     initialize.assert_called_once_with()
-    sleep.assert_called_once_with(0.1)
+    wait.assert_called_once_with(0.1)
     start.assert_called_once_with()
 
 
 @patch("core.client.audio.stream.threading.Thread")
-def test_finished_callback_schedules_reopen_without_running_it_inline(thread_cls) -> None:
+def test_finished_callback_wakes_existing_monitor_without_spawning_threads(thread_cls) -> None:
     manager = make_manager()
     manager._running = True
 
     manager._on_stream_finished()
 
-    thread_cls.assert_called_once_with(
-        target=manager.reopen,
-        daemon=True,
-        name="stream-reopen",
-    )
-    thread_cls.return_value.start.assert_called_once_with()
+    thread_cls.assert_not_called()
+    assert manager._monitor_wakeup.is_set()
+    assert manager._recovery_requested is manager.get_ready_event()

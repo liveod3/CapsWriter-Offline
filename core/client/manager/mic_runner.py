@@ -25,8 +25,10 @@ class MicRunner:
     def tray_manager(self):
         return self.app.tray
 
-    def start_resources(self):
+    async def start_resources(self):
         """初始化麦克风模式特有资源 (音频硬件、快捷键、UI 托盘)"""
+        if self.app._stopping:
+            return
         # 1. 托盘
         self.tray_manager.start()
 
@@ -34,7 +36,9 @@ class MicRunner:
         TipsDisplay.show_mic_tips()
 
         # 3. 开启运行组件 (音频流、快捷键监听)
-        self.app.stream.start()
+        await asyncio.to_thread(self.app.stream.start)
+        if self.app._stopping:
+            return
         self.app.shortcut.start()
         
         # 4. 开启 UDP 控制 (如果启用)
@@ -55,7 +59,9 @@ class MicRunner:
         logger.info(f"日志级别: {Config.log_level}")
         
         # 1. 资源启动
-        self.start_resources()
+        await self.start_resources()
+        if self.app._stopping:
+            return
         
         # 2. 启动核心处理器 (内部处理连接与循环)
         
@@ -63,4 +69,3 @@ class MicRunner:
         self.processor = ResultProcessor(self.app)
         await self.processor.start()
             
-

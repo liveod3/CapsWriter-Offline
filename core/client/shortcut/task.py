@@ -105,6 +105,7 @@ class ShortcutTask:
         """Wait off the shortcut thread and reset ownership after a timeout."""
         deadline = time.monotonic() + self.AUDIO_READY_TIMEOUT
         while generation == self._launch_generation and self.is_recording:
+            ready_event = self.app.stream.get_ready_event()
             if self.app.stream.is_ready(ready_event):
                 self._show_recording_ready(generation, clear_preparing_hint=True)
                 return
@@ -127,7 +128,7 @@ class ShortcutTask:
         with self.state.recording_lock:
             if getattr(self.app, '_stopping', False) or self.state.recording_owner is not None:
                 return False
-            if len(self.state.recording_futures) >= self.MAX_PENDING_RECORDERS:
+            if max(len(self.state.recording_futures), len(self.state.recording_tasks)) >= self.MAX_PENDING_RECORDERS:
                 show_status_hint('Previous recordings are still sending. Please wait.',
                                  duration_ms=2200)
                 return False
@@ -140,12 +141,6 @@ class ShortcutTask:
         if getattr(self.state, 'dictation_manually_paused', False):
             show_status_hint('Dictation is paused. Resume from the tray menu.', duration_ms=2000)
             return False
-        if self.state.dictation_paused:
-            resumed = self.app.resume_dictation(show_hint=False, silent_stream=True)
-            if not resumed:
-                logger.warning(f"[{self.shortcut.key}] 恢复听写失败，跳过本次录音")
-                return False
-
         if not self.app.loop.is_running() or self.app.loop.is_closed():
             return False
         capture = None
@@ -163,7 +158,7 @@ class ShortcutTask:
             self.state.capture = capture
             self.state.start_recording(self.recording_start_time)
             self.task = None
-            coroutine = recorder.record_and_send(capture)
+            coroutine = self._run_recorder(recorder, capture)
             try:
                 self.task = asyncio.run_coroutine_threadsafe(coroutine, self.app.loop)
             except RuntimeError:
@@ -199,6 +194,30 @@ class ShortcutTask:
             ).start()
 
         return True
+
+    async def _run_recorder(self, recorder, capture):
+        """Track actual cleanup, not just the cancellable cross-thread Future."""
+        operation = asyncio.current_task()
+        self.state.recording_tasks.add(operation)
+        try:
+            if self.state.dictation_paused:
+                resume = asyncio.create_task(asyncio.to_thread(
+                    self.app.resume_dictation, show_hint=False, silent_stream=True))
+                try:
+                    resumed = await asyncio.shield(resume)
+                except asyncio.CancelledError:
+                    # Do not report cleanup complete while hardware is still opening.
+                    while not resume.done():
+                        try:
+                            await asyncio.shield(resume)
+                        except asyncio.CancelledError:
+                            continue
+                    raise
+                if not resumed:
+                    raise RuntimeError('MicrophoneResumeFailed')
+            await recorder.record_and_send(capture)
+        finally:
+            self.state.recording_tasks.discard(operation)
 
     def _release_capture_locked(self) -> None:
         """Release only this task's current microphone ownership."""

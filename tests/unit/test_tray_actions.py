@@ -2,6 +2,7 @@ import asyncio
 import ast
 from pathlib import Path
 from types import SimpleNamespace
+from threading import RLock
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -31,6 +32,7 @@ def test_manual_and_idle_pause_have_different_wakeup_policy():
         app = CapsWriterClient.__new__(CapsWriterClient)
         app.state = ClientState()
         app._stopping = False
+        app._dictation_control_lock = RLock()
         app.stream = SimpleNamespace(stop=Mock())
         with patch("core.client.app.set_dictation_paused"):
             assert app.pause_dictation(show_hint=False, manual=manual)
