@@ -30,6 +30,12 @@ class ClientConfig:
     websocket_max_queue = 16
     file_max_inflight_chunks = 4
 
+    # Per-operation deadline for file connection, decoding and sends (seconds).
+    file_io_timeout = 60.0
+    # Maximum wait without advancing recognition progress, not total file time.
+    # Increase for slow hardware or heavily concurrent file/dictation workloads.
+    file_result_timeout = 600.0
+
     # 快捷键配置列表
     shortcuts = [
         {

@@ -55,6 +55,9 @@ def test_failed_preflight_is_not_treated_as_a_completed_summary():
         async def check(self):
             return False
 
+        async def close(self):
+            pass
+
     app = SimpleNamespace(state=SimpleNamespace(), ws=SimpleNamespace())
     runner = FileRunner(app, [], output_formats=frozenset({'txt'}))
 

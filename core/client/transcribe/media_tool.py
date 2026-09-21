@@ -7,6 +7,9 @@ from typing import List, Optional
 
 from core.client.state import console
 from . import logger
+from .lifecycle import (
+    PROBE_TIMEOUT_SECONDS, complete_cleanup, open_process, reap_process,
+)
 
 class MediaTool:
     """媒体工具类：负责 FFmpeg 相关操作"""
@@ -24,14 +27,14 @@ class MediaTool:
                           '或把 ffmpeg.exe 放到程序目录。[/]')
             console.print('[ui.label]下载[/]  [link=https://ffmpeg.org/download.html]'
                           'https://ffmpeg.org/download.html[/link]\n')
-            logger.error("未检测到 FFmpeg 环境，无法进行文件转录")
+            logger.error('FFmpeg unavailable', extra={'console_handled': True})
             return False
             
         if ffprobe_path is None:
             console.print('\n[ui.warning]▲ 未检测到 ffprobe[/]')
             console.print('[ui.value]读取完整段音频前，仅显示已处理时长；随后补全百分比与 ETA。[/]')
             console.print('[ui.label]建议[/]  [ui.value]将 ffprobe.exe 与 ffmpeg.exe 一同安装。[/]\n')
-            logger.warning("未检测到 ffprobe 环境，进度显示将受到限制")
+            logger.warning('ffprobe unavailable', extra={'console_handled': True})
             
         return True
 
@@ -42,17 +45,23 @@ class MediaTool:
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1", str(file)
         ]
+        process = None
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await open_process(
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), PROBE_TIMEOUT_SECONDS)
             if process.returncode == 0:
                 return float(stdout.decode().strip())
-        except Exception as e:
-            logger.warning(f"无法通过 ffprobe 获取时长: {e}")
+        except Exception as exc:
+            logger.warning('Media duration unavailable: %s', type(exc).__name__,
+                           extra={'console_handled': True})
+        finally:
+            if process is not None:
+                await complete_cleanup(reap_process(process))
         return 0.0
 
     @staticmethod

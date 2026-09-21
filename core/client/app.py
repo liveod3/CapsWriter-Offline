@@ -301,6 +301,7 @@ class CapsWriterClient:
             logger.warning('Connection close failed: %s', type(exc).__name__)
         if self._runner_task is not None and not self._runner_task.done():
             self._runner_task.cancel()
+            await asyncio.gather(self._runner_task, return_exceptions=True)
         await release(self.state.reset)
         logger.info('Client resource cleanup complete')
 

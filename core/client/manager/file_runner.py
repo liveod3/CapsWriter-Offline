@@ -13,6 +13,8 @@ from rich.table import Table
 from . import logger
 from config_client import BASE_DIR, ClientConfig as Config
 from ..state import console
+from ..transcribe.lifecycle import complete_cleanup
+from ..transcribe.feedback import print_file_failure
 
 
 DEFAULT_MEDIA_EXTENSIONS = frozenset({
@@ -167,6 +169,7 @@ class FileRunner:
         self.app = app
         self.files = files
         self.output_formats = output_formats
+        self._failure_code = None
 
     @property
     def state(self):
@@ -185,12 +188,14 @@ class FileRunner:
             file,
             output_formats=self.output_formats,
         )
-        if not await transcriber.check():
-            return None
-
-        send_task = asyncio.create_task(transcriber.send())
-        receive_task = asyncio.create_task(transcriber.receive())
+        self._failure_code = None
+        tasks = []
         try:
+            if not await transcriber.check():
+                return None
+            send_task = asyncio.create_task(transcriber.send())
+            receive_task = asyncio.create_task(transcriber.receive())
+            tasks = [send_task, receive_task]
             done, pending = await asyncio.wait(
                 {send_task, receive_task},
                 return_when=asyncio.FIRST_COMPLETED,
@@ -209,13 +214,24 @@ class FileRunner:
                 send_task, receive_task, return_exceptions=True
             )
             for result in results:
-                if isinstance(result, BaseException):
-                    logger.error(f'文件任务子协程异常: {file}: {result}')
+                if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                    logger.error('File child task failed: error=%s', type(result).__name__,
+                                 extra={'console_handled': True})
             if all(result is True for result in results):
                 return transcriber.summary
             return None
         finally:
-            await transcriber.close()
+            async def cleanup():
+                for task in tasks:
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+                await transcriber.close()
+
+            try:
+                await complete_cleanup(cleanup())
+            finally:
+                self._failure_code = getattr(transcriber, 'failure_code', None)
 
     async def run(self):
         """文件转录模式主循环 (Coroutine)"""
@@ -255,9 +271,12 @@ class FileRunner:
                     summary = await self._process_file(file)
                 except Exception as exc:
                     summary = None
+                    if self._failure_code is None:
+                        self._failure_code = 'timeout' if isinstance(exc, TimeoutError) else 'unexpected'
                     logger.error(
-                        f'处理文件时发生异常，将继续下一个文件: {file}: {exc}',
+                        'File processing failed: error=%s', type(exc).__name__,
                         exc_info=True,
+                        extra={'console_handled': True},
                     )
 
                 if summary is not None:
@@ -278,8 +297,9 @@ class FileRunner:
                     logger.info(f"文件处理完成: {file}")
                 else:
                     failed_count += 1
-                    console.print(f'[ui.error]✗ 失败[/]  [ui.value]{file.name}[/]')
-                    logger.error(f"文件处理失败: {file}")
+                    print_file_failure(console, file, self._failure_code, has_next=index < total)
+                    logger.error('File task failed: code=%s', self._failure_code or 'unexpected',
+                                 extra={'console_handled': True})
 
             batch_elapsed = time.perf_counter() - batch_started_at
             total_audio = sum(summary.audio_duration for summary in summaries)

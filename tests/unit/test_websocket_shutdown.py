@@ -233,6 +233,33 @@ def test_shutdown_during_microphone_start_does_not_restart_listeners(monkeypatch
     asyncio.run(run())
 
 
+def test_shutdown_waits_for_file_runner_cleanup_before_reset():
+    async def run():
+        app = make_shutdown_app([])
+        running, cleaning, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
+
+        async def runner():
+            running.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaning.set()
+                await release.wait()
+
+        app._runner_task = asyncio.create_task(runner())
+        await running.wait()
+        app.stop()
+        await asyncio.wait_for(cleaning.wait(), 1)
+        assert not app._shutdown_future.done()
+        app.state.reset.assert_not_called()
+        release.set()
+        await asyncio.wait_for(asyncio.wrap_future(app._shutdown_future), 1)
+        app.state.reset.assert_called_once()
+        assert app._runner_task.cancelled()
+
+    asyncio.run(run())
+
+
 def test_close_sync_without_connection_still_disables_reconnect():
     async def run():
         manager = make_manager()

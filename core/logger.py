@@ -8,6 +8,13 @@ from logging.handlers import RotatingFileHandler
 from rich.logging import RichHandler
 
 
+class ConsoleFeedbackFilter(logging.Filter):
+    """Keep diagnostics in file sinks when a task supplies its own terminal UI."""
+
+    def filter(self, record):
+        return not getattr(record, 'console_handled', False)
+
+
 class TruncatingFileHandler(RotatingFileHandler):
     """超过 maxBytes 后 truncate 文件，不保留任何备份文件"""
 
@@ -126,6 +133,7 @@ class Logger:
             markup=True,
             show_path=False
         )
+        stream_handler.addFilter(ConsoleFeedbackFilter())
         logger.addHandler(stream_handler)
 
         # 缓存日志记录器

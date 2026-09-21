@@ -1,5 +1,9 @@
 # 更新日志
 
+## 2026-09-21 — Unreleased
+
+- Stage 3a, accepted by the user after functional checks and the terminal presentation follow-up: add compatible file I/O and stalled-result timeouts, reject foreign-task results and wait for successful upload before saving final output. Cancel and join file sender/receiver tasks before closing their connection; keep application shutdown waiting for runner cleanup. Own late-created FFmpeg/ffprobe children through cancellation, drain output pipes, and escalate termination after a bounded wait. Present file failures once with a reason and action hint, remove failed progress displays and retain technical diagnostics in enabled file sinks; expected child cancellation is not an error. Add 31 regressions, including a real synthetic Python child with buffered stdout; 283 default tests pass. A03 remains open for protocol, microphone and server supervision work. See the [stage 3a handoff](validation/P0-03a-file-task-lifecycle.md).
+
 ## 2026-09-20 — Unreleased
 
 - Isolate worker sessions and scheduler buffers by `(socket_id, task_id)`. Completing or disconnecting one connection no longer removes another connection's same-ID task state. Clean disconnected sessions during idle polling and before selecting buffered work.

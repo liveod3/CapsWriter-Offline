@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import math
 import time
 import uuid
 from dataclasses import dataclass
@@ -26,16 +27,21 @@ from rich.text import Text
 
 from config_client import ClientConfig as Config
 from core.client.state import console
-from core.client.connection import WebSocketManager
+from core.client.connection import CommunicationError, WebSocketManager
 from core.constants import AudioFormat
 from core.protocol import AudioMessage, RecognitionMessage
 from .media_tool import MediaTool
 from .result_handler import ResultHandler
+from .lifecycle import complete_cleanup, open_process, positive_timeout, reap_process
 from . import logger
 
 if TYPE_CHECKING:
     from core.client.state import ClientState
     from core.client.app import CapsWriterClient
+
+
+class MediaDecodeError(RuntimeError):
+    """The decoder exited without completing a usable audio stream."""
 
 
 def format_duration(seconds: float) -> str:
@@ -192,7 +198,11 @@ class FileTranscriber:
         self.app = app
         self.file = file
         self.output_formats = output_formats
-        self.task_id: Optional[str] = None
+        self.task_id = str(uuid.uuid4())
+        self.failure_code = None
+        self._send_complete = asyncio.Event()
+        self._io_timeout = positive_timeout(Config, 'file_io_timeout', 60.0)
+        self._result_timeout = positive_timeout(Config, 'file_result_timeout', 600.0)
         self._audio_duration: float = 0.0
         self._decoded_duration: float = 0.0
         self._started_at: float | None = None
@@ -274,8 +284,9 @@ class FileTranscriber:
             refresh=True,
         )
 
-    def _stop_progress(self) -> None:
+    def _stop_progress(self, *, discard=False) -> None:
         if self._progress is not None:
+            self._progress.live.transient = discard
             self._progress.stop()
             self._progress = None
             self._progress_task_id = None
@@ -295,16 +306,21 @@ class FileTranscriber:
         """检查转录条件"""
         # 检查文件是否存在
         if not self.file.exists():
-            logger.error(f"文件不存在: {self.file}")
+            self.failure_code = 'missing_file'
+            logger.error('Input file not found', extra={'console_handled': True})
             return False
 
         # 检查媒体工具环境 (FFmpeg)
         if not MediaTool.check_environment():
+            self.failure_code = 'decoder_unavailable'
             return False
 
         # 检查服务端连接
-        if not await self._ws_manager.connect(announce=False):
-            logger.error("无法连接到服务端")
+        if not await asyncio.wait_for(
+            self._ws_manager.connect(announce=False), self._io_timeout
+        ):
+            self.failure_code = 'connection_failed'
+            logger.error('File connection failed', extra={'console_handled': True})
             return False
         
         
@@ -312,8 +328,6 @@ class FileTranscriber:
     
     async def send(self) -> bool:
         """发送音频数据到服务端 (异步流式处理)"""
-        
-        self.task_id = str(uuid.uuid1())
         
         # 1. 预先获取时长
         self._audio_duration = await MediaTool.get_audio_duration(self.file)
@@ -326,8 +340,9 @@ class FileTranscriber:
         # 2. 启动 FFmpeg 进程
         ffmpeg_cmd = MediaTool.build_ffmpeg_cmd(self.file)
         
+        process = None
         try:
-            process = await asyncio.create_subprocess_exec(
+            process = await open_process(
                 *ffmpeg_cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.DEVNULL
@@ -341,7 +356,8 @@ class FileTranscriber:
             progress = 0.0
             
             while True:
-                data = await read_fixed_chunk(process.stdout, chunk_size)
+                data = await asyncio.wait_for(
+                    read_fixed_chunk(process.stdout, chunk_size), self._io_timeout)
                 if not data:
                     break
                 
@@ -360,17 +376,19 @@ class FileTranscriber:
                     context='',
                     language=Config.language,
                 )
-                await self._send_window.acquire()
+                await asyncio.wait_for(self._send_window.acquire(), self._result_timeout)
                 try:
-                    if not await self._ws_manager.send(message):
+                    if not await asyncio.wait_for(
+                        self._ws_manager.send(message), self._io_timeout
+                    ):
                         raise ConnectionError("消息发送失败，连接可能已断开")
                 except Exception:
                     self._send_window.release()
                     raise
 
-            returncode = await process.wait()
+            returncode = await asyncio.wait_for(process.wait(), self._io_timeout)
             if returncode != 0:
-                raise RuntimeError(f"FFmpeg 提取音频失败，退出码: {returncode}")
+                raise MediaDecodeError(f'DecoderExit:{returncode}')
 
             # 发送结束标志
             final_message = AudioMessage(
@@ -384,8 +402,11 @@ class FileTranscriber:
                 context='',
                 language=Config.language,
             )
-            if not await self._ws_manager.send(final_message):
+            if not await asyncio.wait_for(
+                self._ws_manager.send(final_message), self._io_timeout
+            ):
                 raise ConnectionError("结束标志发送失败")
+            self._send_complete.set()
             
             if self._audio_duration == 0:
                 self._audio_duration = progress
@@ -394,59 +415,90 @@ class FileTranscriber:
             return True
             
         except asyncio.CancelledError:
-            if 'process' in locals() and process.returncode is None:
-                process.terminate()
-                await process.wait()
             raise
-        except ConnectionError as e:
-            logger.error(f"发送数据失败: {e}, 文件: {self.file}")
-            if 'process' in locals() and process.returncode is None:
-                process.terminate()
+        except Exception as exc:
+            if self.failure_code is None:
+                if isinstance(exc, asyncio.TimeoutError):
+                    self.failure_code = 'timeout'
+                elif isinstance(exc, (CommunicationError, ConnectionError)):
+                    self.failure_code = 'connection_failed'
+                elif isinstance(exc, MediaDecodeError):
+                    self.failure_code = 'decode_failed'
+                elif isinstance(exc, FileNotFoundError):
+                    self.failure_code = 'decoder_unavailable'
+                else:
+                    self.failure_code = 'unexpected'
+            logger.error('File send failed: task=%s error=%s',
+                         self.task_id[:8], type(exc).__name__,
+                         extra={'console_handled': True})
             return False
-        except Exception as e:
-            logger.error(f"转录发送异常: {e}", exc_info=True)
-            if 'process' in locals() and process.returncode is None:
-                process.terminate()
-            return False
+        finally:
+            if process is not None:
+                await complete_cleanup(reap_process(process))
     
     async def receive(self) -> bool:
         """接收转录结果"""
         message = None
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self._result_timeout
+        processed = 0.0
         try:
             while True:
-                msg = await self._ws_manager.receive()
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    raise asyncio.TimeoutError
+                msg = await asyncio.wait_for(self._ws_manager.receive(), remaining)
                 if not msg:
+                    if self.failure_code is None:
+                        self.failure_code = 'connection_failed'
                     return False
-
-                try:
-                    self._send_window.release()
-                except ValueError:
-                    # 最终空片段不占发送窗口，结果数偶尔可能比数据块多一个。
-                    pass
+                # Stale results must not replenish another task's send window,
+                # reset its deadline or create an output file for it.
+                if msg.task_id != self.task_id:
+                    continue
+                if not math.isfinite(msg.duration) or msg.duration < 0:
+                    raise ValueError('InvalidRecognitionDuration')
+                if msg.duration > processed:
+                    processed = msg.duration
+                    deadline = loop.time() + self._result_timeout
+                    try:
+                        self._send_window.release()
+                    except ValueError:
+                        pass
                 
                 self._update_progress(msg.duration, finished=msg.is_final)
                 if msg.is_final:
+                    # Do not save a final received while the sender is failing.
+                    await asyncio.wait_for(self._send_complete.wait(), self._io_timeout)
                     message = msg # 保持变量名兼容后续调用
                     break
-        except ConnectionError as e:
-            logger.error(f"{e}, 文件: {self.file}")
-            return False
-        except Exception as e:
-            logger.error(f"接收消息错误: {e}")
+        except Exception as exc:
+            if self.failure_code is None:
+                if isinstance(exc, asyncio.TimeoutError):
+                    self.failure_code = 'timeout'
+                elif isinstance(exc, (CommunicationError, ConnectionError)):
+                    self.failure_code = 'connection_failed'
+                else:
+                    self.failure_code = 'invalid_result'
+            logger.error('File receive failed: task=%s error=%s',
+                         self.task_id[:8], type(exc).__name__,
+                         extra={'console_handled': True})
             return False
 
         if message is None:
             return False
 
-        self._stop_progress()
-
-
         # 调用结果处理器进行保存和格式化
-        text_display, sequence, output_paths = ResultHandler.save_results(
-            self.file,
-            message,
-            output_formats=self.output_formats,
-        )
+        try:
+            text_display, sequence, output_paths = ResultHandler.save_results(
+                self.file,
+                message,
+                output_formats=self.output_formats,
+            )
+        except Exception:
+            self.failure_code = 'output_failed'
+            raise
+        self._stop_progress()
 
         if sequence > 1:
             console.print(
@@ -480,5 +532,15 @@ class FileTranscriber:
 
     async def close(self) -> None:
         """释放资源，关闭 WebSocket 连接"""
-        self._stop_progress()
-        await self._ws_manager.close()
+        self._stop_progress(discard=self.summary is None)
+        websocket = getattr(self.state, 'websocket', None)
+        try:
+            await asyncio.wait_for(self._ws_manager.close(), 5.0)
+        except Exception as exc:
+            logger.warning('File connection cleanup failed: %s', type(exc).__name__)
+            if websocket is not None:
+                transport = getattr(websocket, 'transport', None)
+                if transport is not None:
+                    transport.abort()
+                if self.state.websocket is websocket:
+                    self.state.websocket = None
