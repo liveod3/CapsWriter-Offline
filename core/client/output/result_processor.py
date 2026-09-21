@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 
 from config_client import ClientConfig as Config
@@ -10,6 +11,8 @@ from core.protocol import RecognitionMessage
 from core.client.state import console
 from core.client.caret_context import foreground_window
 from core.client.connection import CommunicationError
+from core.client.dictation_lifecycle import MAX_PENDING_DICTATIONS, close_dictation_connection
+from core.client.transcribe.lifecycle import complete_cleanup
 from core.client.audio.file_manager import AudioFileManager
 from core.client.output.text_output import TextOutput
 from core.client.udp.udp_broadcaster import broadcast_output_udp
@@ -22,6 +25,9 @@ class ResultProcessor:
         self.app = app
         self._loop = asyncio.get_running_loop()
         self._exit_event = asyncio.Event()
+        self._ready_results = asyncio.Queue(maxsize=MAX_PENDING_DICTATIONS)
+        self._received = set()
+        self._deadline_poll = 0.25
 
     @property
     def state(self):
@@ -37,11 +43,34 @@ class ResultProcessor:
             self._loop.call_soon_threadsafe(self._exit_event.set)
 
     async def start(self):
+        """Receive and expire tasks independently of serial LLM/output work."""
+        children = [asyncio.create_task(operation) for operation in (
+            self._receive_loop(), self._process_results(), self._watch_deadlines(),
+            self._exit_event.wait(),
+        )]
+        try:
+            done, _ = await asyncio.wait(children, return_when=asyncio.FIRST_COMPLETED)
+            for child in done:
+                child.result()
+        finally:
+            self._exit_event.set()
+            async def cleanup():
+                for child in children:
+                    child.cancel()
+                await asyncio.gather(*children, return_exceptions=True)
+                self._received.clear()
+                self._fail_unfinished(notify=False)
+                while not self._ready_results.empty():
+                    self._ready_results.get_nowait()
+            await complete_cleanup(cleanup())
+
+    async def _receive_loop(self):
         while not self._exit_event.is_set():
             if not await self.ws.connect():
                 await asyncio.sleep(2)
                 continue
             while not self._exit_event.is_set():
+                websocket = self.state.websocket
                 try:
                     message = await self.ws.receive()
                 except CommunicationError as exc:
@@ -49,55 +78,119 @@ class ResultProcessor:
                     # 主动退出保持安静；其他断线清理后由外层循环重新连接。
                     if not self._exit_event.is_set():
                         logger.warning("Connection interrupted: %s", type(exc).__name__)
-                    await self.ws.close()
+                    self._fail_unfinished(notify=not self._exit_event.is_set())
+                    await close_dictation_connection(self.state, websocket)
                     break
                 if message is None:
+                    self._fail_unfinished(notify=not self._exit_event.is_set())
                     break
                 try:
-                    await self._handle_message(message)
+                    await self._handle_message(message, enqueue=True)
                 except Exception as exc:
                     logger.error("Result processing failed: %s", type(exc).__name__)
-            self.state.task_contexts.clear()
-            self.app.progress.clear()
             if not self._exit_event.is_set():
                 console.print("[ui.warning]Connection lost. Reconnecting…[/]")
 
-    async def _handle_message(self, message: RecognitionMessage | None):
-        if message is None or not message.is_final:
+    async def _handle_message(self, message: RecognitionMessage | None, *, enqueue=False):
+        if message is None or message.is_final is not True:
             return
+        if getattr(message, 'error_code', ''):
+            self._handle_error(message)
+            return
+        task_id = message.task_id
+        # Only a final submission can own a successful terminal response.
+        # Claim it before yielding so duplicates and timed-out replies are inert.
+        if task_id not in self.state.dictation_deadlines:
+            return
+        if time.monotonic() >= self.state.dictation_deadlines[task_id]:
+            self._fail_task(task_id, 'result_timeout', '识别等待超时，请重试本次听写。')
+            return
+        self.state.dictation_deadlines.pop(task_id)
+        self._received.add(task_id)
+        if enqueue:
+            self._ready_results.put_nowait(message)
+        else:
+            await self._process_final(message)
+
+    async def _process_results(self):
+        while True:
+            message = await self._ready_results.get()
+            try:
+                await self._process_final(message)
+            except Exception as exc:
+                logger.error('Result processing failed: %s', type(exc).__name__)
+
+    async def _process_final(self, message):
+        task_id = message.task_id
+        upload = self.state.dictation_uploads.get(task_id)
         try:
-            if getattr(message, 'error_code', ''):
-                self._handle_error(message)
-            else:
+            if upload is None:
+                return
+            await upload.wait()
+            if (self.state.dictation_uploads.get(task_id) is upload
+                    and task_id in self.state.task_contexts and not self._exit_event.is_set()):
                 await self._handle_final(message)
         finally:
-            self.app.progress.finish(message.task_id)
+            self._received.discard(task_id)
+            self.state.dictation_uploads.pop(task_id, None)
+            self.state.task_contexts.pop(task_id, None)
+            self.state.pop_audio_file(task_id)
+            self.app.progress.finish(task_id)
+
+    async def _watch_deadlines(self):
+        while True:
+            await asyncio.sleep(self._deadline_poll)
+            self._expire_tasks()
+
+    def _expire_tasks(self):
+        now = time.monotonic()
+        for task_id, deadline in list(self.state.dictation_deadlines.items()):
+            if now >= deadline:
+                self._fail_task(task_id, 'result_timeout', '识别等待超时，请重试本次听写。')
+
+    def _fail_unfinished(self, *, notify):
+        tasks = set(self.state.dictation_uploads) | set(self.state.task_contexts)
+        with self.state.recording_lock:
+            tasks.update(self.state.recorder_by_id)
+        for task_id in tasks - self._received:
+            self._fail_task(task_id, 'connection_lost', '连接已断开，请重试本次听写。', notify=notify)
 
     def _handle_error(self, message: RecognitionMessage):
         """Reject unknown/duplicate errors and cancel only their recording owner."""
+        if message.task_id not in self._received:
+            self._fail_task(message.task_id, message.error_code, '识别失败，请重试本次听写。')
+
+    def _fail_task(self, task_id, code, feedback, *, notify=True):
         with self.state.recording_lock:
-            task_id = message.task_id
             owner = self.state.recording_owner
             owns_capture = owner is not None and owner._progress_id == task_id
             future = self.state.recorder_by_id.pop(task_id, None)
+            self.state.dictation_deadlines.pop(task_id, None)
             if (not owns_capture and future is None and task_id not in self.state.task_contexts
-                    and task_id not in self.state.audio_files):
+                    and task_id not in self.state.audio_files
+                    and task_id not in self.state.dictation_uploads):
                 return
+            upload = self.state.dictation_uploads.pop(task_id, None)
+            if upload is not None:
+                upload.set()
             self.state.task_contexts.pop(task_id, None)
             self.state.pop_audio_file(task_id)
             if owns_capture:
                 owner.cancel()
             elif future is not None:
                 future.cancel()
-        logger.warning('Dictation task failed: task=%s code=%s', task_id[:8], message.error_code,
+        self.app.progress.finish(task_id)
+        if not notify:
+            return
+        logger.warning('Dictation task failed: task=%s code=%s', task_id[:8], code,
                        extra={'console_handled': True})
-        console.print('[ui.error]识别失败，请重试本次听写。[/]')
+        console.print(f'[ui.error]{feedback}[/]')
         # Recheck under the ownership lock: a shortcut may have started a new
         # recording while diagnostics were emitted above.
         with self.state.recording_lock:
             if self.state.recording_owner is None and not getattr(self.app, '_stopping', False):
                 from core.ui import show_status_hint
-                show_status_hint('识别失败，请重试本次听写。', duration_ms=3500, dot_color='#EF4444')
+                show_status_hint(feedback, duration_ms=3500, dot_color='#EF4444')
 
     async def _handle_final(self, message: RecognitionMessage):
         self.app.progress.update(message.task_id, "Preparing text…")

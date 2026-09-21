@@ -23,6 +23,7 @@ from core.ui.recording_indicator import (
 )
 from core.ui.tray import set_recording_state
 from core.client.audio.capture import CaptureSession
+from core.client.dictation_lifecycle import MAX_PENDING_DICTATIONS, DictationSendError
  
 if TYPE_CHECKING:
     from core.client.shortcut.shortcut_config import Shortcut
@@ -127,6 +128,10 @@ class ShortcutTask:
         self.app.mark_user_activity()
         with self.state.recording_lock:
             if getattr(self.app, '_stopping', False) or self.state.recording_owner is not None:
+                return False
+            if len(self.state.dictation_uploads) >= MAX_PENDING_DICTATIONS:
+                show_status_hint('Previous recordings are still processing. Please wait.',
+                                 duration_ms=2200)
                 return False
             if max(len(self.state.recording_futures), len(self.state.recording_tasks)) >= self.MAX_PENDING_RECORDERS:
                 show_status_hint('Previous recordings are still sending. Please wait.',
@@ -254,6 +259,8 @@ class ShortcutTask:
                     message = ('Recording stopped: audio buffer is full. Please retry.'
                                if str(error) == 'CaptureBufferOverflow' else
                                'Recording failed. Please retry.')
+                    if isinstance(error, DictationSendError):
+                        message = '音频发送失败，请检查服务端连接后重试。'
                     show_status_hint(message, duration_ms=3500, dot_color='#EF4444')
 
     def cancel(self) -> None:

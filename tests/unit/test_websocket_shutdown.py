@@ -9,13 +9,10 @@ from websockets.frames import Close
 from core.client.app import CapsWriterClient
 from core.client.connection.websocket_manager import CommunicationError, WebSocketManager
 from core.client.output.result_processor import ResultProcessor
+from core.client.state import ClientState
 
 
-class FakeState:
-    def __init__(self):
-        self.websocket = None
-        self.task_contexts = {}
-
+class FakeState(ClientState):
     @property
     def is_connected(self):
         return self.websocket is not None

@@ -36,6 +36,12 @@ class ClientConfig:
     # Increase for slow hardware or heavily concurrent file/dictation workloads.
     file_result_timeout = 600.0
 
+    # Per-message microphone upload deadline (seconds).
+    mic_io_timeout = 60.0
+    # Final ASR result deadline from final-message submission; excludes LLM work.
+    # Increase for slow hardware or concurrent recognition workloads.
+    mic_result_timeout = 600.0
+
     # 快捷键配置列表
     shortcuts = [
         {

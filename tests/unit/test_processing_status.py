@@ -136,11 +136,16 @@ def test_ui_queue_drains_on_owner_thread_and_rejects_updates_after_close():
 @pytest.mark.parametrize("failure", [False, True])
 def test_final_processing_always_clears_status(monkeypatch, failure):
     from core.client.output.result_processor import ResultProcessor
+    from core.client.state import ClientState
 
     async def run():
         progress = ProcessingStatus(Mock())
         progress.begin("id")
-        processor = ResultProcessor(SimpleNamespace(progress=progress))
+        state = ClientState(task_contexts={'id': ('', 0)})
+        state.dictation_uploads['id'] = asyncio.Event()
+        state.dictation_uploads['id'].set()
+        state.dictation_deadlines['id'] = float('inf')
+        processor = ResultProcessor(SimpleNamespace(progress=progress, state=state))
 
         async def handle(message):
             if failure:

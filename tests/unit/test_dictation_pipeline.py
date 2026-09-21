@@ -9,6 +9,7 @@ import pytest
 from core.client.audio.recorder import AudioRecorder
 from core.client.output.result_processor import ResultProcessor
 from core.client.llm.service import TextResult
+from core.client.state import ClientState
 
 
 def test_caret_snapshot_is_once_per_recording_and_audio_is_fifo(monkeypatch):
@@ -26,7 +27,7 @@ def test_caret_snapshot_is_once_per_recording_and_audio_is_fifo(monkeypatch):
             {"type": "finish"},
         ]:
             queue.put_nowait(event)
-        state = SimpleNamespace(queue_in=queue, task_contexts={})
+        state = ClientState(queue_in=queue)
         app = SimpleNamespace(
             progress=Mock(),
             state=state,
@@ -67,7 +68,11 @@ def test_final_output_preserves_plain_asr_and_respects_cancel_and_focus(
         hint = Mock()
         monkeypatch.setattr("core.ui.show_status_hint", hint)
         error_message = "API key missing. Fill api_key in providers.toml."
-        state = SimpleNamespace(task_contexts={"id": ("context", 42)}, set_output_text=Mock())
+        state = ClientState(task_contexts={"id": ("context", 42)})
+        state.set_output_text = Mock()
+        state.dictation_uploads['id'] = asyncio.Event()
+        state.dictation_uploads['id'].set()
+        state.dictation_deadlines['id'] = float('inf')
         app = SimpleNamespace(
             progress=Mock(),
             state=state,

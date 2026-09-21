@@ -91,6 +91,9 @@ class ClientState:
     dictation_paused: bool = False
     dictation_manually_paused: bool = False
     task_contexts: dict = field(default_factory=dict)
+    # Event-loop-owned upload completion and final-result deadlines.
+    dictation_uploads: dict[str, asyncio.Event] = field(default_factory=dict)
+    dictation_deadlines: dict[str, float] = field(default_factory=dict)
     last_activity_time: float = field(default_factory=time.time)
     audio_files: Dict[str, Path] = field(default_factory=dict)
 
@@ -141,6 +144,8 @@ class ClientState:
         self.dictation_paused = False
         self.dictation_manually_paused = False
         self.task_contexts.clear()
+        self.dictation_uploads.clear()
+        self.dictation_deadlines.clear()
         self.last_activity_time = time.time()
         self.audio_files.clear()
         

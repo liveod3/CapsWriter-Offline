@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import time
 import uuid
 from typing import TYPE_CHECKING, Optional
 
@@ -23,6 +24,10 @@ from core.client.audio.capture import CaptureSession
 from core.client.audio.file_writer import AsyncAudioWriter
 from core.client.connection import WebSocketManager
 from core.protocol import AudioMessage
+from core.client.dictation_lifecycle import (
+    MAX_PENDING_DICTATIONS, DictationSendError, close_dictation_connection, dictation_timeouts,
+)
+from core.client.transcribe.lifecycle import complete_cleanup
 from . import logger
 
 if TYPE_CHECKING:
@@ -57,6 +62,7 @@ class AudioRecorder:
         self._cache: list = []
         self._context = ''
         self._writer = None
+        self._io_timeout, self._result_timeout = dictation_timeouts(Config)
 
     @property
     def state(self) -> ClientState:
@@ -69,24 +75,22 @@ class AudioRecorder:
         return self.app.ws
     
     async def _send_message(self, message: AudioMessage) -> None:
-        """发送消息到服务端"""
+        """Bound every upload and retain the connection used for this operation."""
         message.supports_task_errors = True
         if not self._ws_manager.is_connected:
-            if message.is_final:
-                self.app.progress.finish(message.task_id)
-                self.state.task_contexts.pop(message.task_id, None)
-                self.state.pop_audio_file(message.task_id)
-                console.print('[ui.error]✗ 服务端未连接，录音未发送[/]\n')
-                logger.warning("服务端未连接，无法发送音频数据")
-            return
-        
-        # 使用 WebSocketManager 发送协议消息
-        success = await self._ws_manager.send(message)
-        if not success and message.is_final:
-            self.app.progress.finish(message.task_id)
-            self.state.task_contexts.pop(message.task_id, None)
-            self.state.pop_audio_file(message.task_id)
-            # 具体错误日志由 WebSocketManager 记录
+            raise DictationSendError('Disconnected')
+        websocket = self.state.websocket
+        if message.is_final:
+            self.state.dictation_deadlines[self.task_id] = time.monotonic() + self._result_timeout
+        try:
+            success = await asyncio.wait_for(self._ws_manager.send(message), self._io_timeout)
+            if not success:
+                raise DictationSendError('SendRejected')
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await complete_cleanup(close_dictation_connection(self.state, websocket))
+            raise DictationSendError(type(exc).__name__) from exc
     
     async def record_and_send(self, capture=None) -> None:
         """
@@ -99,7 +103,11 @@ class AudioRecorder:
         # after a new recording has already claimed the microphone.
         input_queue = capture if capture is not None else self.state.queue_in
         completed = False
+        upload_done = asyncio.Event()
         try:
+            if len(self.state.dictation_uploads) >= MAX_PENDING_DICTATIONS:
+                raise DictationSendError('PendingDictationLimit')
+            self.state.dictation_uploads[self.task_id] = upload_done
             # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
             logger.debug(f"创建录音任务，任务ID: {self.task_id}")
             
@@ -128,8 +136,6 @@ class AudioRecorder:
                     target = task.get('target_window', 0)
                     context = await self.app.caret_context.capture(target)
                     self._context = asr_reference(context)
-                    if len(self.state.task_contexts) >= 64:
-                        self.state.task_contexts.pop(next(iter(self.state.task_contexts)))
                     self.state.task_contexts[self.task_id] = (context, target)
                     logger.debug(f"录音开始，时间戳: {self._start_time}")
                     
@@ -246,14 +252,18 @@ class AudioRecorder:
         except Exception as e:
             self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
-            logger.error(f"录音任务错误: {e}", exc_info=True)
+            logger.error('Recording task failed: task=%s error=%s',
+                         self.task_id[:8], type(e).__name__)
             raise
         finally:
             self._cache.clear()
             if capture is not None:
                 capture.cancel()
             if not completed:
+                self.state.dictation_deadlines.pop(self.task_id, None)
+                self.state.dictation_uploads.pop(self.task_id, None)
                 self.state.pop_audio_file(self.task_id)
+            upload_done.set()
             if self._writer:
                 await self._writer.close(abort=not completed)
     
