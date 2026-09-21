@@ -16,6 +16,7 @@ from rich.console import Console
 from config_server import ServerConfig as Config
 
 from core.server.schema import Result, RecognitionSession, TaskKey
+from core.server.task_failures import FailedTasks
 
 if TYPE_CHECKING:
     from .app import CapsWriterServer
@@ -50,6 +51,8 @@ class ServerState:
     # WebSocket 连接池
     sockets: Dict[str, websockets.WebSocketServerProtocol] = field(default_factory=dict)
     socket_last_activity: Dict[str, float] = field(default_factory=dict)
+    failed_tasks: FailedTasks = field(default_factory=FailedTasks)
+    audio_caches: dict[str, dict] = field(default_factory=dict)
     
     # 跨进程共享的 socket ID 列表（需要用 Manager().list() 初始化）
     sockets_id: Optional[ListProxy] = None
@@ -70,6 +73,7 @@ class ServerState:
 class WorkerState:
     """Worker state with sessions keyed by (socket_id, task_id)."""
     sessions: Dict[TaskKey, RecognitionSession] = field(default_factory=dict)
+    failed_tasks: FailedTasks = field(default_factory=FailedTasks)
     
     # GPU 加速状态
     gpu_boosted: bool = False       # 当前是否已执行 GPU 加速

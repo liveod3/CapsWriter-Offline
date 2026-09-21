@@ -368,6 +368,7 @@ class FileTranscriber:
                 message = AudioMessage(
                     task_id=self.task_id,
                     source='file',
+                    supports_task_errors=True,
                     data=base64.b64encode(data).decode('utf-8'),
                     is_final=False,
                     time_start=time_start,
@@ -394,6 +395,7 @@ class FileTranscriber:
             final_message = AudioMessage(
                 task_id=self.task_id,
                 source='file',
+                supports_task_errors=True,
                 data='',
                 is_final=True,
                 time_start=time_start,
@@ -456,6 +458,12 @@ class FileTranscriber:
                 # reset its deadline or create an output file for it.
                 if msg.task_id != self.task_id:
                     continue
+                if msg.error_code:
+                    self.failure_code = 'recognition_failed'
+                    logger.error('Server rejected file task: task=%s code=%s',
+                                 self.task_id[:8], msg.error_code,
+                                 extra={'console_handled': True})
+                    return False
                 if not math.isfinite(msg.duration) or msg.duration < 0:
                     raise ValueError('InvalidRecognitionDuration')
                 if msg.duration > processed:

@@ -37,6 +37,7 @@ def test_caret_snapshot_is_once_per_recording_and_audio_is_fifo(monkeypatch):
         app.caret_context.capture.assert_awaited_once_with(42)
         messages = [call.args[0] for call in app.ws.send.call_args_list]
         assert [m.is_final for m in messages] == [False, False, True]
+        assert all(m.supports_task_errors for m in messages)
         assert len({m.context for m in messages}) == 1
         decoded = np.concatenate(
             [np.frombuffer(base64.b64decode(m.data), dtype=np.float32) for m in messages if m.data]

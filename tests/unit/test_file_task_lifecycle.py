@@ -111,6 +111,7 @@ def test_normal_file_waits_for_sender_and_saves_only_matching_final(factory):
         assert summary is transcriber.summary and summary is not None
         assert process.reaped
         assert process.terminated == 0
+        assert all(call.args[0].supports_task_errors for call in ws.send.await_args_list)
         save.assert_called_once()
         ws.close.assert_awaited_once()
 
@@ -161,6 +162,29 @@ def test_disconnect_cancels_blocked_decode_and_escalates_stubborn_child(factory)
         assert process.terminated == process.killed == 1
         assert process.reaped
         save.assert_not_called()
+
+    asyncio.run(run())
+
+
+def test_server_task_error_cancels_upload_and_reaps_decoder_before_return(factory):
+    async def run():
+        process = FakeProcess(blocked=True)
+        transcriber, runner, ws, save = factory(process)
+
+        async def receive():
+            await process.reading.wait()
+            return RecognitionMessage(transcriber.task_id, True, 0, 0, 0, 0, '',
+                                      error_code='recognition_failed')
+
+        ws.receive.side_effect = receive
+        assert await runner._process_file(Path('synthetic.wav')) is None
+        assert transcriber.failure_code == 'recognition_failed'
+        assert not transcriber._send_complete.is_set()
+        assert process.terminated == 1 and process.reaped
+        save.assert_not_called()
+        ws.close.assert_awaited_once()
+        assert not [task for task in asyncio.all_tasks()
+                    if task is not asyncio.current_task() and not task.done()]
 
     asyncio.run(run())
 
@@ -420,7 +444,7 @@ def test_invalid_media_has_one_readable_failure_and_retains_diagnostics(factory,
         assert transcriber.failure_code == 'decode_failed'
         assert output.count('✗ 无法转写') == 1
         assert '无法读取有效音轨' in output
-        assert '仅修改扩展名不会转换文件格式' in output
+        assert '请确认文件可以正常播放' in output
         assert '0 成功  1 失败' in output
         assert 'ERROR' not in output
         assert 'RuntimeError' not in output

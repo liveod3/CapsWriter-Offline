@@ -86,6 +86,7 @@ class ClientState:
     capture: Any = field(default=None, repr=False)
     recording_futures: set = field(default_factory=set, repr=False)
     recording_tasks: set = field(default_factory=set, repr=False)
+    recorder_by_id: dict = field(default_factory=dict, repr=False)
     recording_start_time: float = 0.0
     dictation_paused: bool = False
     dictation_manually_paused: bool = False
@@ -134,6 +135,7 @@ class ClientState:
                 self.capture.cancel()
             self.capture = None
             self.recording_owner = None
+            self.recorder_by_id.clear()
             self.recording = False
             self.recording_start_time = 0.0
         self.dictation_paused = False

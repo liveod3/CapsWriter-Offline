@@ -8,10 +8,11 @@ from collections import OrderedDict, deque
 from multiprocessing import Queue
 from multiprocessing.managers import ListProxy
 import queue
+import time
 from config_server import ServerConfig as Config
 from .pipeline import TaskPipeline
 from ..state import WorkerState
-from ..schema import TaskKey
+from ..schema import Result, TaskKey
 from .gpu_boost import GpuBoostManager
 from .gpu_monitor import GpuMemoryMonitor
 from . import logger
@@ -25,6 +26,8 @@ class TaskBuffer:
 
     def enqueue(self, task):
         """Append a fragment and ensure its owning session exists."""
+        if self.state.failed_tasks.contains(task.socket_id, task.task_id):
+            return
         key = task.key
         if key not in self._buffers:
             self._buffers[key] = deque()
@@ -156,6 +159,10 @@ class TaskHandler:
     def cleanup(self):
         """清理断连 socket 的缓冲任务和 session。"""
         self.state.cleanup_sessions(self.sockets_id)
+        self.state.failed_tasks.retain(self.sockets_id)
+        for key in list(self.state.sessions):
+            if self.state.failed_tasks.contains(*key):
+                self.state.sessions.pop(key, None)
         self.buffer.cleanup_tasks()
 
     def cleanup_engines(self):
@@ -170,11 +177,28 @@ class TaskHandler:
 
     def handle_audio_task(self, task):
         """处理音频识别任务。"""
-        self.gpu_monitor.begin_task()
+        if self.state.failed_tasks.contains(task.socket_id, task.task_id):
+            return
         try:
-            result = self.pipeline.process(task)
-        finally:
-            self.gpu_monitor.end_task()
+            self.gpu_monitor.begin_task()
+            try:
+                result = self.pipeline.process(task)
+            finally:
+                self.gpu_monitor.end_task()
+        except Exception as exc:
+            close_connection = self.state.failed_tasks.add(task.socket_id, task.task_id)
+            self.state.sessions.pop(task.key, None)
+            self.cleanup()
+            result = Result(
+                task_id=task.task_id, socket_id=task.socket_id, type=task.type,
+                is_final=True, error_code='recognition_failed',
+                supports_task_errors=task.supports_task_errors,
+                close_connection=close_connection,
+                time_start=task.time_start, time_submit=task.time_submit,
+                time_complete=time.time(),
+            )
+            logger.error('Recognition task failed: socket=%s task=%s error=%s',
+                         task.socket_id[:8], task.task_id[:8], type(exc).__name__)
         while task.socket_id in self.sockets_id:
             try:
                 self.queue_out.put(result, timeout=0.5)

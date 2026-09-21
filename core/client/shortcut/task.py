@@ -166,6 +166,7 @@ class ShortcutTask:
                 raise
             self._pending_recorders.add(self.task)
             self.state.recording_futures.add(self.task)
+            self.state.recorder_by_id[recorder.task_id] = self.task
             self.task.add_done_callback(
                 lambda future: self._recorder_done(future, capture, recorder.task_id)
             )
@@ -239,6 +240,8 @@ class ShortcutTask:
         with self.state.recording_lock:
             self._pending_recorders.discard(future)
             self.state.recording_futures.discard(future)
+            if self.state.recorder_by_id.get(progress_id) is future:
+                self.state.recorder_by_id.pop(progress_id, None)
             if self.task is future:
                 self.task = None
             if self._capture is capture and self.is_recording:

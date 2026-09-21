@@ -66,9 +66,38 @@ class ResultProcessor:
         if message is None or not message.is_final:
             return
         try:
-            await self._handle_final(message)
+            if getattr(message, 'error_code', ''):
+                self._handle_error(message)
+            else:
+                await self._handle_final(message)
         finally:
             self.app.progress.finish(message.task_id)
+
+    def _handle_error(self, message: RecognitionMessage):
+        """Reject unknown/duplicate errors and cancel only their recording owner."""
+        with self.state.recording_lock:
+            task_id = message.task_id
+            owner = self.state.recording_owner
+            owns_capture = owner is not None and owner._progress_id == task_id
+            future = self.state.recorder_by_id.pop(task_id, None)
+            if (not owns_capture and future is None and task_id not in self.state.task_contexts
+                    and task_id not in self.state.audio_files):
+                return
+            self.state.task_contexts.pop(task_id, None)
+            self.state.pop_audio_file(task_id)
+            if owns_capture:
+                owner.cancel()
+            elif future is not None:
+                future.cancel()
+        logger.warning('Dictation task failed: task=%s code=%s', task_id[:8], message.error_code,
+                       extra={'console_handled': True})
+        console.print('[ui.error]识别失败，请重试本次听写。[/]')
+        # Recheck under the ownership lock: a shortcut may have started a new
+        # recording while diagnostics were emitted above.
+        with self.state.recording_lock:
+            if self.state.recording_owner is None and not getattr(self.app, '_stopping', False):
+                from core.ui import show_status_hint
+                show_status_hint('识别失败，请重试本次听写。', duration_ms=3500, dot_color='#EF4444')
 
     async def _handle_final(self, message: RecognitionMessage):
         self.app.progress.update(message.task_id, "Preparing text…")

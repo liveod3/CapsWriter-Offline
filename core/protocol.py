@@ -71,6 +71,7 @@ class AudioMessage:
     seg_overlap: float = 2.0
     context: str = ''
     language: str = 'auto'
+    supports_task_errors: bool = False
 
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""
@@ -164,6 +165,10 @@ class AudioMessage:
                 f'language 必须是 1-{MAX_LANGUAGE_LENGTH} 个字符的字符串'
             )
 
+        supports_task_errors = data.get('supports_task_errors', False)
+        if not isinstance(supports_task_errors, bool):
+            raise ProtocolValidationError('supports_task_errors must be a boolean')
+
         message = cls(
             task_id=task_id,
             source=cast(Literal['mic', 'file'], source),
@@ -174,6 +179,7 @@ class AudioMessage:
             seg_overlap=seg_overlap,
             context=context,
             language=language,
+            supports_task_errors=supports_task_errors,
         )
         # 避免服务端在校验后再次解码；动态属性不会进入 asdict()/线协议。
         setattr(message, '_audio_bytes', audio_data)
@@ -222,6 +228,7 @@ class RecognitionMessage:
     text_accu: str = ''
     tokens: List[str] = field(default_factory=list)
     timestamps: List[float] = field(default_factory=list)
+    error_code: str = ''
     
     def to_json(self) -> str:
         """序列化为 JSON 字符串"""
@@ -234,6 +241,24 @@ class RecognitionMessage:
     @classmethod
     def from_dict(cls, data: dict) -> RecognitionMessage:
         """从字典创建实例"""
+        if not isinstance(data, dict):
+            raise ProtocolValidationError('Recognition message must be an object')
+        error_code = data.get('error_code', '')
+        if not isinstance(error_code, str) or error_code not in {'', 'recognition_failed'}:
+            raise ProtocolValidationError('Unknown task error code')
+        if error_code:
+            task_id = data.get('task_id')
+            if (not isinstance(task_id, str) or not 0 < len(task_id) <= MAX_TASK_ID_LENGTH
+                    or any(ord(char) < 32 for char in task_id)):
+                raise ProtocolValidationError('Invalid error task identity')
+            if data.get('is_final') is not True:
+                raise ProtocolValidationError('Task errors must be terminal')
+            if (data.get('text') != '' or data.get('text_accu', '') != ''
+                    or data.get('tokens', []) != [] or data.get('timestamps', []) != []):
+                raise ProtocolValidationError('Task errors must not contain recognition content')
+            for name in ('duration', 'time_start', 'time_submit', 'time_complete'):
+                if _finite_number(data, name) < 0:
+                    raise ProtocolValidationError('Invalid error timing')
         return cls(
             task_id=data['task_id'],
             is_final=data['is_final'],
@@ -245,4 +270,5 @@ class RecognitionMessage:
             text_accu=data.get('text_accu', ''),
             tokens=data.get('tokens', []),
             timestamps=data.get('timestamps', []),
+            error_code=error_code,
         )

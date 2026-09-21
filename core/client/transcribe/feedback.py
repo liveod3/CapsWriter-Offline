@@ -4,6 +4,8 @@ from rich.text import Text
 
 
 FAILURE_LABELS = {
+    'recognition_failed': ('识别服务处理此文件时失败。',
+                           '请查看服务端诊断日志；确认服务正常后重新转写此文件。'),
     'decode_failed': ('无法读取有效音轨，文件可能损坏或格式不受支持。',
                       '请确认文件可以正常播放'),
     'missing_file': ('找不到输入文件。', '请检查文件路径，或重新选择文件。'),

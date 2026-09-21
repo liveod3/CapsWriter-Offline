@@ -46,6 +46,7 @@ class Task:
     language: str = 'auto'
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
+    supports_task_errors: bool = False
 
     @property
     def key(self) -> TaskKey:
@@ -94,6 +95,9 @@ class Result:
     timestamps: List[float] = field(default_factory=list)
     
     is_final: bool = False
+    error_code: str = ''
+    supports_task_errors: bool = False
+    close_connection: bool = False
 
 @dataclass
 class RecognitionSession:

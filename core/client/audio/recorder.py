@@ -70,6 +70,7 @@ class AudioRecorder:
     
     async def _send_message(self, message: AudioMessage) -> None:
         """发送消息到服务端"""
+        message.supports_task_errors = True
         if not self._ws_manager.is_connected:
             if message.is_final:
                 self.app.progress.finish(message.task_id)

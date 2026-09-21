@@ -67,6 +67,7 @@ class AudioCache:
         self.time_start = msg.time_start
         self.context = msg.context
         self.language = msg.language
+        self.supports_task_errors = msg.supports_task_errors
 
     @property
     def duration(self) -> float:
@@ -92,6 +93,7 @@ class AudioCache:
             msg.seg_overlap,
             msg.context,
             msg.language,
+            msg.supports_task_errors,
         )
         expected = (
             self.source,
@@ -99,6 +101,7 @@ class AudioCache:
             self.seg_overlap,
             self.context,
             self.language,
+            self.supports_task_errors,
         )
         if current != expected:
             raise ProtocolValidationError('同一 task_id 的元数据不得在会话中途变更')
@@ -189,6 +192,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                     time_submit=time.time(),
                     context=msg.context,
                     language=msg.language,
+                    supports_task_errors=msg.supports_task_errors,
                 )
                 cache.offset += msg.seg_duration
                 _put_task(queue_in, task)
@@ -218,6 +222,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 time_submit=time.time(),
                 context=msg.context,
                 language=msg.language,
+                supports_task_errors=msg.supports_task_errors,
             )
             _put_task(queue_in, task)
             logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")
@@ -252,6 +257,7 @@ async def ws_recv(websocket, app) -> None:
 
     # 每个 task_id 独立缓存；数量也受限，避免交错任务混音和无限建 task。
     caches = {}
+    state.audio_caches[socket_id] = caches
     max_tasks = _positive_limit('max_tasks_per_connection', 4)
     idle_timeout = _positive_limit('connection_idle_timeout', 300, float)
     max_audio_bytes = _positive_limit('max_message_audio_bytes', 4 * 1024 * 1024)
@@ -279,6 +285,8 @@ async def ws_recv(websocket, app) -> None:
                     max_audio_bytes=max_audio_bytes,
                     max_context_length=max_context_length,
                 )
+                if state.failed_tasks.contains(socket_id, msg.task_id):
+                    continue
                 cache = caches.get(msg.task_id)
                 if cache is None:
                     if len(caches) >= max_tasks:
@@ -311,6 +319,8 @@ async def ws_recv(websocket, app) -> None:
         sockets.pop(socket_id, None)
         socket_last_activity.pop(socket_id, None)
         caches.clear()
+        state.audio_caches.pop(socket_id, None)
+        state.failed_tasks.discard_connection(socket_id)
         if socket_id in sockets_id:
             sockets_id.remove(socket_id)
 

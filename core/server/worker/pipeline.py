@@ -170,5 +170,5 @@ class TaskPipeline:
             return result
 
         except Exception as e:
-            logger.error(f"推理管线错误: {e}", exc_info=True)
+            logger.error('Recognition pipeline failed: %s', type(e).__name__)
             raise
