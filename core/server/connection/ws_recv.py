@@ -14,8 +14,9 @@ import websockets
 
 from ..state import console
 from ..schema import Task
+from ..delivery import ResultDeliveryError, positive_timeout
 from config_server import ServerConfig as Config
-from core.protocol import AudioMessage, ProtocolValidationError
+from core.protocol import AudioMessage, CancelMessage, RecognitionMessage, ProtocolValidationError
 from core.constants import AudioFormat
 from core.tools.my_status import Status
 from .. import logger
@@ -61,6 +62,7 @@ class AudioCache:
         self.offset: float = 0.0    # 当前偏移时间（秒）
         self.byte_count: int = 0    # 累计接收字节数
         self.created_at: float = time.monotonic()
+        self.last_activity = self.created_at
         self.source = msg.source
         self.seg_duration = msg.seg_duration
         self.seg_overlap = msg.seg_overlap
@@ -112,6 +114,7 @@ class AudioCache:
             raise ClientLimitError('单任务累计音频超过服务器上限', close_code=1009)
         self.chunks.extend(data)
         self.byte_count += len(data)
+        self.last_activity = time.monotonic()
 
 
 def _put_task(queue_in, task: Task) -> None:
@@ -120,6 +123,8 @@ def _put_task(queue_in, task: Task) -> None:
         queue_in.put_nowait(task)
     except queue.Full as exc:
         raise ServerBusyError() from exc
+    except (OSError, EOFError, ValueError) as exc:
+        raise ResultDeliveryError('InputQueueFailed') from exc
 
 
 async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) -> None:
@@ -142,7 +147,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     # 麦克风首次消息 → GPU 加速
     if is_start and msg.source == 'mic' and Config.gpu_boost_enabled:
         try:
-            queue_in.put_nowait(Task(
+            _put_task(queue_in, Task(
                 type='cmd',
                 task_id='gpu_boost',
                 data=b'', offset=0, overlap=0,
@@ -150,7 +155,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 time_start=0, time_submit=0,
                 command='gpu_boost'
             ))
-        except queue.Full:
+        except ServerBusyError:
             # 加速只是可选优化，不能挤占音频任务容量。
             logger.debug('推理队列已满，跳过 GPU 预加速命令')
 
@@ -227,7 +232,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
             _put_task(queue_in, task)
             logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")
 
-    except (ClientLimitError, ServerBusyError, ProtocolValidationError):
+    except (ClientLimitError, ServerBusyError, ProtocolValidationError, ResultDeliveryError):
         raise
     except Exception as e:
         logger.error(f"音频数据处理错误，任务ID: {msg.task_id}: {e}", exc_info=True)
@@ -262,12 +267,16 @@ async def ws_recv(websocket, app) -> None:
     idle_timeout = _positive_limit('connection_idle_timeout', 300, float)
     max_audio_bytes = _positive_limit('max_message_audio_bytes', 4 * 1024 * 1024)
     max_context_length = _positive_limit('max_context_length', 4096)
+    task_timeout = positive_timeout(Config, 'worker_stall_timeout', 600.0)
 
     # 接收并处理消息
     try:
         while True:
+            if any(time.monotonic() - cache.last_activity >= task_timeout
+                   for cache in caches.values()):
+                raise ClientLimitError('Task input timed out; reconnect')
             try:
-                raw_message = await asyncio.wait_for(websocket.recv(), timeout=idle_timeout)
+                raw_message = await asyncio.wait_for(websocket.recv(), timeout=min(idle_timeout, task_timeout))
             except asyncio.TimeoutError:
                 idle_for = time.monotonic() - socket_last_activity.get(socket_id, 0)
                 if idle_for >= idle_timeout:
@@ -276,10 +285,35 @@ async def ws_recv(websocket, app) -> None:
 
             socket_last_activity[socket_id] = time.monotonic()
 
+            # The sender may revoke this connection during a failed close.
+            if sockets.get(socket_id) is not websocket:
+                break
+
             try:
                 if not isinstance(raw_message, str):
                     raise ProtocolValidationError('仅接受 JSON 文本消息')
                 data = json.loads(raw_message)
+                if isinstance(data, dict) and data.get('type') == 'cancel':
+                    cancellation = CancelMessage.from_dict(data)
+                    if state.failed_tasks.contains(socket_id, cancellation.task_id):
+                        continue
+                    close_connection = state.failed_tasks.add(socket_id, cancellation.task_id)
+                    caches.pop(cancellation.task_id, None)
+                    _put_task(state.queue_in, Task(
+                        'cmd', b'', 0, 0, cancellation.task_id, socket_id,
+                        True, 0, time.time(), command='cancel',
+                    ))
+                    response = RecognitionMessage(
+                        cancellation.task_id, True, 0, 0, 0, time.time(), '',
+                        error_code='cancelled',
+                    )
+                    await asyncio.wait_for(websocket.send(response.to_json()), 5.0)
+                    if not any(cache.source == 'mic' for items in state.audio_caches.values()
+                               for cache in items.values()):
+                        status_mic.stop()
+                    if close_connection:
+                        raise ClientLimitError('Cancellation limit reached; reconnect')
+                    continue
                 msg = AudioMessage.from_dict(
                     data,
                     max_audio_bytes=max_audio_bytes,
@@ -298,6 +332,11 @@ async def ws_recv(websocket, app) -> None:
                     caches.pop(msg.task_id, None)
             except (json.JSONDecodeError, ProtocolValidationError) as exc:
                 raise ClientLimitError(f'消息格式无效: {exc}') from exc
+
+    except ResultDeliveryError as exc:
+        if state.worker_failed is not None:
+            state.worker_failed.set()
+        logger.error('Input channel unavailable: %s', str(exc))
 
     except ClientLimitError as exc:
         logger.warning(f"拒绝客户端消息，ID {socket_id}: {exc.reason}")

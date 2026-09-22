@@ -25,7 +25,8 @@ from core.client.audio.file_writer import AsyncAudioWriter
 from core.client.connection import WebSocketManager
 from core.protocol import AudioMessage
 from core.client.dictation_lifecycle import (
-    MAX_PENDING_DICTATIONS, DictationSendError, close_dictation_connection, dictation_timeouts,
+    MAX_PENDING_DICTATIONS, DictationSendError, cancel_dictation,
+    close_dictation_connection, dictation_timeouts,
 )
 from core.client.transcribe.lifecycle import complete_cleanup
 from . import logger
@@ -62,6 +63,7 @@ class AudioRecorder:
         self._cache: list = []
         self._context = ''
         self._writer = None
+        self._websocket = None
         self._io_timeout, self._result_timeout = dictation_timeouts(Config)
 
     @property
@@ -80,6 +82,9 @@ class AudioRecorder:
         if not self._ws_manager.is_connected:
             raise DictationSendError('Disconnected')
         websocket = self.state.websocket
+        if self._websocket is not None and websocket is not self._websocket:
+            raise DictationSendError('ConnectionChanged')
+        self._websocket = websocket
         if message.is_final:
             self.state.dictation_deadlines[self.task_id] = time.monotonic() + self._result_timeout
         try:
@@ -87,6 +92,7 @@ class AudioRecorder:
             if not success:
                 raise DictationSendError('SendRejected')
         except asyncio.CancelledError:
+            await complete_cleanup(close_dictation_connection(self.state, websocket))
             raise
         except Exception as exc:
             await complete_cleanup(close_dictation_connection(self.state, websocket))
@@ -256,16 +262,23 @@ class AudioRecorder:
                          self.task_id[:8], type(e).__name__)
             raise
         finally:
-            self._cache.clear()
-            if capture is not None:
-                capture.cancel()
-            if not completed:
-                self.state.dictation_deadlines.pop(self.task_id, None)
-                self.state.dictation_uploads.pop(self.task_id, None)
-                self.state.pop_audio_file(self.task_id)
-            upload_done.set()
-            if self._writer:
-                await self._writer.close(abort=not completed)
+            async def cleanup():
+                self._cache.clear()
+                if capture is not None:
+                    capture.cancel()
+                cancel_remote = not completed and self.task_id in self.state.dictation_uploads
+                if not completed:
+                    self.state.dictation_deadlines.pop(self.task_id, None)
+                    self.state.dictation_uploads.pop(self.task_id, None)
+                    self.state.pop_audio_file(self.task_id)
+                upload_done.set()
+                try:
+                    if self._writer:
+                        await self._writer.close(abort=not completed)
+                finally:
+                    if cancel_remote:
+                        await cancel_dictation(self.state, self._websocket, self.task_id)
+            await complete_cleanup(cleanup())
     
     def get_file_manager(self) -> Optional[AudioFileManager]:
         """获取当前的文件管理器"""

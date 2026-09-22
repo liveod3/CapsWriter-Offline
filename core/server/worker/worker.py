@@ -27,13 +27,16 @@ class RecognizerWorker:
     统一调度模型加载器与任务处理器，负责识别进程的完整运行。
     """
     def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy,
-                 align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int = None):
+                 align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int = None,
+                 failure_event=None, progress_clock=None):
         # 1. 初始化核心状态
         self.state = WorkerState()
         
         # 2. 初始化核心组件 (注入 state)
-        self.loader = ModelLoader(align_queue_in, align_queue_out)
-        self.handler = TaskHandler(queue_in, queue_out, sockets_id, self.state)
+        self.loader = ModelLoader(align_queue_in, align_queue_out, failure_event)
+        self.handler = TaskHandler(queue_in, queue_out, sockets_id, self.state,
+                                   failure_event, progress_clock)
+        self.failure_event = failure_event
         
         # 3. 状态追踪
         self.stdin_fn = stdin_fn
@@ -95,14 +98,14 @@ class RecognizerWorker:
         if self._is_running:return
         self._is_running = True
 
-        self.initialize()
-        
-        # 2. 进入循环
         try:
+            self.initialize()
             self.handler.loop()
-        except Exception as e:
-            logger.error(f"Worker 运行中发生异常: {str(e)}", exc_info=True)
-            raise e
+        except Exception as exc:
+            if self.failure_event is not None:
+                self.failure_event.set()
+            logger.error('Recognition worker stopped: error=%s', type(exc).__name__)
+            raise
         finally:
             self.stop()
 

@@ -13,9 +13,11 @@ from config_server import ServerConfig as Config
 from .pipeline import TaskPipeline
 from ..state import WorkerState
 from ..schema import Result, TaskKey
+from ..delivery import ResultDeliveryError, positive_timeout
 from .gpu_boost import GpuBoostManager
 from .gpu_monitor import GpuMemoryMonitor
 from . import logger
+from .supervision import progress
 
 
 class TaskBuffer:
@@ -75,11 +77,17 @@ class TaskHandler:
     协调输入输出队列与识别引擎之间的任务流。
     支持跨 task 公平轮转调度。
     """
-    def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy, state: WorkerState):
+    def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy, state: WorkerState,
+                 failure_event=None, progress_clock=None):
         self.queue_in = queue_in
         self.queue_out = queue_out
         self.sockets_id = sockets_id
         self.state = state
+        self.failure_event = failure_event
+        self.progress_clock = progress_clock
+        self.session_activity = {}
+        self.session_timeout = positive_timeout(Config, 'worker_stall_timeout', 600.0)
+        self.result_queue_timeout = positive_timeout(Config, 'result_queue_timeout', 60.0)
 
         self.recognizer = None
         self.punc_model = None
@@ -123,6 +131,7 @@ class TaskHandler:
     def drain_queue(self) -> bool:
         """Drain 队列中所有任务到缓冲区。Returns: False = 退出信号。"""
         while True:
+            progress(self.progress_clock, update=True)
             # 多进程队列虽有界，但持续 drain 会把压力转移到本进程内存；
             # 达到上限后先处理一个片段，再继续接收。
             if self.buffer.task_count >= self.max_buffer_tasks:
@@ -141,8 +150,8 @@ class TaskHandler:
                     continue
                 else:
                     return True
-            except InterruptedError:
-                continue
+            except (OSError, EOFError, ValueError) as exc:
+                raise ResultDeliveryError('InputQueueFailed') from exc
             
             # 判断退出信号
             if task is None:
@@ -153,8 +162,16 @@ class TaskHandler:
                 logger.debug(f"跳过断连客户端任务: {task.task_id[:8]}")
                 continue
 
+            if task.type == 'cmd' and task.command == 'cancel':
+                self.state.failed_tasks.add(task.socket_id, task.task_id)
+                self.state.sessions.pop(task.key, None)
+                self.buffer.cleanup_tasks()
+                continue
+
             # 任务进入缓冲区
             self.buffer.enqueue(task)
+            if task.key in self.state.sessions:
+                self.session_activity[task.key] = time.monotonic()
 
     def cleanup(self):
         """清理断连 socket 的缓冲任务和 session。"""
@@ -164,6 +181,12 @@ class TaskHandler:
             if self.state.failed_tasks.contains(*key):
                 self.state.sessions.pop(key, None)
         self.buffer.cleanup_tasks()
+        self.session_activity = {key: last for key, last in self.session_activity.items()
+                                 if key in self.state.sessions}
+        if any(time.monotonic() - last >= self.session_timeout
+               for last in self.session_activity.values()):
+            # A silently lost final/cancel must not leave an immortal worker session.
+            raise ResultDeliveryError('TaskProgressTimeout')
 
     def cleanup_engines(self):
         """闲置资源清理：对齐器卸载 + GPU 加速取消。"""
@@ -173,7 +196,10 @@ class TaskHandler:
 
     def handle_command_task(self, task):
         """处理命令任务。"""
-        self.gpu_boost.handle_command(task)
+        try:
+            self.gpu_boost.handle_command(task)
+        finally:
+            self.state.sessions.pop(task.key, None)
 
     def handle_audio_task(self, task):
         """处理音频识别任务。"""
@@ -185,6 +211,8 @@ class TaskHandler:
                 result = self.pipeline.process(task)
             finally:
                 self.gpu_monitor.end_task()
+        except ResultDeliveryError:
+            raise
         except Exception as exc:
             close_connection = self.state.failed_tasks.add(task.socket_id, task.task_id)
             self.state.sessions.pop(task.key, None)
@@ -199,17 +227,25 @@ class TaskHandler:
             )
             logger.error('Recognition task failed: socket=%s task=%s error=%s',
                          task.socket_id[:8], task.task_id[:8], type(exc).__name__)
+        deadline = time.monotonic() + self.result_queue_timeout
         while task.socket_id in self.sockets_id:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ResultDeliveryError('OutputQueueTimeout')
             try:
-                self.queue_out.put(result, timeout=0.5)
+                self.queue_out.put(result, timeout=min(0.5, remaining))
                 break
             except queue.Full:
-                # 有界输出队列通过短时阻塞提供背压，同时允许断连后退出。
+                # Backpressure is temporary; permanent blockage is terminal.
                 continue
+            except (OSError, EOFError, ValueError) as exc:
+                raise ResultDeliveryError('OutputQueueFailed') from exc
         else:
             logger.debug(f"客户端已断连，丢弃待发送结果: {task.task_id[:8]}")
         if result.is_final:
             self.state.sessions.pop(task.key, None)
+        elif task.key in self.state.sessions:
+            self.session_activity[task.key] = time.monotonic()
 
     def loop(self):
         """核心任务循环：drain 队列 → 清理断连 → 轮转执行一个。"""
@@ -233,11 +269,17 @@ class TaskHandler:
                         self.handle_audio_task(task)
 
                     self.cleanup()
-                except InterruptedError:
-                    continue
-                except Exception as e:
-                    logger.error(f"任务执行出错: {str(e)}", exc_info=True)
+                except Exception as exc:
+                    # Signal the parent before potentially blocking backend cleanup.
+                    if self.failure_event is not None:
+                        self.failure_event.set()
+                    logger.error('Worker task loop stopped: error=%s', type(exc).__name__)
+                    raise
         finally:
+            self.state.sessions.clear()
+            self.session_activity.clear()
+            self.buffer.cleanup_tasks()
+            self.state.failed_tasks.retain([])
             self.gpu_monitor.close()
 
         logger.info("TaskHandler 工作循环结束")

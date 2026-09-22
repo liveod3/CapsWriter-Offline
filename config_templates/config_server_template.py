@@ -45,6 +45,15 @@ class ServerConfig:
     align_queue_out_maxsize = 4
     worker_buffer_max_tasks = 64
 
+    # Bound each result send; a stalled client is disconnected without retrying.
+    result_send_timeout = 10.0
+    # Maximum IPC read stall / worker output-capacity wait before stopping service.
+    result_queue_timeout = 60.0
+    # Stop the service if model startup stalls. Slow machines may need longer limits.
+    model_startup_timeout = 300.0
+    # Maximum worker-loop stall or task inactivity (including queued partial tasks).
+    worker_stall_timeout = 600.0
+
     # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
     model_type = 'qwen_asr'
 
@@ -58,7 +67,7 @@ class ServerConfig:
     # Forced Aligner 在独立兄弟进程中按需加载；空闲后退出整个进程，避免在
     # ASR 进程内卸载共享 GPU 后端。0 表示进程常驻。
     aligner_idle_timeout = 1   # 单卡 GPU 下快速让出显存；进程监控器会自动补位
-    aligner_request_timeout = 60  # 单次对齐最长等待时间；超时后跳过时间戳，不阻塞 ASR
+    aligner_request_timeout = 60  # Request deadline; stop service on timeout to reap a wedged aligner.
 
     # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
     gpu_boost_enabled = False                   # 总开关，默认关闭

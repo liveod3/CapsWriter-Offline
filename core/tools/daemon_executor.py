@@ -15,6 +15,9 @@ class SimpleDaemonExecutor(ThreadPoolExecutor):
         f = Future()
         
         def wrapper():
+            # A running queue read cannot be canceled by canceling its async waiter.
+            if not f.set_running_or_notify_cancel():
+                return
             try:
                 result = fn(*args, **kwargs)
                 f.set_result(result)
@@ -27,4 +30,3 @@ class SimpleDaemonExecutor(ThreadPoolExecutor):
     
     def shutdown(self, wait=True):
         pass
-

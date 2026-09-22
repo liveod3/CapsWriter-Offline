@@ -1,10 +1,12 @@
 import queue
 import time
 import uuid
+from types import SimpleNamespace
 
 from core.server.schema import AlignRequest, AlignResponse
 from .base import BaseAlignEngine
 from . import logger
+from ..delivery import ResultDeliveryError, positive_timeout
 
 
 class ProcessAlignerProxy(BaseAlignEngine):
@@ -15,11 +17,17 @@ class ProcessAlignerProxy(BaseAlignEngine):
     生命周期全部位于兄弟进程中。
     """
 
-    def __init__(self, queue_in, queue_out, timeout_sec=60):
+    def __init__(self, queue_in, queue_out, timeout_sec=60, failure_event=None):
         self.queue_in = queue_in
         self.queue_out = queue_out
-        self.timeout = max(1.0, float(timeout_sec))
+        self.timeout = positive_timeout(SimpleNamespace(timeout=timeout_sec), 'timeout', 60.0)
+        self.failure_event = failure_event
         self._pending = {}
+
+    def _failed(self, reason):
+        if self.failure_event is not None:
+            self.failure_event.set()
+        raise ResultDeliveryError(reason)
 
     def align(self, audio, text, **kwargs):
         request_id = uuid.uuid4().hex
@@ -35,9 +43,8 @@ class ProcessAlignerProxy(BaseAlignEngine):
 
         try:
             self.queue_in.put(request, timeout=min(5.0, self.timeout))
-        except queue.Full:
-            logger.error(f"Aligner 请求队列已满，跳过任务 {task_id[:8]} 的时间戳对齐")
-            return None
+        except (queue.Full, OSError, EOFError, ValueError):
+            self._failed('AlignerSubmissionFailed')
 
         deadline = time.monotonic() + self.timeout
         while True:
@@ -45,15 +52,13 @@ class ProcessAlignerProxy(BaseAlignEngine):
             if response is None:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
-                    logger.error(
-                        f"Aligner 请求超时 ({self.timeout:.0f}s)，"
-                        f"跳过任务 {task_id[:8]} 的时间戳对齐"
-                    )
-                    return None
+                    self._failed('AlignerRequestTimeout')
                 try:
                     response = self.queue_out.get(timeout=min(0.5, remaining))
                 except queue.Empty:
                     continue
+                except (OSError, EOFError, ValueError):
+                    self._failed('AlignerResultQueueFailed')
 
                 if not isinstance(response, AlignResponse):
                     logger.warning(f"忽略未知 Aligner 响应: {type(response).__name__}")

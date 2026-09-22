@@ -10,6 +10,7 @@ CapsWriter Offline 服务端主程序门面类 (Facade)
 import os
 import asyncio
 import queue
+import threading
 from pathlib import Path
 from config_server import ServerConfig as Config, __version__
 from .state import ServerState, console
@@ -44,6 +45,9 @@ class CapsWriterServer:
 
         self.version = __version__
         self.is_alive = False
+        self._owner_thread = threading.get_ident()
+        self._stop_requested = threading.Event()
+        self._cleaned_up = False
 
 
     def _print_banner(self):
@@ -56,32 +60,42 @@ class CapsWriterServer:
         console.print(f'绑定的服务地址：[cyan underline]{Config.addr}:{Config.port}[/]', end='\n\n')
 
     def stop(self):
-        """
-        清理服务端资源
-        """
-        # 防连续触发
-        if not self.is_alive: return
-        self.is_alive = False 
+        """Request shutdown on the loop owner; reap processes after the loop drains."""
+        self._stop_requested.set()
+        if threading.get_ident() != self._owner_thread:
+            if self.loop.is_running():
+                try:
+                    self.loop.call_soon_threadsafe(self.stop)
+                except RuntimeError:
+                    pass  # The owner is already closing the loop.
+            return
+        self.is_alive = False
+        if self.loop.is_running():
+            self.socket_manager.stop()
+
+    def _cleanup(self):
+        """Called by start's finally, never reentrantly from a signal/tray callback."""
+        self.is_alive = False
+        if self._cleaned_up:
+            return
+        self._cleaned_up = True
 
         logger.info("=" * 50)
         logger.info("开始清理服务端资源...")
 
         try:
             self.state.queue_out.put_nowait(None)
-        except queue.Full:
-            logger.debug('输出队列已满，事件循环将直接停止')
+        except (queue.Full, OSError, EOFError, ValueError) as exc:
+            logger.debug('Result shutdown signal unavailable: %s', type(exc).__name__)
 
-        # 1. 关闭 WebSocket 服务（立即释放端口）
-        self.socket_manager.stop()
-
-        # 2. 终止识别子进程
-        self.process_manager.stop()
-
-        # 3. 停止托盘图标
-        self.tray_manager.stop()
-
-        # 4. 最后停止协程（需在其他资源释放之后）
-        self.loop.stop()
+        # A broken queue/component must not skip the remaining cleanup owners.
+        for name, component in (('network', self.socket_manager),
+                                ('worker', self.process_manager),
+                                ('tray', self.tray_manager)):
+            try:
+                component.stop()
+            except Exception as exc:
+                logger.error('Server cleanup failed: component=%s error=%s', name, type(exc).__name__)
 
         logger.info("服务端资源清理完成")
         console.print('[green4]再见！')
@@ -95,6 +109,9 @@ class CapsWriterServer:
         """
         # 防连续触发
         if self.is_alive: return
+        self._owner_thread = threading.get_ident()
+        self._stop_requested = threading.Event()
+        self._cleaned_up = False
 
         # 安全配置必须在启动托盘和模型子进程前通过校验
         try:
@@ -109,15 +126,13 @@ class CapsWriterServer:
         # 注册退出信号处理
         register_signal(self.stop)
 
-        # 托盘图标
-        self.tray_manager.start()
-        self._print_banner()
-
-        # 拉起识别子进程
-        self.process_manager.start()
-        
-        # 开启网络服务监听 (接管当前线程直至退出)
         try:
-            self.loop.run_until_complete(self.socket_manager.start()) 
-        except RuntimeError:
-            pass
+            self.tray_manager.start()
+            self._print_banner()
+            self.process_manager.start()
+            if self.is_alive and not self._stop_requested.is_set():
+                self.loop.run_until_complete(self.socket_manager.start())
+        finally:
+            # Sender failure ends the listener; release model processes and tray too.
+            self._cleanup()
+            self.loop.close()

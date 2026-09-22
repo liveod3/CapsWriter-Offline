@@ -197,6 +197,28 @@ class AudioMessage:
 
 
 @dataclass
+class CancelMessage:
+    """Cancel one connection-scoped task; older servers safely close the connection."""
+
+    task_id: str
+    type: str = field(default='cancel', init=False)
+
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+    @classmethod
+    def from_dict(cls, data: dict) -> CancelMessage:
+        if not isinstance(data, dict):
+            raise ProtocolValidationError('Cancellation must be an object')
+        task_id = data.get('task_id')
+        if (data.get('type') != 'cancel' or not isinstance(task_id, str)
+                or not 0 < len(task_id) <= MAX_TASK_ID_LENGTH
+                or any(ord(char) < 32 for char in task_id)):
+            raise ProtocolValidationError('Invalid cancellation identity')
+        return cls(task_id)
+
+
+@dataclass
 class RecognitionMessage:
     """
     服务端 -> 客户端：识别结果消息
@@ -244,7 +266,7 @@ class RecognitionMessage:
         if not isinstance(data, dict):
             raise ProtocolValidationError('Recognition message must be an object')
         error_code = data.get('error_code', '')
-        if not isinstance(error_code, str) or error_code not in {'', 'recognition_failed'}:
+        if not isinstance(error_code, str) or error_code not in {'', 'recognition_failed', 'cancelled'}:
             raise ProtocolValidationError('Unknown task error code')
         if error_code:
             task_id = data.get('task_id')

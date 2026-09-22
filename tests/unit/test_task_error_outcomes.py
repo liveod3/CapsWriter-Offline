@@ -187,7 +187,7 @@ def test_error_routes_to_owner_only_with_legacy_close_fallback(handler, capable)
                       Result('shared', 'b', 'mic', text='synthetic peer', is_final=True), None):
             state.queue_out.put(value)
         await asyncio.wait_for(ws_send(SimpleNamespace(state=state)), 1)
-        assert not state.audio_caches['a'] and 'shared' in state.audio_caches['b']
+        assert not state.audio_caches.get('a') and 'shared' in state.audio_caches['b']
         peer.send.assert_awaited_once()
         peer.close.assert_not_awaited()
         if capable:

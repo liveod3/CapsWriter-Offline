@@ -17,7 +17,8 @@ from pathlib import Path
 import websockets
 from config_server import ServerConfig as Config
 from .ws_recv import ws_recv
-from .ws_send import ws_send
+from .ws_send import ws_send, _retire_connection
+from ..delivery import ResultDeliveryError
 from .. import logger # Server module logger
 
 
@@ -76,6 +77,7 @@ class SocketManager:
         self._max_connections = 8
         self._max_message_size = 6 * 1024 * 1024
         self._max_queue = 16
+        self._delivery_failed = False
 
     def prepare(self):
         """在启动托盘、模型进程和监听器前校验安全配置。"""
@@ -163,6 +165,10 @@ class SocketManager:
 
     async def _handle_connection(self, websocket):
         """拒绝超过并发上限的连接，不让其在服务器中排队等待。"""
+        if self._delivery_failed:
+            from .ws_send import _close_failed_connection
+            await _close_failed_connection(websocket, 'Recognition channel unavailable')
+            return
         if self._active_connections >= self._max_connections:
             logger.warning('拒绝超出并发上限的 WebSocket 连接: %s', websocket.remote_address)
             await websocket.close(code=1013, reason='服务器连接数已达上限')
@@ -224,8 +230,7 @@ class SocketManager:
         
         # 0. 启动前自检环境
         if not self._check_port():
-            input("\n按回车键退出...")
-            return 
+            return
 
         self._is_running = True
 
@@ -254,14 +259,25 @@ class SocketManager:
             ssl=self._ssl_context,
             max_size=self._max_message_size,
             max_queue=self._max_queue,
+            close_timeout=5.0,
         ) as server:
             self._server = server  # 保存 server 引用，用于外部关闭
 
             # 4. 进入识别结果发送循环 (作为主阻塞任务)
             logger.info("WebSocket 发送协程已就绪")
-            await ws_send(self.app)
+            try:
+                await ws_send(self.app)
+            except ResultDeliveryError as exc:
+                self._delivery_failed = True
+                logger.critical('Recognition channel unavailable; restart required: %s', str(exc))
+                server.close()
+                await asyncio.gather(*(
+                    _retire_connection(self.app.state, socket, 'Recognition channel unavailable')
+                    for socket in list(self.app.state.sockets.values())
+                ), return_exceptions=True)
             
         self._is_running = False
+        self._server = None
         logger.info("SocketManager: WebSocket 服务已退出")
 
     def stop(self):

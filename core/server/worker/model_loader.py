@@ -23,12 +23,13 @@ class ModelLoader:
     负责 ASR 引擎和辅助模型（标点、对齐器）的生命周期管理。
     自动根据引擎能力挂载补丁插件。
     """
-    def __init__(self, align_queue_in=None, align_queue_out=None):
+    def __init__(self, align_queue_in=None, align_queue_out=None, failure_event=None):
         self.recognizer = None
         self.punc_model = None
         self.aligner = None
         self.align_queue_in = align_queue_in
         self.align_queue_out = align_queue_out
+        self.failure_event = failure_event
 
     def load(self):
         """
@@ -84,6 +85,7 @@ class ModelLoader:
             self.align_queue_in,
             self.align_queue_out,
             timeout_sec=timeout,
+            failure_event=self.failure_event,
         )
 
     def cleanup(self):

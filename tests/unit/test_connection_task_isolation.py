@@ -215,12 +215,14 @@ def test_disconnect_after_drain_skips_stale_buffer_before_inference(handler):
     handler.buffer.enqueue(survivor)
     handler.sockets_id.remove('a')
     handler.drain_queue = Mock(side_effect=[True, False])
-    handler.handle_audio_task = Mock()
+    def process_survivor(task):
+        assert set(handler.state.sessions) == {('b', 'shared')}
+    handler.handle_audio_task = Mock(side_effect=process_survivor)
 
     handler.loop()
 
     handler.handle_audio_task.assert_called_once_with(survivor)
-    assert set(handler.state.sessions) == {('b', 'shared')}
+    assert not handler.state.sessions
     handler.gpu_monitor.close.assert_called_once()
 
 

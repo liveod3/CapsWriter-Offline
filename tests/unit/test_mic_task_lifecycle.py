@@ -100,7 +100,8 @@ def test_failed_upload_has_deadline_and_discards_pending_state(final, failure):
         assert not app.state.dictation_uploads and not app.state.dictation_deadlines
         assert not app.state.audio_files
         app.progress.finish.assert_called_with(recorder.task_id)
-        assert socket.close.await_count == int(failure != 'disconnected')
+        # A partially uploaded task also needs remote cleanup after disconnection.
+        assert socket.close.await_count == int(failure != 'disconnected' or final)
 
     asyncio.run(run())
 

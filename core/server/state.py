@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from multiprocessing import Queue, Process
 from multiprocessing.managers import ListProxy
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import websockets
 from rich.console import Console
@@ -66,6 +66,8 @@ class ServerState:
     # 识别子进程
     recognize_process: Optional[Process] = None
     aligner_process: Optional[Process] = None
+    worker_failed: Any = None  # Shared Event, created with the worker's process context.
+    worker_progress: Any = None  # Updated by the task loop, never by a heartbeat thread.
 
 
 

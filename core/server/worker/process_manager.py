@@ -11,7 +11,8 @@ import queue
 import threading
 import time
 from collections import deque
-from multiprocessing import Process, Manager
+from multiprocessing import Process, Manager, Event, Value
+from concurrent.futures import TimeoutError as FutureTimeout
 from typing import TYPE_CHECKING
 from rich.panel import Panel
 from config_server import ServerConfig as Config
@@ -20,6 +21,9 @@ from . import start_worker
 from .aligner_worker import start_aligner_worker
 from .check_model import check_model
 from . import logger
+from ..delivery import ResultDeliveryError, positive_timeout
+from .supervision import progress
+from core.tools.daemon_executor import SimpleDaemonExecutor
 if TYPE_CHECKING:
     from ..app import CapsWriterServer
 
@@ -38,6 +42,7 @@ class ProcessManager:
         self._monitor_stop = threading.Event()
         self._aligner_idle_exits = deque()
         self._last_aligner_churn_warning = 0.0
+        self._manager = None
         self.app = app
         self.is_alive = False
 
@@ -54,12 +59,15 @@ class ProcessManager:
         self._monitor_stop.clear()
 
         # 1. 前置检查
-        check_model()
+        check_model(interactive=False)
 
         # 2. 初始化共享资源
         # 使用 Manager 管理共享列表，用于追踪活动连接
         state = self.app.state
-        state.sockets_id = Manager().list()
+        self._manager = Manager()
+        state.sockets_id = self._manager.list()
+        state.worker_failed = Event()
+        state.worker_progress = Value('d', time.monotonic())
         
         # 获取标准输入文件描述符，用于 Windows 下的信号传递补丁
         stdin_fn = sys.stdin.fileno()
@@ -75,7 +83,9 @@ class ProcessManager:
                   state.sockets_id,
                   state.align_queue_in,
                   state.align_queue_out,
-                  stdin_fn),
+                  stdin_fn,
+                  state.worker_failed,
+                  state.worker_progress),
             daemon=True
         )
         self._process.start()
@@ -87,8 +97,9 @@ class ProcessManager:
         # 5. 等待模型加载完成 (轮询方式)
         self._wait_for_models()
 
-        # Aligner 空闲退出或异常退出后，由主进程自动补位一个空载进程。
-        if self.is_alive:
+        # Monitor ASR progress and replace only clean idle aligner exits.
+        requested = getattr(self.app, '_stop_requested', None)
+        if self.is_alive and not (requested is not None and requested.is_set()):
             self._align_monitor_thread = threading.Thread(
                 target=self._monitor_aligner,
                 name='aligner-process-monitor',
@@ -121,26 +132,47 @@ class ProcessManager:
                 daemon=True,
             )
             self._align_process.start()
+            if not self.is_alive:
+                self._align_process.terminate()
+                self._align_process.join(timeout=1)
+                return None
             state.aligner_process = self._align_process
             logger.info(f"Aligner 兄弟进程已拉起 (PID: {self._align_process.pid})")
             return self._align_process
 
     def _monitor_aligner(self):
-        """监控 Aligner 的空闲退出/异常退出并自动补位。"""
+        """Replace clean idle exits only; stop the service on death or lost progress."""
         while not self._monitor_stop.wait(0.5):
             if not self.is_alive:
                 return
+            try:
+                self._check_runtime()
+            except Exception as exc:
+                reason = str(exc) if isinstance(exc, ResultDeliveryError) else type(exc).__name__
+                logger.error('Worker supervision stopped service: %s', reason)
+                self.app.state.worker_failed.set()
+                return
+
+    def _check_runtime(self):
+        state = self.app.state
+        if state.worker_failed.is_set():
+            raise ResultDeliveryError('WorkerChannelFailed')
+        if self._process is not None and not self._process.is_alive():
+            raise ResultDeliveryError('WorkerExited')
+        timeout = positive_timeout(Config, 'worker_stall_timeout', 600.0)
+        if time.monotonic() - progress(state.worker_progress) >= timeout:
+            raise ResultDeliveryError('WorkerStalled')
+        with self._align_lock:
             process = self._align_process
             if process is not None and not process.is_alive():
                 if process.exitcode not in (0, None):
-                    logger.error(
-                        f"Aligner 进程异常退出 (PID: {process.pid}, "
-                        f"ExitCode: {process.exitcode})，正在自动重启"
-                    )
+                    raise ResultDeliveryError('AlignerExited')
                 else:
-                    logger.info("Aligner 空闲进程已退出，正在补位空载进程")
+                    logger.info('Replacing an idle aligner process')
                     self._record_aligner_idle_exit()
-                self._start_aligner_process()
+            else:
+                return
+        self._start_aligner_process()
 
     def _record_aligner_idle_exit(self):
         """识别短时间内反复卸载/重载 Aligner 的资源抖动。"""
@@ -174,21 +206,49 @@ class ProcessManager:
         ))
 
     def _wait_for_models(self):
-        """轮询队列直到收到模型加载成功 (True) 或发生错误"""
-        logger.info("正在等待子进程加载模型...")
-        
+        """Own one daemon read and bound startup even when a pipe read is wedged."""
+        logger.info('Waiting for recognition models')
+        deadline = time.monotonic() + positive_timeout(Config, 'model_startup_timeout', 300.0)
+        read = None
+        executor = SimpleDaemonExecutor()
         while self.is_alive:
+            requested = getattr(self.app, '_stop_requested', None)
+            if requested is not None and requested.is_set():
+                self.app.stop()
+                return
+            failure = getattr(self.app.state, 'worker_failed', None)
+            if failure is not None and failure.is_set():
+                logger.error('Recognition worker failed during startup; stopping server')
+                self.app.stop()
+                return
+            if time.monotonic() >= deadline:
+                logger.error('Model startup timed out; restart required')
+                self.app.stop()
+                return
+            if self._process and not self._process.is_alive():
+                self._handle_unexpected_exit()
+                return
             try:
-                # 阻塞最多 100ms
-                status = self.app.state.queue_out.get(timeout=0.1)
+                if read is None:
+                    read = executor.submit(self.app.state.queue_out.get, timeout=0.1)
+                status = read.result(timeout=0.1)
+                read = None
                 if status is True:
-                    # 收到 True 说明模型加载成功
+                    progress(getattr(self.app.state, 'worker_progress', None), update=True)
                     break
-            except (queue.Empty, OSError):
-                if self._process and not self._process.is_alive():
-                    self._handle_unexpected_exit()
+                raise ResultDeliveryError('InvalidStartupResult')
+            except FutureTimeout:
+                if read.done():
+                    logger.error('Model startup reader failed; restart required')
+                    self.app.stop()
                     return
                 continue
+            except queue.Empty:
+                read = None
+            except Exception as exc:
+                logger.error('Model startup channel failed: %s', type(exc).__name__)
+                self.app.stop()
+                return
             
         if not self.is_alive: return
         logger.info("模型加载完成，ASR 服务就绪")
@@ -216,31 +276,45 @@ class ProcessManager:
         if self._align_monitor_thread and self._align_monitor_thread.is_alive():
             self._align_monitor_thread.join(timeout=1)
 
-        align_process = self._align_process
-        if align_process and align_process.is_alive():
-            logger.info(f"正在停止 Aligner 兄弟进程 (PID: {align_process.pid})...")
+        for process, channel in (
+                (self._align_process, getattr(self.app.state, 'align_queue_in', None)),
+                (self._process, getattr(self.app.state, 'queue_in', None))):
+            if process is None:
+                continue
             try:
-                self.app.state.align_queue_in.put(None, timeout=0.5)
-            except queue.Full:
-                logger.debug('Aligner 输入队列已满，将通过进程终止兜底退出')
+                self._stop_process(process, channel)
+            except Exception as exc:
+                logger.error('Process cleanup failed: %s', type(exc).__name__)
 
-            align_process.join(timeout=2)
-            if align_process.is_alive():
-                logger.debug("Aligner 进程未响应优雅退出，执行强制终止")
-                align_process.terminate()
-                align_process.join(timeout=1)
-
-        if self._process and self._process.is_alive():
-            logger.info(f"正在终止识别子进程 (PID: {self._process.pid})...")
-            # 发送 None 任务通知优雅退出 (作为兜底)
-
+        if self._manager is not None:
             try:
-                self.app.state.queue_in.put(None, timeout=0.5)
-            except queue.Full:
-                logger.debug('输入队列已满，将通过进程终止兜底退出')
-            
-            # 如果 2 秒内没退，则强制 kill
-            self._process.join(timeout=2)
-            if self._process.is_alive():
-                logger.debug("子进程未响应优雅退出，执行强制终止")
-                self._process.terminate()
+                self._manager.shutdown()
+            except Exception as exc:
+                logger.error('Shared registry cleanup failed: %s', type(exc).__name__)
+            finally:
+                self._manager = None
+        for name in ('queue_in', 'queue_out', 'align_queue_in', 'align_queue_out'):
+            channel = getattr(self.app.state, name, None)
+            if channel is not None and hasattr(channel, 'cancel_join_thread'):
+                # Never join a feeder writing to a child that was terminated.
+                try:
+                    channel.cancel_join_thread()
+                    channel.close()
+                except (OSError, ValueError) as exc:
+                    logger.debug('Queue cleanup failed: %s', type(exc).__name__)
+
+    @staticmethod
+    def _stop_process(process, channel):
+        if process.is_alive():
+            try:
+                channel.put(None, timeout=0.5)
+            except (queue.Full, OSError, EOFError, ValueError) as exc:
+                logger.debug('Worker shutdown signal unavailable: %s', type(exc).__name__)
+            process.join(timeout=2)
+            if process.is_alive():
+                process.terminate()
+                process.join(timeout=1)
+        else:
+            process.join(timeout=0)
+        if process.is_alive():
+            logger.error('Worker did not exit after termination')

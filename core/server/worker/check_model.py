@@ -15,7 +15,7 @@ from . import logger
 
 
 
-def check_model() -> None:
+def check_model(*, interactive=True) -> None:
     """
     根据配置的模型类型检查所需的模型文件是否存在
     
@@ -69,7 +69,8 @@ def check_model() -> None:
     - 'qwen_asr'
 
         ''', style='bright_red')
-        input('按回车退出')
+        if interactive:
+            input('按回车退出')
         sys.exit(1)
 
     # 检查所有必需的文件
@@ -101,7 +102,8 @@ def check_model() -> None:
         error_msg += '\n'
         
         logger.error(error_msg)
-        input('按回车退出')
+        if interactive:
+            input('按回车退出')
         sys.exit(1)
 
     # 所有必需文件检查通过

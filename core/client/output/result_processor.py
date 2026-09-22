@@ -11,7 +11,9 @@ from core.protocol import RecognitionMessage
 from core.client.state import console
 from core.client.caret_context import foreground_window
 from core.client.connection import CommunicationError
-from core.client.dictation_lifecycle import MAX_PENDING_DICTATIONS, close_dictation_connection
+from core.client.dictation_lifecycle import (
+    MAX_PENDING_DICTATIONS, close_dictation_connection, cancel_dictation,
+)
 from core.client.transcribe.lifecycle import complete_cleanup
 from core.client.audio.file_manager import AudioFileManager
 from core.client.output.text_output import TextOutput
@@ -28,6 +30,7 @@ class ResultProcessor:
         self._ready_results = asyncio.Queue(maxsize=MAX_PENDING_DICTATIONS)
         self._received = set()
         self._deadline_poll = 0.25
+        self._cancellations = set()
 
     @property
     def state(self):
@@ -58,6 +61,9 @@ class ResultProcessor:
                 for child in children:
                     child.cancel()
                 await asyncio.gather(*children, return_exceptions=True)
+                for operation in self._cancellations:
+                    operation.cancel()
+                await asyncio.gather(*self._cancellations, return_exceptions=True)
                 self._received.clear()
                 self._fail_unfinished(notify=False)
                 while not self._ready_results.empty():
@@ -180,6 +186,13 @@ class ResultProcessor:
             elif future is not None:
                 future.cancel()
         self.app.progress.finish(task_id)
+        if code == 'result_timeout' and self.state.websocket is not None:
+            if len(self._cancellations) >= MAX_PENDING_DICTATIONS:
+                self.state.websocket.transport.abort()
+            else:
+                operation = asyncio.create_task(cancel_dictation(self.state, self.state.websocket, task_id))
+                self._cancellations.add(operation)
+                operation.add_done_callback(self._cancellations.discard)
         if not notify:
             return
         logger.warning('Dictation task failed: task=%s code=%s', task_id[:8], code,
