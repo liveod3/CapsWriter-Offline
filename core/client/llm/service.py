@@ -208,23 +208,10 @@ class TextActionService:
         finally:
             if ticket:
                 try:
-                    cost, totals, alerts = await asyncio.to_thread(
+                    await asyncio.to_thread(
                         self.costs.finish, ticket, observed, outcome, failure_category,
                         int((time.monotonic() - started) * 1000),
                     )
-                    currency = cost['currency'] or ''
-                    total = totals['currencies'].get(currency, {}).get('planning_total', '0')
-                    if ticket[2]['tracking']['show_summary']:
-                        notice = Notice('cost.request_summary', request=request_id[:8],
-                            status=Notice('cost.status.' + outcome),
-                            source=Notice('cost.source.' + cost['cost_source']),
-                            amount=cost['amount'] if cost['amount'] is not None else Notice('cost.unknown'),
-                            currency=currency, total=total, month=ticket[0].stem,
-                            unknown=totals['unknown_cost_requests'])
-                        logger.info(notice)
-                    for alert in alerts:
-                        notice = Notice('cost.budget_alert', **alert)
-                        logger.warning(notice)
                 except Exception:
                     # Accounting errors must never discard successful text or cause a retry.
                     logger.warning(Notice('cost.write_failed'))

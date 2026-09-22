@@ -155,8 +155,8 @@ class CostLedger:
         except (ValueError, OSError):
             warning = True
             # Preserve a complete valid snapshot if an editor temporarily writes invalid TOML.
-            config = self._last_config or {'tracking': {'enabled': True, 'directory': 'llm-costs',
-                'show_summary': True, 'alerts_enabled': False}, 'rates': [], 'budgets': {}}
+            config = self._last_config or {
+                'tracking': {'enabled': True, 'directory': 'llm-costs'}, 'rates': []}
         if not config['tracking']['enabled']:
             return None, warning
         now = now or datetime.now().astimezone()
@@ -177,33 +177,17 @@ class CostLedger:
         path.parent.mkdir(parents=True, exist_ok=True)
         with closing(sqlite3.connect(path, timeout=5)) as db, db:
             db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, started TEXT, record TEXT)')
-            db.execute('CREATE TABLE IF NOT EXISTS alerts (currency TEXT, threshold TEXT, '
-                       'PRIMARY KEY(currency, threshold))')
             db.execute('INSERT INTO requests VALUES (?, ?, ?)',
                        (request_id, record['started_at'], json.dumps(record, ensure_ascii=False)))
-        return (path, record, config), warning
+        return (path, record), warning
 
     def finish(self, ticket, observed, status, error_category, elapsed_ms):
-        path, record, config = ticket
+        path, record = ticket
         record.update(status=status, error_category=error_category, elapsed_ms=elapsed_ms,
                       finished_at=datetime.now().astimezone().isoformat())
         record['accounting'] = accounting(record, observed, status)
-        alerts = []
         with closing(sqlite3.connect(path, timeout=5)) as db, db:
-            # Serializes completion + totals + claims across tasks and client processes.
-            db.execute('BEGIN IMMEDIATE')
+            # Commit only this request; monthly aggregation belongs to the query tool.
             db.execute('UPDATE requests SET record=? WHERE id=?',
                        (json.dumps(record, ensure_ascii=False), record['id']))
-            totals = summarize(json.loads(row[0]) for row in db.execute('SELECT record FROM requests'))
-            if config['tracking']['alerts_enabled']:
-                for currency, thresholds in config['budgets'].items():
-                    total = Decimal(totals['currencies'].get(currency, {}).get('planning_total', '0'))
-                    for threshold in sorted({Decimal(str(v)) for v in thresholds}):
-                        if total >= threshold:
-                            key = format(threshold.normalize(), 'f')
-                            inserted = db.execute('INSERT OR IGNORE INTO alerts VALUES (?, ?)',
-                                                  (currency, key)).rowcount
-                            if inserted:
-                                alerts.append({'currency': currency, 'threshold': key,
-                                               'total': str(total), 'month': path.stem})
-        return record['accounting'], totals, alerts
+        return record['accounting']

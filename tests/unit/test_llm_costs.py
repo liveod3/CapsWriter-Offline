@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from decimal import Decimal
 import json
+import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock
@@ -59,9 +60,10 @@ def test_reported_money_wins_over_estimate_even_on_failure(ledger, cost):
     observed = UsageObservation(sent=True)
     observed.capture({'usage': {'cost': cost, 'cost_details': {'upstream_inference_cost': 500},
                                 'prompt_tokens': 100, 'completion_tokens': 20}}, provider)
-    result, totals, _ = ledger.finish(ticket, observed, 'failed', 'incomplete_output', 10)
+    result = ledger.finish(ticket, observed, 'failed', 'incomplete_output', 10)
     assert result['cost_source'] == 'provider_reported'
     assert Decimal(result['amount']) == Decimal(str(cost))
+    totals = read_month(ledger.base_dir / 'llm-costs', '2026-09')
     assert totals['statuses'] == {'failed': 1}
     assert totals['currencies']['USD']['provider_reported'] == str(Decimal(str(cost)))
 
@@ -81,7 +83,7 @@ def test_custom_endpoint_requires_explicit_price_and_currency_mapping(ledger):
     ticket = prepare(ledger, provider=provider)
     observed = UsageObservation(sent=True)
     observed.capture({'usage': {'cost': 2}}, provider)
-    cost, _, _ = ledger.finish(ticket, observed, 'cancelled', None, 10)
+    cost = ledger.finish(ticket, observed, 'cancelled', None, 10)
     assert cost['amount'] is None
     assert cost['estimated_usage']['output_tokens'] == 2048
     raw = json.dumps(read_month(ledger.base_dir / 'llm-costs', '2026-09', details=True))
@@ -132,8 +134,8 @@ def test_rate_snapshot_reload_expiry_and_month_rollover(ledger):
     (ledger.directory / 'costs.toml').write_text(template.replace('"0.30"', '"0.60"'), encoding='utf-8')
     second = prepare(ledger, 'second', now=datetime(2026, 10, 1, tzinfo=timezone.utc))
     usage = UsageObservation(sent=True, usage={'input_tokens': 1000000, 'output_tokens': 0})
-    assert ledger.finish(first, usage, 'completed', None, 1)[0]['amount'] == '0.30'
-    assert ledger.finish(second, usage, 'completed', None, 1)[0]['amount'] == '0.60'
+    assert ledger.finish(first, usage, 'completed', None, 1)['amount'] == '0.30'
+    assert ledger.finish(second, usage, 'completed', None, 1)['amount'] == '0.60'
     assert read_month(ledger.base_dir / 'llm-costs', '2026-09')['requests'] == 1
     assert read_month(ledger.base_dir / 'llm-costs', '2026-10')['requests'] == 1
     rate = {**first[1]['rate'], 'expired': True}
@@ -148,56 +150,104 @@ def test_pending_crash_record_and_failed_scenario_are_explicit(ledger):
     assert pending['accounting']['dispatch'] == 'unknown'
     assert pending['accounting']['cost_source'] == 'possible_cost'
     assert pending['accounting']['estimated_usage']['output_tokens'] == 2048
-    result, totals, _ = ledger.finish(ticket, UsageObservation(sent=True), 'cancelled', None, 10)
+    result = ledger.finish(ticket, UsageObservation(sent=True), 'cancelled', None, 10)
     assert result['cost_source'] == 'possible_cost' and Decimal(result['amount']) > 0
+    totals = read_month(ledger.base_dir / 'llm-costs', '2026-09')
     assert totals['statuses'] == {'cancelled': 1}
     assert totals['currencies']['USD']['provider_reported'] == '0'
 
 
 def test_missing_key_has_confirmed_no_dispatch_and_no_charge(ledger):
-    cost, totals, _ = ledger.finish(prepare(ledger), UsageObservation(), 'not_sent', 'missing_api_key', 1)
+    cost = ledger.finish(prepare(ledger), UsageObservation(), 'not_sent', 'missing_api_key', 1)
     assert cost['amount'] == '0' and cost['cost_source'] == 'not_sent'
+    totals = read_month(ledger.base_dir / 'llm-costs', '2026-09')
     assert totals['currencies'] == {} and totals['unknown_cost_requests'] == 0
 
 
-def test_alerts_are_transactional_deduplicated_persistent_and_currency_specific(ledger):
+def test_concurrent_records_remain_queryable_and_currency_specific(ledger):
     def charge(i):
         other = CostLedger(ledger.base_dir, ledger.directory)
         ticket = prepare(other, str(i))
-        return other.finish(ticket, UsageObservation(sent=True, reported_cost='0.6', cost_currency='USD'),
-                            'completed', None, 1)[2]
+        other.finish(ticket, UsageObservation(sent=True, reported_cost='0.6', cost_currency='USD'),
+                     'completed', None, 1)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        alerts = [alert for group in pool.map(charge, range(4)) for alert in group]
-    assert len(alerts) == 1 and alerts[0]['threshold'] == '1'
-    assert charge(5) == []
+        list(pool.map(charge, range(4)))
     ticket = prepare(ledger, 'yuan')
-    _, totals, alerts = ledger.finish(ticket, UsageObservation(sent=True, reported_cost='100', cost_currency='CNY'),
-                                      'completed', None, 1)
-    assert alerts == [] and totals['currencies']['CNY']['planning_total'] == '100'
-    next_month = prepare(ledger, 'oct', now=datetime(2026, 10, 1, tzinfo=timezone.utc))
-    assert len(ledger.finish(next_month, UsageObservation(reported_cost='1', cost_currency='USD'),
-                             'completed', None, 1)[2]) == 1
+    ledger.finish(ticket, UsageObservation(sent=True, reported_cost='100', cost_currency='CNY'),
+                  'completed', None, 1)
+    totals = read_month(ledger.base_dir / 'llm-costs', '2026-09')
+    assert totals['statuses'] == {'completed': 5}
+    assert totals['currencies']['USD']['planning_total'] == '2.4'
+    assert totals['currencies']['CNY']['planning_total'] == '100'
 
 
-def test_disabled_alerts_and_tracking_and_invalid_reload(ledger):
+def test_disabled_tracking_and_invalid_reload(ledger):
     path = ledger.directory / 'costs.toml'
-    template = (ledger.directory / 'costs.template.toml').read_text(encoding='utf-8')
-    path.write_text(template.replace('alerts_enabled = true', 'alerts_enabled = false'), encoding='utf-8')
-    ticket = prepare(ledger)
-    assert ledger.finish(ticket, UsageObservation(reported_cost='10', cost_currency='USD'),
-                         'completed', None, 1)[2] == []
+    first = prepare(ledger)
     path.write_text('[broken', encoding='utf-8')
     fallback, warning = ledger.prepare(PROVIDER, MESSAGES, 10, 'fallback', 'correct_asr', NOW)
-    assert warning and fallback[2]['tracking']['alerts_enabled'] is False
+    assert warning and fallback[1]['rate'] == first[1]['rate']
     path.write_text('[tracking]\nenabled = false', encoding='utf-8')
     assert ledger.prepare(PROVIDER, MESSAGES, 10, 'disabled', 'correct_asr', NOW) == (None, False)
+
+
+def test_retired_settings_are_ignored_without_losing_rates_or_directory(ledger):
+    template = (ledger.directory / 'costs.template.toml').read_text(encoding='utf-8')
+    legacy = template.replace('[tracking]', '[tracking]\nshow_summary = true\nalerts_enabled = true')
+    legacy = legacy.replace('directory = "llm-costs"', 'directory = "custom-costs"')
+    legacy += '\n[budgets]\nUSD = [1, 5, 10]\n'
+    path = ledger.directory / 'costs.toml'
+    path.write_text(legacy, encoding='utf-8')
+    config = load_cost_config(ledger.directory)
+    assert config['tracking'] == {'enabled': True, 'directory': 'custom-costs'}
+    assert 'budgets' not in config
+    ticket = prepare(ledger)
+    assert ticket[0].parent == ledger.base_dir / 'custom-costs'
+    assert ticket[1]['rate']['input'] == '0.30'
+    assert path.read_text(encoding='utf-8') == legacy
+
+
+def test_accounting_writes_do_not_scan_history_or_create_alerts(ledger, monkeypatch):
+    connect = sqlite3.connect
+    def write_connection(*args, **kwargs):
+        db = connect(*args, **kwargs)
+        db.set_authorizer(lambda action, *_: (
+            sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_SELECT else sqlite3.SQLITE_OK))
+        return db
+
+    with monkeypatch.context() as patch:
+        patch.setattr('core.llm_accounting.ledger.sqlite3.connect', write_connection)
+        ticket = prepare(ledger)
+        ledger.finish(ticket, UsageObservation(sent=True, reported_cost='0.1', cost_currency='USD'),
+                      'completed', None, 1)
+    report = read_month(ledger.base_dir / 'llm-costs', '2026-09')
+    assert report['currencies']['USD']['planning_total'] == '0.1'
+    with connect(ticket[0]) as db:
+        assert db.execute("SELECT name FROM sqlite_master WHERE name='alerts'").fetchall() == []
+
+
+def test_existing_ledger_and_legacy_alert_rows_are_preserved(ledger):
+    first = prepare(ledger, 'old')
+    ledger.finish(first, UsageObservation(sent=True, reported_cost='0.1', cost_currency='USD'),
+                  'completed', None, 1)
+    with sqlite3.connect(first[0]) as db:
+        db.execute('CREATE TABLE alerts (currency TEXT, threshold TEXT, PRIMARY KEY(currency, threshold))')
+        db.execute("INSERT INTO alerts VALUES ('USD', '1')")
+        old_record = db.execute("SELECT record FROM requests WHERE id='old'").fetchone()
+    restarted = CostLedger(ledger.base_dir, ledger.directory)
+    restarted.finish(prepare(restarted, 'new'), UsageObservation(sent=True), 'cancelled', None, 2)
+    with sqlite3.connect(first[0]) as db:
+        assert db.execute("SELECT record FROM requests WHERE id='old'").fetchone() == old_record
+        assert db.execute('SELECT * FROM alerts').fetchall() == [('USD', '1')]
+    assert read_month(ledger.base_dir / 'llm-costs', '2026-09')['statuses'] == {
+        'completed': 1, 'cancelled': 1}
 
 
 @pytest.mark.parametrize('change', [
     ('input = "0.30"', 'input = -1'), ('currency = "USD"', 'currency = "secret"'),
     ('updated = "2026-09-22"', 'updated = "bad"'),
-    ('alerts_enabled = true', 'alerts_enabled = 1'),
-    ('USD = [1, 5, 10]', 'USD = [true]'),
+    ('enabled = true', 'enabled = 1'),
+    ('directory = "llm-costs"', 'directory = 1'),
     ('input = "0.30"', 'input = "0.30"\napi_key = "PRIVATE_KEY"'),
 ])
 def test_invalid_rate_configuration(ledger, change):

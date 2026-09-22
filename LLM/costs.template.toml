@@ -3,13 +3,6 @@
 [tracking]
 enabled = true
 directory = "llm-costs" # Relative to application root, or an absolute directory.
-show_summary = true # Write per-request summaries to the diagnostic log; no popup.
-alerts_enabled = true
-
-# Monthly planning totals include estimates and incomplete-request scenarios.
-# Each threshold fires once per month/currency/value, including across restarts.
-[budgets]
-USD = [1, 5, 10]
 
 [[rates]]
 endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"

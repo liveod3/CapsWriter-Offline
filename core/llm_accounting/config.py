@@ -23,21 +23,14 @@ def load_cost_config(directory: Path) -> dict:
         with path.open('rb') as stream:
             data = tomllib.load(stream)
     try:
-        tracking = {'enabled': True, 'directory': 'llm-costs', 'show_summary': True,
-                    'alerts_enabled': True, **data.get('tracking', {})}
-        for key in ('enabled', 'show_summary', 'alerts_enabled'):
-            if type(tracking[key]) is not bool:
-                raise ValueError
+        settings = data.get('tracking', {})
+        # Ignore retired summary/alert settings in existing local files.
+        tracking = {'enabled': settings.get('enabled', True),
+                    'directory': settings.get('directory', 'llm-costs')}
+        if type(tracking['enabled']) is not bool:
+            raise ValueError
         if not isinstance(tracking['directory'], str) or not tracking['directory'].strip():
             raise ValueError
-        budgets = data.get('budgets', {})
-        if not isinstance(budgets, dict):
-            raise ValueError
-        for currency, thresholds in budgets.items():
-            if not re.fullmatch('[A-Z]{3}', currency) or not isinstance(thresholds, list):
-                raise ValueError
-            if len(thresholds) > 100 or any(amount(v) is None or amount(v) <= 0 for v in thresholds):
-                raise ValueError
         rates = data.get('rates', [])
         if not isinstance(rates, list) or len(rates) > 1000:
             raise ValueError
@@ -82,7 +75,7 @@ def load_cost_config(directory: Path) -> dict:
                 rate['reported_cost_field']
             ):
                 raise ValueError
-        return {'tracking': tracking, 'budgets': budgets, 'rates': rates}
+        return {'tracking': tracking, 'rates': rates}
     except (KeyError, TypeError, ValueError, AttributeError):
         raise ValueError(Notice('cost.invalid_config')) from None
 

@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-22 - Unreleased, LLM accounting simplified
+
+- Remove automatic per-request cost summaries, budget alerts and their configuration switches. Write only the current request during accounting; aggregate monthly costs only through `scripts/llm_costs.py`. Preserve pending/terminal records, estimates, existing databases and query/export behavior; ignore retired fields in local settings.
+- Accepted by the user with commit authorized. Validation: 587 default tests passed, 8 deselected; syntax, Ruff, internal-language/documentation and diff checks passed. Synthetic completion at 10,000 monthly records fell from about 175 ms to 8 ms; this is local accounting time, not end-to-end LLM latency. See the [validation record](validation/P1-llm-costs.md).
+
 ## 2026-09-22 — Unreleased, legacy notification component removed
 
 - Remove the seven legacy Toast modules, their public exports, obsolete locale/demo resources, and the dedicated `markdown`/`tkhtmlview` dependencies. The user requested complete removal in a separate commit after rejecting the cost popup.

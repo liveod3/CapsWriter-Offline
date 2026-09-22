@@ -18,7 +18,7 @@
 
 ## Reference and development
 
-LLM 用量与预算：[查询费用和配置提醒](user/llm-costs.md)。
+LLM 用量与费用：[查询费用记录](user/llm-costs.md)。
 
 - [Configuration reference](reference/configuration.md): reload field matrix and storage semantics.
 - [Development setup](development/setup.md): source environment and entry points.
