@@ -1,5 +1,5 @@
 """
-SRT 字幕生成与处理工具
+SRT generation helpers.
 """
 
 import os
@@ -13,23 +13,23 @@ def generate_srt_file(
     max_chars_per_line: int = 30
 ):
     """
-    根据字级时间戳生成 SRT 文件
+    Generate SRT from token start timestamps.
     
     Args:
-        segments: 列表，每项为 [char, timestamp]
-        output_path: 导出路径
-        max_chars_per_line: 每行最大字符数
+        segments: List of [character, timestamp] entries.
+        output_path: Output path.
+        max_chars_per_line: Maximum line length.
     """
     if not segments:
         return
 
     subtitles = []
     
-    # 分句参考
+    # Sentence boundary heuristics.
     puncs = set("，。！？；,.!?;")
-    pause_threshold = 0.4      # 停顿超过 0.4s 则考虑切分
-    min_chars_to_break = 5    # 至少积累了 5 个字才允许因为停顿而切分
-    long_pause_threshold = 1.0 # 如果停顿超过 1.0s，则无视字数强制切分
+    pause_threshold = 0.4      # Consider splitting at pauses longer than 0.4 seconds.
+    min_chars_to_break = 5    # Require five accumulated characters for ordinary pause splits.
+    long_pause_threshold = 1.0 # Force a split after pauses longer than one second.
     
     current_chars = []
     start_time = segments[0][1]
@@ -39,27 +39,27 @@ def generate_srt_file(
         
         current_chars.append(char)
         
-        # 判断是否需要切分：
-        # 1. 遇到标点
-        # 2. 达到最大长度
-        # 3. 最后一个字符
-        # 4. 检测到长停顿 (当前字与下一个字之间)
+        # Split on any of these conditions:
+        # 1. Punctuation.
+        # 2. Maximum line length.
+        # 3. Final character.
+        # 4. A long pause before the next character.
         
         is_punc = char in puncs
         is_last = (i == len(segments) - 1)
         too_long = len(current_chars) >= max_chars_per_line
         
-        # 停顿检测
+        # Detect pauses.
         has_pause = False
         if not is_last:
             pause_duration = segments[i+1][1] - time_s
-            # 只有在积累了一定字数后，才响应普通停顿；或者是超长停顿强制响应
+            # Require enough text for normal pauses, or split unconditionally for long pauses.
             if (len(current_chars) >= min_chars_to_break and pause_duration > pause_threshold) \
                or (pause_duration > long_pause_threshold):
                 has_pause = True
         
         if is_punc or is_last or too_long or has_pause:
-            # 确定结束时间
+            # Determine the end time.
             if is_last:
                 end_time = time_s + 0.5
             else:
@@ -67,7 +67,7 @@ def generate_srt_file(
                 end_time = min(time_s + 0.5, (time_s + next_start) / 2)
 
             content = "".join(current_chars).strip()
-            # 移除内容末尾的标点符号，让字幕更干净
+            # Remove trailing punctuation from subtitle text.
             content = content.rstrip(''.join(puncs) + ' ')
             
             if content:
@@ -78,12 +78,12 @@ def generate_srt_file(
                     content=content
                 ))
             
-            # 重置
+            # Reset line state.
             if not is_last:
                 current_chars = []
                 start_time = segments[i+1][1]
 
-    # 写入文件
+    # Write the output file.
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(srt.compose(subtitles))
 

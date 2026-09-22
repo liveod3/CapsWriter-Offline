@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-文本输出模块
+Text output module.
 
-提供 TextOutput 类用于将识别结果输出到当前窗口。
+Use TextOutput to insert recognition results into the active window.
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from core.tools.window_detector import get_active_window_info
 from . import logger
 
 
-# 语义字符计数模式：匹配中文字、英文单词、数字
-# 中文字（含日韩等）各算 1 个语义单元，英文连续字母算 1 个，连续数字算 1 个
+# Count CJK characters, English words, and number sequences as semantic units.
+# Each CJK character counts once; contiguous Latin letters or digits form one unit.
 _SEMANTIC_UNIT_RE = re.compile(
     r'[一-鿿㐀-䶿豈-﫿]'
     r'|[a-zA-Z]+'
@@ -33,37 +33,37 @@ _SEMANTIC_UNIT_RE = re.compile(
 
 
 def count_semantic_units(text: str) -> int:
-    """计算语义字符数：中文字=1，英文单词=1，数字=1"""
+    """Count semantic units: one per CJK character, English word, or number."""
     return len(_SEMANTIC_UNIT_RE.findall(text))
 
 
 
 class TextOutput:
     """
-    文本输出器
+    Text output handler.
     
-    提供文本输出功能，支持模拟打字和粘贴两种方式。
+    Support simulated typing and clipboard paste.
     """
     
     @staticmethod
     def strip_punc(text: str) -> str:
         """
-        消除末尾最后一个标点
+        Remove the final trailing punctuation mark.
 
-        语义字符数不超过 trash_punc_thresh 时去除末尾标点，
-        超过时保留标点（长句正常说话场景）。
-        在 trash_punc_apps 指定的应用中，不受阈值限制，必定去除。
+        Remove it at or below trash_punc_thresh semantic units;
+        retain punctuation for longer sentences.
+        Applications in trash_punc_apps always remove it regardless of length.
 
         Args:
-            text: 原始文本
+            text: Original text.
 
         Returns:
-            处理后的文本
+            Processed text.
         """
         if not text or not Config.trash_punc:
             return text
 
-        # 检查是否在强制去标点的应用中
+        # Check applications that always strip trailing punctuation.
         force_strip = False
         if Config.trash_punc_apps:
             process_name = get_active_window_info().get('process_name', '').lower()
@@ -78,18 +78,18 @@ class TextOutput:
     
     async def output(self, text: str, paste: Optional[bool] = None) -> None:
         """
-        输出识别结果
+        Output recognition results.
         
-        根据配置选择使用模拟打字或粘贴方式输出文本。
+        Choose simulated typing or paste from the configuration.
         
         Args:
-            text: 要输出的文本
-            paste: 是否使用粘贴方式（None 表示使用配置值）
+            text: Text to output.
+            paste: Override paste mode; None uses the configured value.
         """
         if not text:
             return
         
-        # 确定输出方式
+        # Select the output method.
         if paste is None:
             paste = Config.paste
         
@@ -100,23 +100,23 @@ class TextOutput:
     
     async def _paste_text(self, text: str) -> None:
         """
-        通过粘贴方式输出文本
+        Output text through clipboard paste.
         
         Args:
-            text: 要粘贴的文本
+            text: Text to paste.
         """
         logger.debug(Notice('diagnostic.text_output.outputting_text_by_paste_chars', value0=len(text)))
         
-        # 保存剪贴板
+        # Save clipboard contents.
         try:
             temp = pyclip.paste().decode('utf-8')
         except Exception:
             temp = ''
         
-        # 复制结果
+        # Copy the result.
         pyclip.copy(text)
         
-        # 粘贴结果（使用 pynput 模拟 Ctrl+V）
+        # Simulate Ctrl+V through pynput.
         controller = pynput_keyboard.Controller()
         if platform.system() == 'Darwin':
             # macOS: Command+V
@@ -129,7 +129,7 @@ class TextOutput:
         
         logger.debug(Notice('diagnostic.clipboard.paste_command_sent_ctrl_v'))
         
-        # 还原剪贴板
+        # Restore clipboard text.
         if Config.restore_clip:
             await asyncio.sleep(0.1)
             pyclip.copy(temp)
@@ -137,13 +137,13 @@ class TextOutput:
     
     def _type_text(self, text: str) -> None:
         """
-        通过模拟打字方式输出文本
+        Output text through simulated typing.
 
-        使用 keyboard.write 替代 pynput.keyboard.Controller.type()，
-        避免与中文输入法冲突。
+        Use keyboard.write instead of pynput.keyboard.Controller.type()
+        to avoid conflicts with Chinese input methods.
 
         Args:
-            text: 要输出的文本
+            text: Text to output.
         """
         logger.debug(Notice('diagnostic.text_output.outputting_text_by_typing_chars', value0=len(text)))
         keyboard.write(text)

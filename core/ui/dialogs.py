@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-对话框基础模块
+Dialog utilities.
 
-提供对话框的通用工具函数和基类。
+Provide shared dialog helpers and base types.
 """
 
 from core.i18n import Notice, tr
@@ -15,7 +15,7 @@ from typing import Optional, Callable
 from .toast_constants import DEFAULT_FONT_FAMILY
 from . import logger
 
-# DPI 感知设置（与 toast_base.py 保持一致）
+# Match toast_base.py DPI awareness.
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except (OSError, AttributeError):
@@ -23,7 +23,7 @@ except (OSError, AttributeError):
 
 
 # ============================================================
-# 工具函数
+# Utility functions.
 # ============================================================
 
 def create_modal_dialog(
@@ -34,35 +34,35 @@ def create_modal_dialog(
     withdraw: bool = True
 ) -> tk.Toplevel:
     """
-    创建模态对话框窗口
+    Create a modal dialog window.
 
     Args:
-        title: 窗口标题
-        width: 窗口宽度（像素）
-        height: 窗口高度（像素）
-        resizable: 是否允许调整窗口大小
-        withdraw: 是否先隐藏窗口（避免闪烁），默认 True
+        title: Window title.
+        width: Window width in pixels.
+        height: Window height in pixels.
+        resizable: Allow resizing.
+        withdraw: Hide initially to avoid flicker; defaults to True.
 
     Returns:
-        tkinter Toplevel 窗口对象
+        tkinter Toplevel instance.
     """
-    # 创建 Toplevel 窗口
+    # Create the Toplevel window.
     dialog = tk.Toplevel()
     dialog.title(title)
 
-    # 先隐藏窗口，避免闪烁
+    # Hide initially to avoid flicker.
     if withdraw:
         dialog.withdraw()
 
-    # 设置窗口大小
+    # Set window dimensions.
     dialog.geometry(f"{width}x{height}")
     dialog.resizable(resizable, resizable)
 
-    # 设置为模态窗口
-    dialog.transient()  # 属于主窗口
-    dialog.grab_set()   # 捕获焦点，阻止用户操作其他窗口
+    # Configure modality.
+    dialog.transient()  # Associate with the parent window.
+    dialog.grab_set()   # Grab input within this application.
 
-    # 居中显示
+    # Center the dialog.
     _center_window(dialog, width, height)
 
     logger.debug(Notice('diagnostic.dialogs.creating_modal_dialog_x', value0=title, value1=width, value2=height))
@@ -72,12 +72,12 @@ def create_modal_dialog(
 
 def _center_window(window: tk.Toplevel, width: int, height: int) -> None:
     """
-    将窗口居中显示在屏幕上
+    Center a window on the screen.
 
     Args:
-        window: 窗口对象
-        width: 窗口宽度
-        height: 窗口高度
+        window: Window instance.
+        width: Window width.
+        height: Window height.
     """
     screen_width = window.winfo_screenwidth()
     screen_height = window.winfo_screenheight()
@@ -97,18 +97,18 @@ def create_label_button_frame(
     cancel_text: str | None = None
 ) -> ttk.Frame:
     """
-    创建标准按钮区域
+    Create a standard button area.
 
     Args:
-        parent: 父容器
-        label_text: 说明文本
-        on_confirm: 确定按钮回调
-        on_cancel: 取消按钮回调
-        confirm_text: 确定按钮文本
-        cancel_text: 取消按钮文本
+        parent: Parent container.
+        label_text: Description text.
+        on_confirm: Confirmation callback.
+        on_cancel: Cancellation callback.
+        confirm_text: Confirmation button label.
+        cancel_text: Cancellation button label.
 
     Returns:
-        按钮容器 Frame
+        Button container Frame.
     """
     frame = ttk.Frame(parent)
     frame.pack(pady=10)
@@ -125,20 +125,20 @@ def create_scrolled_text(
     font: tuple = (DEFAULT_FONT_FAMILY, 10)
 ) -> tk.Text:
     """
-    创建带滚动条的文本框
+    Create a text widget with a scrollbar.
 
     Args:
-        parent: 父容器
-        height: 文本框高度（行数）
-        font: 字体设置
+        parent: Parent container.
+        height: Text height in lines.
+        font: Font settings.
 
     Returns:
-        Text 控件对象
+        Text widget.
     """
-    # 创建 Text 控件
+    # Create the Text widget.
     text_widget = tk.Text(parent, height=height, font=font, wrap="word")
 
-    # 添加滚动条
+    # Add the scrollbar.
     scrollbar = ttk.Scrollbar(parent, command=text_widget.yview)
     text_widget.configure(yscrollcommand=scrollbar.set)
 
@@ -155,47 +155,47 @@ def pack_scrolled_text(
     pady_bottom: int = 5
 ) -> None:
     """
-    布局带滚动条的文本框
+    Lay out a text widget and scrollbar.
 
     Args:
-        text_widget: Text 控件
-        scrollbar: 滚动条
-        label_text: 可选的标签文本
-        parent: 父容器（用于添加标签）
-        padx: 水平边距
-        pady_top: 顶部边距
-        pady_bottom: 底部边距
+        text_widget: Text widget.
+        scrollbar: Scrollbar widget.
+        label_text: Optional label.
+        parent: Container for the optional label.
+        padx: Horizontal padding.
+        pady_top: Top padding.
+        pady_bottom: Bottom padding.
     """
-    # 添加标签（如果提供）
+    # Add the optional label.
     if label_text and parent:
         ttk.Label(parent, text=label_text).pack(anchor="w", padx=padx, pady=(pady_top, 0))
 
-    # 布局文本框和滚动条
+    # Lay out text and scrollbar.
     text_widget.pack(fill="both", expand=True, padx=padx, pady=(0 if label_text else pady_top, pady_bottom))
     scrollbar.pack(side="right", fill="y")
 
 
 class DialogResult:
-    """对话框结果封装"""
+    """Dialog result container."""
 
     def __init__(self, confirmed: bool, **data):
-        self.confirmed = confirmed  # 用户是否点击了确定
-        self.data = data             # 对话框返回的数据
+        self.confirmed = confirmed  # Whether the user confirmed.
+        self.data = data             # Returned dialog data.
 
     def __bool__(self) -> bool:
-        """是否确认"""
+        """Return whether the user confirmed."""
         return self.confirmed
 
     def get(self, key: str, default=None):
-        """获取数据"""
+        """Return dialog data."""
         return self.data.get(key, default)
 
 
 def wait_window(dialog: tk.Toplevel) -> None:
     """
-    等待窗口关闭（模态对话框标准用法）
+    Wait for a modal dialog to close.
 
     Args:
-        dialog: 对话框窗口
+        dialog: Dialog window.
     """
     dialog.wait_window()

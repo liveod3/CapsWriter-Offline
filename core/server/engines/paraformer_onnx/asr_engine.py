@@ -13,7 +13,7 @@ logger = get_logger('server')
 
 @dataclass
 class ParaformerConfig:
-    """Paraformer 引擎配置参数"""
+    """Paraformer engine settings."""
     paraformer: str
     tokens: str
     num_threads: int = 4
@@ -26,12 +26,12 @@ class ParaformerConfig:
 
 class ParaformerStream(RecognitionStream):
     """
-    Paraformer 识别流包装类
-    转发调用至 sherpa_onnx.OfflineStream 并暴露标准结果接口
+    Paraformer stream adapter.
+    Forward to sherpa_onnx.OfflineStream and expose standard results.
     """
     def __init__(self, recognizer: sherpa_onnx.OfflineRecognizer, sample_rate: int = 16000):
         super().__init__(sample_rate)
-        # 实际创建 sherpa-onnx 的流
+        # Create the underlying sherpa-onnx stream.
         self.internal_stream = recognizer.create_stream()
 
     def accept_waveform(self, sample_rate: int, audio: np.ndarray):
@@ -40,10 +40,10 @@ class ParaformerStream(RecognitionStream):
 
 class ParaformerEngine(BaseASREngine):
     """
-    Paraformer 识别引擎适配器
+    Paraformer engine adapter.
 
-    声明能力：ASR, TIMESTAMPS
-    不支持：PUNC (内置)
+    Capabilities: ASR and timestamps.
+    Native punctuation is unavailable.
     """
 
     @staticmethod
@@ -53,19 +53,19 @@ class ParaformerEngine(BaseASREngine):
     @staticmethod
     def _post_process_tokens(tokens: List[str], timestamps: List[float]) -> Tuple[List[str], List[float]]:
         """
-        后处理：将 BPE 子词合并为单词级 token，与 Qwen3-ASR 格式对齐
+        Merge BPE pieces into word tokens compatible with the shared result format.
 
-        Paraformer 输出的 token 是 BPE 子词级别（以 @@ 标记续接），
-        此函数做三件事：
-        1. BPE 子词合并为完整单词
-        2. 连续单 ASCII 字母合并为一个 token（拼写场景如 a s → as）
-        3. 根据语言边界插入空格 token：
-           - 英文 ↔ 英文：空格
-           - 英文 ↔ 非 ASCII：空格
-           - 非 ASCII ↔ 非 ASCII：无空格
-           - 标点前后：无空格
+        Paraformer marks continuation pieces with @@.
+        Processing steps:
+        1. Merge BPE pieces into complete words.
+        2. Join consecutive single ASCII letters in spelled words, such as a s -> as.
+        3. Insert space tokens at language boundaries:
+           - English to English: space.
+           - English to non-ASCII text: space.
+           - Non-ASCII to non-ASCII text: no space.
+           - Next to punctuation: no space.
         """
-        # Phase 1: 合并 BPE 子词 + 合并连续 ASCII 字母
+        # Phase 1: merge BPE pieces and consecutive ASCII letters.
         merged: List[Tuple[str, float, bool]] = []  # (text, ts, is_english)
         bpe_parts: List[str] = []
         bpe_ts: Optional[float] = None
@@ -105,7 +105,7 @@ class ParaformerEngine(BaseASREngine):
         if bpe_parts:
             merged.append((''.join(bpe_parts), bpe_ts or 0.0, True))
 
-        # Phase 2: 根据语言边界插入空格
+        # Phase 2: insert spaces at language boundaries.
         result_tokens: List[str] = []
         result_timestamps: List[float] = []
         for i, (text, ts, is_eng) in enumerate(merged):
@@ -120,7 +120,7 @@ class ParaformerEngine(BaseASREngine):
                     need_space = True               # English + CJK
                 if need_space:
                     result_tokens.append(' ')
-                    result_timestamps.append(ts)    # 用后一词的时间戳
+                    result_timestamps.append(ts)    # Use the following word's timestamp.
             result_tokens.append(text)
             result_timestamps.append(ts)
 
@@ -130,7 +130,7 @@ class ParaformerEngine(BaseASREngine):
         super().__init__(config)
         logger.debug(Notice('diagnostic.asr_engine.initializing_paraformerengine_with_configuration', value0=self.config))
         
-        # 提取参数用于 sherpa-onnx
+        # Extract sherpa-onnx arguments.
         params = {
             'paraformer': self.config.paraformer,
             'tokens': self.config.tokens,
@@ -145,14 +145,14 @@ class ParaformerEngine(BaseASREngine):
 
     @property
     def capabilities(self) -> List[EngineCapabilities]:
-        """声明具备的能力"""
+        """Declare supported capabilities."""
         return [
             EngineCapabilities.ASR, 
             EngineCapabilities.TIMESTAMPS
         ]
 
     def create_stream(self) -> ParaformerStream:
-        """创建包装后的识别流"""
+        """Create an adapted recognition stream."""
         return ParaformerStream(self.recognizer, sample_rate=self.config.sample_rate)
 
     def decode_stream(
@@ -162,24 +162,24 @@ class ParaformerEngine(BaseASREngine):
         language: Optional[str] = None,
         **kwargs
     ):
-        """解码识别流并同步结果"""
+        """Decode a stream and copy its result."""
         if context:
             logger.debug(Notice('diagnostic.asr_engine.paraformerengine_does_not_support_decoding_context_ignored'))
         if language and language != 'auto':
             logger.debug(Notice('diagnostic.asr_engine.paraformer_language_override_ignored'))
         
-        # 1. 调用内核解码
+        # 1. Decode through the backend.
         self.recognizer.decode_stream(stream.internal_stream)
         
-        # 2. 将 sherpa-onnx 的结果同步回标准结果结构
+        # 2. Copy sherpa-onnx results into the standard result structure.
         res = stream.internal_stream.result
         stream.result.text = res.text
-        # 后处理 BPE 子词为单词级，空格独立 token
+        # Merge BPE pieces into words and keep spaces as separate tokens.
         stream.result.tokens, stream.result.timestamps = self._post_process_tokens(
             list(res.tokens), list(res.timestamps)
         )
 
 
     def cleanup(self):
-        """释放资源"""
+        """Release resources."""
         self.recognizer = None

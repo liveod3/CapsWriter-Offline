@@ -1,5 +1,5 @@
 # coding: utf-8
-"""独立 Forced Aligner 兄弟进程入口。"""
+"""Run the independent forced aligner sibling process."""
 
 from core.i18n import Notice, set_language
 
@@ -25,7 +25,7 @@ def _safe_timeout() -> float:
 
 
 def _neutral_result(result) -> AlignmentResult:
-    """将 Aligner 私有返回类型转换成不会触发实现模块导入的结构。"""
+    """Convert backend results to neutral records without backend imports on receipt."""
     items = []
     for item in getattr(result, 'items', []) or []:
         items.append(AlignmentItem(
@@ -45,10 +45,10 @@ def _put_response(queue_out, response: AlignResponse) -> None:
 
 def start_aligner_worker(queue_in, queue_out):
     """
-    Aligner 进程生命周期入口。
+    Manage the aligner process lifecycle.
 
-    进程启动时不加载模型；首个请求才加载。模型闲置后退出整个进程，
-    由主进程监控器补位一个未加载模型的新进程。
+    Load the model on the first request, then exit the entire process when idle.
+    The parent supervisor replaces it with an unloaded process.
     """
     set_language(getattr(Config, 'ui_language', 'auto'))
     engine = None

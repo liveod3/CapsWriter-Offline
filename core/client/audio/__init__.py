@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-audio 子模块
+Audio package.
 
-包含音频录制、音频流管理和音频文件管理功能。
+Provide recording, audio stream, and audio file management.
 """
 
 from .. import logger

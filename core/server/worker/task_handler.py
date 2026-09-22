@@ -39,7 +39,7 @@ class TaskBuffer:
         self._buffers[key].append(task)
 
     def pop(self):
-        """轮转取出一个 session 的下一个任务。没有待处理任务时返回 None。"""
+        """Select the next session task in round-robin order, or None when empty."""
         if not self._buffers:
             return None
 
@@ -68,16 +68,16 @@ class TaskBuffer:
 
     @property
     def task_count(self) -> int:
-        """当前进程内尚未处理的任务片段总数。"""
+        """Return the number of buffered segments in this process."""
         return sum(len(buffer) for buffer in self._buffers.values())
 
 
 class TaskHandler:
     """
-    任务处理器
+    Task handler.
 
-    协调输入输出队列与识别引擎之间的任务流。
-    支持跨 task 公平轮转调度。
+    Coordinate queues and the recognition pipeline.
+    Schedule tasks in fair round-robin order.
     """
     def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy, state: WorkerState,
                  failure_event=None, progress_clock=None):
@@ -119,27 +119,27 @@ class TaskHandler:
 
     @property
     def _console(self):
-        # 延迟导入，避免模块初始化阶段引入额外的服务端状态依赖。
+        # Import lazily to avoid server state dependencies during module initialization.
         from ..state import console
         return console
 
     def set_engine(self, recognizer, punc_model=None, aligner=None):
-        """注入识别引擎实例并初始化管线"""
+        """Inject engines and initialize the pipeline."""
         self.recognizer = recognizer
         self.punc_model = punc_model
         self.aligner = aligner
         self.pipeline = TaskPipeline(recognizer, punc_model, aligner, self.state)
 
     def drain_queue(self) -> bool:
-        """Drain 队列中所有任务到缓冲区。Returns: False = 退出信号。"""
+        """Drain queued tasks into the bounded buffer; False signals shutdown."""
         while True:
             progress(self.progress_clock, update=True)
-            # 多进程队列虽有界，但持续 drain 会把压力转移到本进程内存；
-            # 达到上限后先处理一个片段，再继续接收。
+            # Continuously draining a bounded queue can still grow local memory.
+            # Process a buffered segment before receiving more at capacity.
             if self.buffer.task_count >= self.max_buffer_tasks:
                 return True
 
-            # 获取任务
+            # Read a task.
             try:
                 if self.buffer.is_empty:
                     task = self.queue_in.get(timeout=1)
@@ -155,11 +155,11 @@ class TaskHandler:
             except (OSError, EOFError, ValueError) as exc:
                 raise ResultDeliveryError('InputQueueFailed') from exc
             
-            # 判断退出信号
+            # Check for shutdown.
             if task is None:
                 return False
 
-            # 跳过已断开连接客户端的任务
+            # Skip tasks from disconnected clients.
             if task.socket_id not in self.sockets_id:
                 logger.debug(Notice('diagnostic.task_handler.skipping_disconnected_client_task', value0=task.task_id[:8]))
                 continue
@@ -170,13 +170,13 @@ class TaskHandler:
                 self.buffer.cleanup_tasks()
                 continue
 
-            # 任务进入缓冲区
+            # Buffer the task.
             self.buffer.enqueue(task)
             if task.key in self.state.sessions:
                 self.session_activity[task.key] = time.monotonic()
 
     def cleanup(self):
-        """清理断连 socket 的缓冲任务和 session。"""
+        """Remove buffered tasks and sessions for disconnected sockets."""
         self.state.cleanup_sessions(self.sockets_id)
         self.state.failed_tasks.retain(self.sockets_id)
         for key in list(self.state.sessions):
@@ -191,20 +191,20 @@ class TaskHandler:
             raise ResultDeliveryError('TaskProgressTimeout')
 
     def cleanup_engines(self):
-        """闲置资源清理：对齐器卸载 + GPU 加速取消。"""
+        """Release idle alignment resources and reset GPU boost."""
         if self.pipeline and self.pipeline.aligner:
             self.pipeline.aligner.check_idle()
         self.gpu_boost.check_idle()
 
     def handle_command_task(self, task):
-        """处理命令任务。"""
+        """Process a command task."""
         try:
             self.gpu_boost.handle_command(task)
         finally:
             self.state.sessions.pop(task.key, None)
 
     def handle_audio_task(self, task):
-        """处理音频识别任务。"""
+        """Process an audio recognition task."""
         if self.state.failed_tasks.contains(task.socket_id, task.task_id):
             return
         try:
@@ -250,7 +250,7 @@ class TaskHandler:
             self.session_activity[task.key] = time.monotonic()
 
     def loop(self):
-        """核心任务循环：drain 队列 → 清理断连 → 轮转执行一个。"""
+        """Drain input, clean disconnected sessions, then execute one scheduled task."""
         logger.info(Notice('diagnostic.task_handler.taskhandler_loop_started_fair_scheduling'))
 
         try:
@@ -264,7 +264,7 @@ class TaskHandler:
                     if task is None:
                         continue
 
-                    # 根据任务类型分派
+                    # Dispatch by task type.
                     if task.type == 'cmd':
                         self.handle_command_task(task)
                     else:

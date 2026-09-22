@@ -13,13 +13,13 @@ if TYPE_CHECKING:
 
 class TrayManager:
     """
-    托盘管理器：负责系统托盘图标的初始化、菜单构建及回调处理。
+    Initialize the system tray, construct menus, and handle callbacks.
     """
     def __init__(self, app: CapsWriterServer):
         self.app = app
 
     def start(self):
-        """初始化系统托盘图标"""
+        """Initialize the system tray icon."""
         if not Config.enable_tray:
             return
 
@@ -29,10 +29,10 @@ class TrayManager:
             logger.warning(Notice('diagnostic.tray_manager.tray_module_import_failed_tray_disabled', value0=e))
             return
 
-        # 获取图标路径
+        # Resolve the icon path.
         icon_path = os.path.join(self.app.base_dir, 'assets', 'server-icon.ico')
         
-        # 启用托盘
+        # Enable the tray.
         enable_min_to_tray(
             'CapsWriter Server',
             icon_path,
@@ -41,12 +41,12 @@ class TrayManager:
         logger.info(Notice('diagnostic.tray_manager.tray_icon_enabled'))
 
     def _request_exit(self, icon=None, item=None):
-        """托盘图标引用的退出回调"""
+        """Handle the tray exit action."""
         logger.info(Notice('diagnostic.tray_manager.tray_exit_requested_cleaning_up_resources'))
         self.app.stop()
 
     def stop(self):
-        """停止托盘图标"""
+        """Stop the tray icon."""
         if not Config.enable_tray:
             return
             

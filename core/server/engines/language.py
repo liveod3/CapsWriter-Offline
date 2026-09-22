@@ -1,66 +1,66 @@
 """
-ASR 引擎语言标识符映射
+ASR language identifier mappings.
 
-统一使用全称小写英文作为标准键（如 auto, chinese, english, japanese），
-各引擎通过映射表转换为自身所需的标识符格式。
+Use lowercase English names as stable keys, such as auto, chinese, english, and japanese.
+Map each key to the identifier expected by the selected engine.
 
-引擎标识符格式差异:
-  - SenseVoice: 短代码 (auto/zh/en/ja/ko/yue)
-  - Qwen3-ASR / ForceAligner: 英文明称首字母大写 (Chinese/English/Japanese/...)
-  - FunASR-Nano: 中文文本 (中文/英文/日文/...)，非 MLT 版仅官方验证 3 语言
-  - Paraformer: 不支持语言选择（中文专用模型）
+Engine identifier formats:
+  - SenseVoice: Short codes (auto/zh/en/ja/ko/yue).
+  - Qwen3-ASR / ForceAligner: Capitalized English names (Chinese/English/Japanese/...).
+  - FunASR-Nano: Chinese names; the standard model documents three languages.
+  - Paraformer: No language selection for the Chinese model.
 """
 
 from typing import Dict, Optional, List
 
-# ── 统一语言代码列表（按使用频率排序）──
-# key 为统一代码（全称小写），各引擎子字典为该引擎的标识符
+# Unified language codes, ordered by expected usage.
+# Keys are lowercase English names; engine dictionaries contain backend identifiers.
 
 LANGUAGE_MAP: Dict[str, Dict[str, Optional[str]]] = {
-    "auto": {                               # 自动检测
+    "auto": {                               # Automatic detection.
         "paraformer": None,
         "sensevoice": "auto",
         "fun_asr_nano": None,
         "qwen_asr": None,
         "aligner": None,
     },
-    "chinese": {                            # 中文
+    "chinese": {                            # Chinese.
         "paraformer": None,
         "sensevoice": "zh",
         "fun_asr_nano": "中文",
         "qwen_asr": "Chinese",
         "aligner": "Chinese",
     },
-    "english": {                            # 英文
+    "english": {                            # English.
         "paraformer": None,
         "sensevoice": "en",
         "fun_asr_nano": "英文",
         "qwen_asr": "English",
         "aligner": "English",
     },
-    "cantonese": {                          # 粤语
+    "cantonese": {                          # Cantonese.
         "paraformer": None,
         "sensevoice": "yue",
         "fun_asr_nano": None, 
         "qwen_asr": "Cantonese",
         "aligner": "Cantonese",
     },
-    "japanese": {                           # 日语
+    "japanese": {                           # Japanese.
         "paraformer": None,
         "sensevoice": "ja",
         "fun_asr_nano": "日文",
         "qwen_asr": "Japanese",
         "aligner": "Japanese",
     },
-    "korean": {                             # 韩语
+    "korean": {                             # Korean.
         "paraformer": None,
         "sensevoice": "ko",
         "fun_asr_nano": None, 
         "qwen_asr": "Korean",
         "aligner": "Korean",
     },
-    # ── Qwen3 额外支持的语言 ──
-    # 注: FunASR 仅支持 中文/英文/日文，MLT 版支持更多语言
+    # Additional Qwen3 languages.
+    # Standard FunASR supports Chinese, English, and Japanese; MLT supports more languages.
 
     "arabic": {
         "paraformer": None,
@@ -240,7 +240,7 @@ LANGUAGE_MAP: Dict[str, Dict[str, Optional[str]]] = {
 }
 
 
-# ── 引擎名称常量 ──
+# Engine identifiers.
 
 ENGINE_SENSEVOICE = "sensevoice"
 ENGINE_QWEN_ASR = "qwen_asr"
@@ -251,18 +251,18 @@ ENGINE_ALIGNER = "aligner"
 ALL_ENGINES = [ENGINE_PARAFORMER, ENGINE_SENSEVOICE, ENGINE_FUN_ASR_NANO, ENGINE_QWEN_ASR, ENGINE_ALIGNER]
 
 
-# ── 工具函数 ──
+# Mapping helpers.
 
 def get_language(engine: str, unified_code: str) -> Optional[str]:
     """
-    将统一语言代码转换为指定引擎的标识符。
+    Map a unified language code to an engine identifier.
 
     Args:
-        engine: 引擎名称常量 (ENGINE_*)
-        unified_code: 统一语言代码 (如 "chinese", "english")，不区分大小写
+        engine: ENGINE_* constant.
+        unified_code: Case-insensitive language key, such as "chinese" or "english".
 
     Returns:
-        引擎特定的语言标识符，若不支持则返回 None
+        Engine-specific identifier, or None if unsupported.
     """
     entry = LANGUAGE_MAP.get(unified_code.lower())
     if entry is None:
@@ -272,30 +272,30 @@ def get_language(engine: str, unified_code: str) -> Optional[str]:
 
 def supported_codes(engine: str) -> List[str]:
     """
-    获取指定引擎支持的所有统一语言代码。
+    Return the engine's supported unified language codes.
 
     Args:
-        engine: 引擎名称常量
+        engine: Engine identifier.
 
     Returns:
-        支持的语言代码列表（按 LANGUAGE_MAP 定义顺序）
+        Supported codes in LANGUAGE_MAP order.
     """
     return [code for code, entry in LANGUAGE_MAP.items() if entry.get(engine) is not None]
 
 
 def validate(engine: str, unified_code: str) -> bool:
     """
-    验证指定引擎是否支持该语言代码。
+    Return whether an engine supports the language code.
 
     Returns:
-        True 如果支持，False 否则
+        True if supported, otherwise False.
     """
     return get_language(engine, unified_code) is not None
 
 
 def list_available() -> Dict[str, List[str]]:
     """
-    列出所有引擎支持的语言代码概览。
+    List supported language codes for all engines.
 
     Returns:
         { engine_name: [supported_codes] }

@@ -13,13 +13,13 @@ from config_server import (
 
 class EngineFactory:
     """
-    引擎工厂类
+    Engine factory.
     
-    统一管理所有识别引擎、标点引擎和对齐引擎的实例化逻辑。
-    使用延迟加载模式避免启动过慢。
+    Construct recognition, punctuation, and alignment engines.
+    Import backends lazily to reduce startup work.
     """
 
-    # --- ASR 引擎加载器 ---
+    # ASR loaders.
 
     @staticmethod
     def _load_sensevoice():
@@ -50,7 +50,7 @@ class EngineFactory:
 
     @staticmethod
     def create_asr_engine(model_type: str) -> BaseASREngine:
-        """创建 ASR 核心引擎"""
+        """Create the ASR engine."""
         model_type = model_type.lower()
         if model_type not in EngineFactory._ASR_LOADERS:
             raise ValueError(Notice('validation.factory.enginefactory_unsupported_asr_type', value0=model_type))
@@ -58,7 +58,7 @@ class EngineFactory:
         loader = EngineFactory._ASR_LOADERS[model_type]
         EngineClass, ConfigClass, ArgsObj = loader()
         
-        # 旧本机配置中已移除功能的字段不再传入引擎。
+        # Do not forward removed legacy settings to engines.
         from dataclasses import fields
         accepted = {field.name for field in fields(ConfigClass)}
         config_data = {k: v for k, v in ArgsObj.__dict__.items() if k in accepted}
@@ -66,11 +66,11 @@ class EngineFactory:
         
         return EngineClass(config)
 
-    # --- 辅助引擎加载器 ---
+    # Auxiliary engine loaders.
 
     @staticmethod
     def create_punc_engine() -> BasePuncEngine:
-        """创建标点引擎 (目前使用 CT-Transformer)"""
+        """Create the CT-Transformer punctuation engine."""
         try:
             from .ct_transformer.punc_engine import CTTransformerPuncEngine
             model_path = ModelPaths.punc_model_dir.as_posix()
@@ -82,7 +82,7 @@ class EngineFactory:
 
     @staticmethod
     def create_align_engine() -> BaseAlignEngine:
-        """创建对齐引擎 (目前使用 Qwen Force Aligner)"""
+        """Create the Qwen forced aligner."""
         try:
             from .force_aligner_gguf.align_engine import QwenForceAligner, AlignerConfig
             align_cfg_data = {
@@ -94,7 +94,7 @@ class EngineFactory:
         except Exception as e:
             from . import logger
             logger.warning(Notice('engine.alignment_missing', error=type(e).__name__))
-            # 检查模型文件是否错放到上级目录
+            # Check for model files placed one directory too high.
             aligner_dir = ModelPaths.force_aligner_gguf_dir
             aligner_files = [
                 ModelPaths.force_aligner_gguf_encoder_frontend,

@@ -1,4 +1,4 @@
-# 工程质量门禁；固定版本以保证本地与 CI 行为一致。
+# Pin quality tools for consistent local and CI checks.
 pytest==8.4.1
 pytest-cov==6.2.1
 ruff==0.12.7

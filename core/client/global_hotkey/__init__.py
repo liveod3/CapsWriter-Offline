@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-全局快捷键子模块
+Global hotkey package.
 
-使用 pynput GlobalHotKeys 实现全局快捷键监听。
+Listen for global shortcuts through pynput GlobalHotKeys.
 """
 
 from .. import logger

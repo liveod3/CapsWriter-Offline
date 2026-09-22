@@ -1,4 +1,4 @@
-"""仅修改本机配置中的文本动作选项，不执行配置、不重写其他用户取值。"""
+"""Edit local text-action settings without executing configuration or changing other values."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ import tempfile
 
 
 def llm_options(config) -> dict[str, bool]:
-    """返回总开关约束后的实际状态；旧配置默认允许两种能力。"""
+    """Apply the master switch; legacy configurations allow both capabilities."""
     enabled = bool(getattr(config, "llm_enabled", False))
     return {
         "correct_asr": enabled and bool(getattr(config, "llm_correction_enabled", True)),
@@ -20,7 +20,7 @@ def llm_options(config) -> dict[str, bool]:
 
 
 def save_llm_options(path: Path, *, correction: bool, translation: bool) -> None:
-    """保存独立开关及总状态，保留默认路由和其他用户配置。"""
+    """Save capability and master switches while preserving routing and other settings."""
     if not isinstance(correction, bool) or not isinstance(translation, bool):
         raise ValueError(Notice('validation.settings.llm_options_must_be_boolean'))
     _save_options(path, {
@@ -47,7 +47,7 @@ def _save_options(path: Path, values: dict[str, str]) -> None:
     if len(classes) != 1:
         raise ValueError(Notice('validation.settings.expected_one_clientconfig_class'))
     config = classes[0]
-    # AST 列偏移以 UTF-8 字节计；保留 BOM、换行、注释和所有无关源码。
+    # AST columns count UTF-8 bytes; preserve BOM, newlines, comments, and unrelated source.
     data = source.encode("utf-8")
     lines = data.splitlines(keepends=True)
     offsets = [0]
@@ -78,7 +78,7 @@ def _save_options(path: Path, values: dict[str, str]) -> None:
         addition = newline + newline.join(
             indent + f"{name} = {values[name]}".encode("utf-8") for name in sorted(missing)
         ) + newline
-        # 在类最后一条语句后插入，兼容旧配置缺少字段。
+        # Insert after the final class statement when a legacy configuration lacks the field.
         position = offsets[config.end_lineno]
         edits.append((position, position, addition))
     for start, end, replacement in sorted(edits, reverse=True):

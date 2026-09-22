@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-shortcut 子模块
+Shortcut package.
 
-包含快捷键处理相关功能，使用 ShortcutManager 统一管理所有快捷键（键盘和鼠标）。
+Manage keyboard and mouse shortcuts through ShortcutManager.
 """
 
 from .. import logger

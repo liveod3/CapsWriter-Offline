@@ -1,4 +1,4 @@
-# 默认预设由 ClientConfig.llm_default_preset 选择；None 表示仅显式触发。
+# ClientConfig.llm_default_preset selects the default; None requires an explicit trigger.
 [presets.correct_asr]
 name = "Correct transcription"
 provider = "gemini"

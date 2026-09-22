@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-识模型加载模块
+Model loading.
 
-负责 ASR 引擎和标点模型的实例化，支持多种后端引擎的一致性加载。
+Construct ASR and punctuation backends through a shared interface.
 """
 
 from core.i18n import Notice, set_language, tr
@@ -20,10 +20,10 @@ from . import logger
 
 class ModelLoader:
     """
-    模型加载器
+    Model loader.
     
-    负责 ASR 引擎和辅助模型（标点、对齐器）的生命周期管理。
-    自动根据引擎能力挂载补丁插件。
+    Manage ASR and auxiliary punctuation/alignment resources.
+    Attach auxiliary engines according to ASR capabilities.
     """
     def __init__(self, align_queue_in=None, align_queue_out=None, failure_event=None):
         self.recognizer = None
@@ -35,14 +35,14 @@ class ModelLoader:
 
     def load(self):
         """
-        加载模型资源
+        Load model resources.
         
-        逻辑流程：
-        1. 加载 ASR 核心引擎（通过工厂模式）
-        2. 扫描引擎能力 (Capabilities)
-        3. 自适应挂载缺失能力的插件 (Punc, Aligner)
+        Loading sequence:
+        1. Construct the ASR engine through the factory.
+        2. Inspect its capabilities.
+        3. Attach missing punctuation or alignment support.
         """
-        # 1. 延迟导入通用库
+        # 1. Import shared libraries lazily.
         # Spawned workers use the retained server preference, not the module default.
         set_language(getattr(Config, 'ui_language', 'auto'))
         with console.status(tr('server.loading_modules'), spinner="bouncingBall", spinner_style="yellow"):
@@ -53,16 +53,16 @@ class ModelLoader:
         logger.info(Notice('diagnostic.model_loader.initializing_speech_system_engine', value0=model_type))
 
         try:
-            # 2. 通过工厂实例化 ASR 核心引擎
+            # 2. Construct the ASR engine through the factory.
             self.recognizer = EngineFactory.create_asr_engine(model_type)
             caps = self.recognizer.capabilities
             logger.info(Notice('diagnostic.model_loader.engine_loaded_capabilities', value0=[c.name for c in caps]))
 
-            # 3. 智能补丁：如果引擎不自带标点能力，则挂载标点模型
+            # 3. Attach punctuation if the engine lacks it.
             if EngineCapabilities.PUNC not in caps:
                 self._load_punc_model()
 
-            # 4. 智能补丁：如果引擎不自带时间戳能力，则挂载对齐器插件
+            # 4. Attach alignment if the engine lacks timestamps.
             if EngineCapabilities.TIMESTAMPS not in caps:
                 self._load_align_model()
 
@@ -74,12 +74,12 @@ class ModelLoader:
             raise e
 
     def _load_punc_model(self):
-        """加载标点补足模型插件"""
+        """Load the auxiliary punctuation model."""
         logger.info(Notice('diagnostic.model_loader.engine_lacks_punctuation_support_attaching_puncengine'))
         self.punc_model = EngineFactory.create_punc_engine()
 
     def _load_align_model(self):
-        """挂载独立 Aligner 进程的远程代理。"""
+        """Attach the remote proxy for the independent aligner process."""
         from ..engines.manager import ProcessAlignerProxy
         if self.align_queue_in is None or self.align_queue_out is None:
             raise RuntimeError(Notice('validation.model_loader.aligner_process_queues_are_not_initialized'))
@@ -93,7 +93,7 @@ class ModelLoader:
         )
 
     def cleanup(self):
-        """释放模型资源"""
+        """Release model resources."""
         if self.recognizer and hasattr(self.recognizer, 'cleanup'):
             self.recognizer.cleanup()
         if self.aligner and hasattr(self.aligner, 'cleanup'):

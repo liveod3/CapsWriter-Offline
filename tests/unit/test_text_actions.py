@@ -15,7 +15,7 @@ PUBLIC_LLM = ROOT / "LLM"
 
 @pytest.fixture(autouse=True)
 def isolated_catalog(tmp_path, monkeypatch):
-    # 测试只使用公开模板，绝不读取开发机的 providers.toml 或真实凭据。
+    # Use only public templates, never local providers.toml or real credentials.
     base = tmp_path / "fixture"
     directory = base / "LLM"
     directory.mkdir(parents=True)

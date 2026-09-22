@@ -1,5 +1,5 @@
 """
-FunASR-GGUF Prompt 构建工具
+FunASR GGUF prompt builder.
 """
 
 from typing import List, Optional, Tuple
@@ -7,7 +7,7 @@ import numpy as np
 from . import llama, logger
 
 class PromptBuilder:
-    """负责构建 LLM 的 Prompt Embeddings"""
+    """Build decoder prompt embeddings."""
     
     def __init__(self, vocab: any, embedding_table: np.ndarray):
         self.vocab = vocab
@@ -19,12 +19,12 @@ class PromptBuilder:
         context: Optional[str] = None
     ) -> Tuple[np.ndarray, np.ndarray, int, int, str]:
         """
-        构建 Prompt Embeddings
+        Construct prompt embeddings.
         
         Returns:
             (prefix_embd, suffix_embd, n_prefix, n_suffix, prefix_prompt_text)
         """
-        # 构建 Prompt
+        # Build the prompt.
         prefix_prompt = "<|im_start|>system\nYou are a helpful assistant.<|im_end|>\n<|im_start|>user\n"
 
         if context:
@@ -38,7 +38,7 @@ class PromptBuilder:
         
         suffix_prompt = "<|im_end|>\n<|im_start|>assistant\n"
 
-        # 转换为 embeddings
+        # Convert to embeddings.
         prefix_tokens = llama.text_to_tokens(self.vocab, prefix_prompt)
         suffix_tokens = llama.text_to_tokens(self.vocab, suffix_prompt)
 

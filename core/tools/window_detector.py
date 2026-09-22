@@ -1,21 +1,21 @@
 """
-前台窗口检测器
+Foreground window detection.
 
-检测当前前台活动的应用程序信息，用于兼容性配置
+Identify the active application for compatibility settings.
 """
 import platform
 
 
 def get_active_window_info() -> dict:
     """
-    获取当前前台窗口信息
+    Get foreground window information.
 
     Returns:
-        包含窗口信息的字典:
-        - title: 窗口标题
-        - class_name: 窗口类名
-        - process_name: 进程名
-        - app_name: 应用名称（推测）
+        Dictionary fields:
+        - title: Window title.
+        - class_name: Window class.
+        - process_name: Executable name.
+        - app_name: Inferred application name.
     """
     system = platform.system()
 
@@ -30,20 +30,20 @@ def get_active_window_info() -> dict:
 
 
 def _get_windows_window_info() -> dict:
-    """Windows 平台窗口检测"""
+    """Detect the foreground window on Windows."""
     try:
         import win32gui
         import win32process
 
         hwnd = win32gui.GetForegroundWindow()
 
-        # 获取窗口标题
+        # Read the window title.
         title = win32gui.GetWindowText(hwnd)
 
-        # 获取窗口类名
+        # Read the window class.
         class_name = win32gui.GetClassName(hwnd)
 
-        # 获取进程 ID 和进程名
+        # Read the process ID and executable name.
         try:
             _, pid = win32process.GetWindowThreadProcessId(hwnd)
             import psutil
@@ -52,7 +52,7 @@ def _get_windows_window_info() -> dict:
         except:
             process_name = ""
 
-        # 推测应用名称
+        # Infer the application name.
         app_name = _guess_app_name(title, class_name, process_name)
 
         return {
@@ -62,19 +62,19 @@ def _get_windows_window_info() -> dict:
             'app_name': app_name
         }
     except ImportError:
-        # 如果没有安装依赖，返回空信息
+        # Return empty information if dependencies are missing.
         return {}
     except Exception:
         return {}
 
 
 def _get_macos_window_info() -> dict:
-    """macOS 平台窗口检测"""
+    """Detect the foreground window on macOS."""
     try:
         import subprocess
         from plistlib import loads
 
-        # 使用 AppleScript 获取前台窗口信息
+        # Query the foreground window through AppleScript.
         script = '''
         tell application "System Events"
             set frontApp to name of first application process whose frontmost is true
@@ -125,11 +125,11 @@ def _get_macos_window_info() -> dict:
 
 
 def _get_linux_window_info() -> dict:
-    """Linux 平台窗口检测"""
+    """Detect the foreground window on Linux."""
     try:
         import subprocess
 
-        # 使用 wmctrl 获取活动窗口
+        # Query the active window through wmctrl.
         result = subprocess.run(
             ['wmctrl', '-G', '-a', ':ACTIVE:'],
             capture_output=True,
@@ -154,25 +154,25 @@ def _get_linux_window_info() -> dict:
 
 def _guess_app_name(title: str, class_name: str, process_name: str) -> str:
     """
-    根据窗口信息推测应用名称
+    Infer an application name from window metadata.
 
     Args:
-        title: 窗口标题
-        class_name: 窗口类名
-        process_name: 进程名
+        title: Window title.
+        class_name: Window class.
+        process_name: Executable name.
 
     Returns:
-        推测的应用名称
+        Inferred application name.
     """
-    # 优先使用进程名
+    # Prefer the executable name.
     if process_name:
-        # 去除 .exe 后缀
+        # Remove the .exe suffix.
         name = process_name.replace('.exe', '').lower()
         return name
 
-    # 其次使用类名
+    # Fall back to the window class.
     if class_name:
-        # Windows 常见类名映射
+        # Common Windows window classes.
         class_mappings = {
             'chrome': 'Chrome',
             'msedge': 'Edge',
@@ -191,7 +191,7 @@ def _guess_app_name(title: str, class_name: str, process_name: str) -> str:
             if key in class_lower:
                 return value
 
-    # 最后使用标题的第一个词
+    # Finally use the first word of the title.
     if title:
         first_word = title.split()[0]
         return first_word
@@ -201,29 +201,29 @@ def _guess_app_name(title: str, class_name: str, process_name: str) -> str:
 
 def is_likely_editor(window_info: dict) -> bool:
     """
-    判断当前窗口是否可能是编辑器
+    Return whether the foreground window appears to be an editor.
 
     Args:
-        window_info: 窗口信息字典
+        window_info: Window metadata.
 
     Returns:
-        True 表示可能是编辑器
+        True if it appears to be an editor.
     """
     if not window_info:
-        return True  # 默认安全起见
+        return True  # Use the conservative default.
 
     title = window_info.get('title', '').lower()
     class_name = window_info.get('class_name', '').lower()
     process_name = window_info.get('process_name', '').lower()
 
-    # 编辑器关键词
+    # Editor keywords.
     editor_keywords = [
         'visual studio', 'vscode', 'vim', 'nano', 'emacs',
         'notepad', 'sublime', 'atom', 'intellij', 'pycharm',
         'webstorm', 'idea', 'editor'
     ]
 
-    # 检查标题
+    # Check the title.
     for keyword in editor_keywords:
         if keyword in title or keyword in class_name or keyword in process_name:
             return True
@@ -233,13 +233,13 @@ def is_likely_editor(window_info: dict) -> bool:
 
 def is_likely_browser(window_info: dict) -> bool:
     """
-    判断当前窗口是否可能是浏览器
+    Return whether the foreground window appears to be a browser.
 
     Args:
-        window_info: 窗口信息字典
+        window_info: Window metadata.
 
     Returns:
-        True 表示可能是浏览器
+        True if it appears to be a browser.
     """
     if not window_info:
         return False

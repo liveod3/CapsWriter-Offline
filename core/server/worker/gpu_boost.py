@@ -1,7 +1,7 @@
 """
-GPU 加速管理模块
+GPU boost management.
 
-封装 GPU 显存频率锁定/解锁逻辑，用于减少冷启动延迟。
+Lock and reset GPU memory clocks to reduce startup latency.
 """
 
 from core.i18n import Notice
@@ -15,18 +15,18 @@ from . import logger
 
 class GpuBoostManager:
     """
-    GPU 加速管理器。
+    GPU boost manager.
 
-    负责检测管理员权限、执行加速/取消加速命令、检查闲置超时。
+    Check administrator rights, execute boost/reset commands, and handle idle expiry.
     """
 
     def __init__(self, state):
         self.state = state
 
-    # ── 公开方法 ──────────────────────────────────
+    # Public methods.
 
     def handle_command(self, task):
-        """处理 GPU 加速命令任务。"""
+        """Process a GPU boost command task."""
         if task.command != 'gpu_boost':
             return
         if not self._check_admin():
@@ -40,13 +40,13 @@ class GpuBoostManager:
         subprocess.run(Config.gpu_boost_cmd, shell=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.state.gpu_boosted = True
-        self.state.gpu_last_active = 0  # 0 表示已加速但尚未有实际音频任务使用过
+        self.state.gpu_last_active = 0  # Zero means boosted but not yet used by an audio task.
 
     def check_idle(self):
-        """GPU 闲置超时检查，超时则取消加速。"""
+        """Reset GPU boost after the idle timeout."""
         if not Config.gpu_boost_enabled or not self.state.gpu_boosted:
             return
-        # gpu_last_active = 0 表示刚加速但尚未被实际音频任务使用，不取消
+        # Keep a fresh boost while gpu_last_active is zero and no audio task has used it.
         if self.state.gpu_last_active <= 0:
             return
 
@@ -64,11 +64,11 @@ class GpuBoostManager:
         self.state.gpu_boosted = False
         self.state.gpu_last_active = 0.0
 
-    # ── 内部方法 ──────────────────────────────────
+    # Internal methods.
 
     @staticmethod
     def _check_admin() -> bool:
-        """检测是否以管理员权限运行。"""
+        """Return whether the process has administrator rights."""
         try:
             return bool(ctypes.windll.shell32.IsUserAnAdmin())
         except Exception:

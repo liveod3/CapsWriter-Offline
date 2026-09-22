@@ -82,7 +82,7 @@ and reports the restart subset explicitly. Restart-required values stay on disk.
 
 | Group | Fields |
 | --- | --- |
-| Interface | `ui_language` (`auto`, `en`, `zh-CN`); see [interface language](interface-language.md) |
+| Interface | `ui_language` (`auto`, `en`, `zh-CN`); see [interface language](../development/localization.md) |
 | Audio archive | `save_audio`, `audio_dir`, `audio_name_len` |
 | Transcripts and action records | `save_transcripts`, `transcript_dir`, `transcript_save_original`, `save_llm_records` |
 | Recognition | `language`, `mic_seg_duration`, `mic_seg_overlap`, `file_seg_duration`, `file_seg_overlap` |
@@ -135,4 +135,4 @@ ASR and replacement aligner processes inherit a detached startup configuration
 snapshot before importing server modules. They do not reread a partially edited
 configuration or silently adopt pending model/resource changes.
 
-Manual acceptance: [P1 validation checklist](validation/P1-recording-storage-config-reload.md).
+Manual acceptance: [P1 validation checklist](../validation/P1-recording-storage-config-reload.md).

@@ -39,8 +39,8 @@ SUPPORTED_LANGUAGES: List[str] = [
 
 def normalize_language_name(language: str) -> str:
     """
-    将语言名称归一化为 Qwen3-ASR 使用的标准格式：
-    首字母大写，其余小写（例如 'cHINese' -> 'Chinese'）。
+    Normalize language names to Qwen3-ASR's format:
+    capitalize the first letter and lowercase the rest, such as cHINese -> Chinese.
     """
     if language is None:
         raise ValueError(Notice('validation.utils.language_is_none'))
@@ -51,7 +51,7 @@ def normalize_language_name(language: str) -> str:
 
 def validate_language(language: str) -> None:
     """
-    验证语言是否在支持列表中。
+    Check whether the language is supported.
     """
     if language not in SUPPORTED_LANGUAGES:
         raise ValueError(Notice('validation.utils.unsupported_language_supported', value0=language, value1=SUPPORTED_LANGUAGES))

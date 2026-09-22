@@ -1,7 +1,7 @@
 """
-显示管理模块
+Display management.
 
-通过线程和队列处理控制台输出，解耦转录逻辑与显示逻辑。
+Decouple transcription from console output through a queue and display thread.
 """
 
 import sys
@@ -10,7 +10,7 @@ import threading
 from typing import Optional
 
 class DisplayReporter:
-    """负责汇总消息并在后台线程统一打印"""
+    """Collect messages and print them on a background thread."""
     
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
@@ -18,15 +18,15 @@ class DisplayReporter:
         self.stop_event = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.current_segment = (0, 0) # (idx, total)
-        self.skip_technical = False    # 新增：是否跳过中间技术日志
+        self.skip_technical = False    # Skip intermediate technical records when enabled.
         self.thread.start()
 
     def print(self, message: str, force: bool = False):
-        """发送普通打印消息"""
+        """Enqueue an ordinary message."""
         if not self.verbose:
             return
             
-        # 在调用 print 的瞬间就生成前缀，避免异步线程导致前缀信息滞后或提前
+        # Build the prefix at submission time so asynchronous output preserves task context.
         prefix = ""
         if self.current_segment[1] > 1 and self.current_segment[0] > 0:
             prefix = f"[{self.current_segment[0]}/{self.current_segment[1]}] "
@@ -35,16 +35,16 @@ class DisplayReporter:
             self.message_queue.put(('print', (prefix, message)))
 
     def stream(self, chunk: str):
-        """发送流式吐字消息"""
+        """Enqueue a streamed text fragment."""
         if self.verbose:
             self.message_queue.put(('stream', chunk))
 
     def set_segment(self, current: int, total: int):
-        """设置当前处理的分段信息"""
+        """Set current segment metadata."""
         self.current_segment = (current, total)
 
     def _run(self):
-        """显示线程主循环"""
+        """Run the display loop."""
         last_was_stream = False
         while not (self.stop_event.is_set() and self.message_queue.empty()):
             try:
@@ -69,11 +69,11 @@ class DisplayReporter:
                 continue
 
     def stop(self):
-        """停止显示线程"""
+        """Stop the display thread."""
         if self.thread.is_alive():
             self.stop_event.set()
             self.thread.join(timeout=1.0)
-            # 确保最后刷一次屏幕
+            # Flush the final display update.
             sys.stdout.write("\n")
             sys.stdout.flush()
 

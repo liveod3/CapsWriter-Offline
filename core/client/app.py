@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-CapsWriter Offline 客户端主程序门面类 (Facade)
+CapsWriter client facade.
 
-采用外观模式统一管理音频流 (AudioStreamManager)、
-识别结果处理 (ResultProcessor) 和快捷键管理 (ShortcutManager)。
+Coordinate AudioStreamManager,
+ResultProcessor, and ShortcutManager.
 """
 
 from core.i18n import Notice, tr
@@ -44,24 +44,24 @@ from core.ui import set_dictation_paused, show_status_hint
 
 class CapsWriterClient:
     """
-    CapsWriter 客户端门面类
+    CapsWriter client facade.
     
-    管理的外部接口简洁：start()。
+    Expose start() as the main entry point.
     """
     def __init__(self, command: ClientCommand):
         from core.i18n import set_language
         set_language(getattr(Config, 'ui_language', 'auto'))
         self.command = command
 
-        # 确保正确的工作目录
+        # Set the working directory.
         self.base_dir = Path(__file__).parents[2]
         os.chdir(self.base_dir)
             
-        # 初始化事件循环
+        # Initialize the event loop.
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
             
-        # 初始化状态容器
+        # Initialize shared state.
         self.state = ClientState(app=self)
 
         self.llm = TextActionService(Config, self.base_dir, status_callback=show_status_hint)
@@ -74,19 +74,19 @@ class CapsWriterClient:
         self.diary = DiaryWriter(base_path=self.base_dir / getattr(Config, 'transcript_dir', 'logs/transcripts'))
         self.action_records = DiaryWriter(base_path=self.base_dir / 'logs' / 'text-actions')
 
-        # 初始化各管理器
+        # Initialize managers.
         self.ws = WebSocketManager(self)
         self.tray = TrayManager(self)
 
-        # 实例化硬件资源管理组件
+        # Create hardware resource managers.
         self.stream = AudioStreamManager(self)
         self.shortcut = ShortcutManager(self, [Shortcut(**sc) for sc in Config.shortcuts])
         self.udp = UDPController(self.shortcut)
 
-        # 内存清理
+        # Release unused working-set memory.
         empty_current_working_set()
 
-        # 闲置自动挂起监控
+        # Monitor idle suspension.
         self._idle_suspend_running = False
         self._idle_suspend_thread = None
         self._active_runner = None
@@ -136,11 +136,11 @@ class CapsWriterClient:
             self._report_config(Notice('config.applied', fields=', '.join(changed)))
 
     def mark_user_activity(self) -> None:
-        """标记用户活跃时间，用于闲置自动挂起判断。"""
+        """Record user activity for idle suspension."""
         self.state.last_activity_time = time.time()
 
     def start_idle_suspend_monitor(self) -> None:
-        """启动闲置自动挂起监控线程。"""
+        """Start the idle suspension monitor."""
         if not Config.enable_idle_suspend:
             return
         if self._idle_suspend_running:
@@ -157,7 +157,7 @@ class CapsWriterClient:
         logger.info(Notice('diagnostic.app.idle_suspension_enabled_s', value0=Config.idle_suspend_seconds))
 
     def stop_idle_suspend_monitor(self) -> None:
-        """停止闲置自动挂起监控线程。"""
+        """Stop the idle suspension monitor."""
         self._idle_suspend_running = False
         self._idle_stop.set()
         thread = self._idle_suspend_thread
@@ -167,7 +167,7 @@ class CapsWriterClient:
                 self._idle_suspend_thread = None
 
     def _idle_suspend_loop(self) -> None:
-        """闲置检测循环：超过阈值后自动挂起听写。"""
+        """Suspend dictation after the configured idle interval."""
         while self._idle_suspend_running:
             if self._idle_stop.wait(1.0) or self._stopping:
                 break
@@ -197,7 +197,7 @@ class CapsWriterClient:
             return self._pause_dictation_locked(show_hint, manual=manual)
 
     def _pause_dictation_locked(self, show_hint: bool = True, *, manual: bool = True) -> bool:
-        """暂停听写并释放麦克风流，避免耳机长期进入通话模式。"""
+        """Pause dictation and release the microphone to leave headset call mode."""
         with self.state.recording_lock:
             if self._stopping:
                 return False
@@ -210,7 +210,7 @@ class CapsWriterClient:
             if self.state.dictation_paused:
                 return True
             self.state.dictation_paused = True
-        # 先发布挂起状态，再释放录音流并保留只读设备监控，避免监控线程误重开麦克风。
+        # Publish suspension before releasing the stream so the monitor cannot reopen it.
         self.stream.stop(keep_monitor=True)
         set_dictation_paused(True)
         logger.info(Notice('diagnostic.app.dictation_paused_audio_stream_released'))
@@ -226,7 +226,7 @@ class CapsWriterClient:
             return self._resume_dictation_locked(show_hint, silent_stream)
 
     def _resume_dictation_locked(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
-        """恢复听写并重新打开麦克风流。"""
+        """Resume dictation and reopen the microphone stream."""
         with self.state.recording_lock:
             if self._stopping:
                 return False
@@ -270,7 +270,7 @@ class CapsWriterClient:
         return True
 
     def _show_resume_hint_when_ready(self, ready_event: threading.Event) -> None:
-        """托盘恢复时，等设备真正交付音频后再提示恢复完成。"""
+        """Wait for audio delivery before reporting that tray resume is complete."""
         deadline = time.monotonic() + 5.0
         while not self._stopping and not ready_event.is_set() and time.monotonic() < deadline:
             if self._idle_stop.wait(0.05):
@@ -292,7 +292,7 @@ class CapsWriterClient:
             show_status_hint(tr('mic.resumed'), duration_ms=1200, dot_color='#34D399')
 
     def toggle_dictation_pause(self) -> bool:
-        """切换听写暂停状态。"""
+        """Toggle dictation pause."""
         if self.state.dictation_paused:
             return self.resume_dictation(show_hint=True, silent_stream=False)
         return self.pause_dictation(show_hint=True)
@@ -352,12 +352,12 @@ class CapsWriterClient:
 
     def start(self) -> int:
         """
-        启动客户端 (唯一入口)
+        Start the client.
         
-        根据已解析的命令选择运行器，并管理异步循环。
+        Select the parsed command's runner and manage the event loop.
         """
 
-        # 注册退出函数
+        # Register shutdown cleanup.
         register_signal(self.stop)
 
         if self.command.mode is ClientMode.MIC:

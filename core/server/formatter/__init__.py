@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-文本处理器模块
+Text formatting module.
 
-提供识别结果的后期加工功能，包括格式化、标点补全、ITN转换等。
+Postprocess recognition results with punctuation, ITN, and spacing.
 """
 
 from .. import logger

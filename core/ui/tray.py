@@ -1,17 +1,17 @@
 # coding: utf-8
 """
-托盘图标模块
+System tray integration.
 
-提供最小化到系统托盘的功能。
-仅在 Windows 平台有效。
+Hide the console in the system tray.
+Supported only on Windows.
 
-功能：
-- 禁用控制台窗口的关闭按钮（防止误关）
-- 最小化时自动隐藏到托盘
-- 双击托盘图标显示/隐藏窗口
-- 托盘菜单退出程序
+Features:
+- Disable the console close button to prevent accidental closure.
+- Hide the console when minimized.
+- Toggle console visibility from the tray icon.
+- Exit through the tray menu.
 
-注意：pystray 在 Linux 无 GUI 环境下无法导入，因此采用延迟导入。
+Import pystray lazily because headless Linux cannot initialize its GUI backend.
 """
 
 from core.i18n import Notice, lazy, tr
@@ -25,14 +25,14 @@ import subprocess
 from typing import Optional
 from . import logger, set_ui_logger
 
-# 退出回调函数（由主程序传入）
+# Application-provided exit callback.
 _exit_callback = None
 
-# 是否可用（在 enable_min_to_tray 时检测）
+# Availability detected when enabling tray support.
 _tray_available = None
 
 def _set_exit_callback(callback):
-    """设置退出回调函数"""
+    """Set the exit callback."""
     global _exit_callback
     _exit_callback = callback
 
@@ -42,22 +42,22 @@ def _get_exit_callback():
 
 def _check_tray_available() -> bool:
     """
-    检查托盘功能是否可用
+    Check whether tray integration is available.
     
     Returns:
-        bool: 是否可用
+        bool: Whether the feature is available.
     """
     global _tray_available
     
     if _tray_available is not None:
         return _tray_available
     
-    # 非 Windows 系统不支持
+    # This integration requires Windows.
     if platform.system() != 'Windows':
         _tray_available = False
         return False
     
-    # 尝试导入 pystray
+    # Try importing pystray.
     try:
         import pystray
         from PIL import Image
@@ -72,7 +72,7 @@ def _check_tray_available() -> bool:
     return _tray_available
 
 
-# Windows API（延迟初始化）
+# Lazily initialized Windows API bindings.
 _win_api_initialized = False
 user32 = None
 kernel32 = None
@@ -86,7 +86,7 @@ GA_ROOT = 3
 
 
 def _init_win_api():
-    """初始化 Windows API"""
+    """Initialize Windows API bindings."""
     global _win_api_initialized, user32, kernel32
     
     if _win_api_initialized:
@@ -114,7 +114,7 @@ def _init_win_api():
         logger.warning(Notice('diagnostic.tray.windows_api_initialization_failed', value0=e))
 
 
-# 全局变量
+# Module state.
 _tray_instance: Optional['_TraySystem'] = None
 _lock = threading.Lock()
 _tray_recording = False
@@ -125,9 +125,9 @@ def _get_console_hwnd():
     _init_win_api()
     hwnd = kernel32.GetConsoleWindow()
     if hwnd:
-        # 在 Windows Terminal 中，GetConsoleWindow 返回的是内部窗口句柄。
-        # 为了能让“退出按钮不可用”以及“从任务栏消失”生效，我们需要操作最外层的顶层窗口。
-        # 对于普通 CMD，GetAncestor(hwnd, GA_ROOT) 依然返回 hwnd 本身。
+        # Windows Terminal's GetConsoleWindow can return an internal window.
+        # Use the top-level ancestor for close-button and taskbar visibility operations.
+        # For classic consoles, GetAncestor(hwnd, GA_ROOT) returns the same handle.
         root_hwnd = user32.GetAncestor(hwnd, GA_ROOT)
         if root_hwnd:
             return root_hwnd
@@ -135,7 +135,7 @@ def _get_console_hwnd():
 
 
 def _disable_close_button(hwnd: int) -> None:
-    """禁用窗口的关闭按钮"""
+    """Disable the window close button."""
     if user32 is None:
         return
     h_menu = user32.GetSystemMenu(hwnd, False)
@@ -144,28 +144,28 @@ def _disable_close_button(hwnd: int) -> None:
 
 
 def _enable_close_button(hwnd: int) -> None:
-    """恢复窗口的关闭按钮"""
+    """Restore the window close button."""
     if user32 is None:
         return
     user32.GetSystemMenu(hwnd, True)
 
 
 def _is_window_minimized(hwnd: int) -> bool:
-    """检查窗口是否最小化"""
+    """Return whether the window is minimized."""
     if user32 is None:
         return False
     return user32.IsIconic(hwnd) != 0
 
 
 def _is_window_visible(hwnd: int) -> bool:
-    """检查窗口是否可见"""
+    """Return whether the window is visible."""
     if user32 is None:
         return False
     return user32.IsWindowVisible(hwnd) != 0
 
 
 def _add_recording_badge(image):
-    """在图标右下角叠加醒目的录音红色徽标。"""
+    """Overlay a red recording badge at the icon's bottom right."""
     from PIL import ImageDraw
 
     image = image.convert('RGBA')
@@ -175,7 +175,7 @@ def _add_recording_badge(image):
     outer_radius = 10
     inner_radius = 8
 
-    # 浅色描边让红点在深色图标和不同任务栏主题上都保持清晰。
+    # A light outline keeps the badge visible across icon and taskbar themes.
     draw.ellipse(
         (
             center_x - outer_radius,
@@ -199,16 +199,16 @@ def _add_recording_badge(image):
 
 def _create_icon(icon_path: Optional[str] = None, recording: bool = False):
     """
-    创建托盘图标
+    Create the tray image.
     
-    从指定路径加载当前图标体系；录音时在右下角叠加红色徽标。
+    Load the application icon and overlay the recording badge when active.
     
     Args:
-        icon_path: 当前图标体系中的图标文件路径，必须提供
-        recording: 是否显示录音状态
+        icon_path: Required application icon path.
+        recording: Show the recording badge.
         
     Returns:
-        PIL Image 对象
+        PIL Image instance.
     """
     from PIL import Image
 
@@ -230,10 +230,10 @@ def _create_icon(icon_path: Optional[str] = None, recording: bool = False):
 
 
 class _TraySystem:
-    """托盘系统内部类"""
+    """Internal tray implementation."""
     
     def __init__(self, name: Optional[str] = None, icon_path: Optional[str] = None, more_options: list = None):
-        # 延迟导入 pystray
+        # Import pystray lazily.
         import pystray
         from pystray import MenuItem as item
         from .menu_model import MenuAction
@@ -245,11 +245,11 @@ class _TraySystem:
         self._title_id = {'CapsWriter Client': 'app.client', 'CapsWriter Server': 'app.server'}.get(self.title)
         self._icon_path = icon_path
 
-        # 禁用关闭按钮
+        # Disable the close button.
         if self.hwnd:
             _disable_close_button(self.hwnd)
 
-        # 定义菜单
+        # Define the menu.
         menu_items = [
             item(lambda _item: self.display_title, lambda: None, enabled=False),
             MenuAction(lambda _item: tr('tray.console.hide') if _is_window_visible(self.hwnd) else tr('tray.console.show'),
@@ -257,7 +257,7 @@ class _TraySystem:
                        'console', default=True).to_item(),
         ]
 
-        # 添加额外选项
+        # Append additional actions.
         if more_options:
             for option in more_options:
                 if isinstance(option, MenuAction):
@@ -285,7 +285,7 @@ class _TraySystem:
         return tr(self._title_id) if self._title_id else self.title
 
     def toggle_window(self) -> None:
-        """切换窗口显示状态"""
+        """Toggle console visibility."""
         if not self.hwnd or user32 is None:
             return
 
@@ -296,16 +296,16 @@ class _TraySystem:
             user32.SetForegroundWindow(self.hwnd)
 
     def monitor_loop(self) -> None:
-        """监控线程：检测最小化操作"""
+        """Monitor console minimization."""
         while not self.should_exit:
             if self.hwnd and user32:
-                # 窗口可见且最小化 -> 隐藏到托盘
+                # Hide a visible minimized console in the tray.
                 if _is_window_visible(self.hwnd) and _is_window_minimized(self.hwnd):
                     user32.ShowWindow(self.hwnd, SW_HIDE)
             time.sleep(0.2)
 
     def on_restart(self, icon, item) -> None:
-        """托盘重启处理：启动新进程后退出当前进程"""
+        """Start a replacement process, then exit this process."""
         logger.info(Notice('diagnostic.tray.tray_restart_requested_preparing_to_restart_application'))
         try:
             if getattr(sys, 'frozen', False):
@@ -317,7 +317,7 @@ class _TraySystem:
             logger.error(Notice('diagnostic.tray.restart_failed', value0=e))
             return
 
-        # 启动新进程成功后，调用退出回调退出当前进程
+        # Exit through the application callback only after replacement startup succeeds.
         exit_callback = _get_exit_callback()
         if exit_callback:
             try:
@@ -326,22 +326,22 @@ class _TraySystem:
                 logger.error(Notice('diagnostic.tray.exit_callback_failed_during_restart', value0=e))
 
     def on_exit(self, icon, item) -> None:
-        """托盘退出处理"""
+        """Handle tray exit."""
         exit_callback = _get_exit_callback()
 
         logger.info(Notice('diagnostic.tray_manager.tray_exit_requested_cleaning_up_resources'))
 
-        # 1. 设置退出标志，停止监控循环
+        # 1. Stop the monitor loop.
         self.should_exit = True
         logger.debug(Notice('diagnostic.tray.tray_exit_flag_set'))
 
-        # 2. 恢复窗口关闭按钮并显示窗口
+        # 2. Restore the close button and show the console.
         if self.hwnd and user32:
             _enable_close_button(self.hwnd)
             user32.ShowWindow(self.hwnd, SW_RESTORE)
             logger.debug(Notice('diagnostic.tray.window_visibility_restored'))
 
-        # 3. 调用退出回调函数，请求主程序退出
+        # 3. Request application shutdown through the callback.
         if exit_callback:
             try:
                 logger.debug(Notice('diagnostic.tray.calling_exit_callback'))
@@ -352,7 +352,7 @@ class _TraySystem:
 
 
 
-        # 5. 停止托盘图标
+        # 5. Stop the tray icon.
         try:
             logger.debug(Notice('diagnostic.tray.stopping_tray_icon_thread'))
             self.icon.stop()
@@ -361,46 +361,46 @@ class _TraySystem:
             logger.warning(Notice('diagnostic.tray.failed_to_stop_tray_icon', value0=e))
 
     def start(self) -> None:
-        """启动托盘系统"""
-        # 托盘图标线程
+        """Start tray integration."""
+        # Tray icon thread.
         t_tray = threading.Thread(target=self.icon.run, daemon=False)
         t_tray.start()
 
-        # 状态监控线程
+        # Status monitor thread.
         t_monitor = threading.Thread(target=self.monitor_loop, daemon=True)
         t_monitor.start()
 
-        # 启动时隐藏窗口
+        # Hide the console at startup.
         self.toggle_window()
 
 
 def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = None, exit_callback=None, more_options: list = None) -> None:
     """
-    启用最小化到托盘功能
+    Enable minimize-to-tray behavior.
 
-    如果检测不到控制台窗口（如 .pyw 运行），则不执行任何操作。
-    如果在 Linux 等无 GUI 环境下运行，也会跳过。
+    Do nothing when no console window exists, such as under .pyw.
+    Skip unsupported platforms and headless environments.
 
     Args:
-        name: 托盘图标显示的名称，默认使用程序名称
-        icon_path: 当前图标体系中的图标文件路径，必须提供
-        exit_callback: 退出回调函数，当用户点击托盘退出菜单时调用
-        more_options: 额外菜单项列表，格式为 [(名称, 回调函数), ...]
+        name: Tray display name; defaults to the application name.
+        icon_path: Required application icon path.
+        exit_callback: Callback for the tray exit action.
+        more_options: Additional (label, callback) menu entries.
     """
     global _tray_instance
 
     global _tray_instance
 
-    # 设置退出回调函数
+    # Set the exit callback.
     if exit_callback is not None:
         _set_exit_callback(exit_callback)
 
-    # 检查托盘功能是否可用
+    # Check tray availability.
     if not _check_tray_available():
         logger.info(Notice('diagnostic.tray.tray_unavailable_enable_skipped'))
         return
 
-    # DPI 感知设置
+    # Configure DPI awareness.
     try:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -409,10 +409,10 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
     with _lock:
         if _tray_instance is not None:
-            return  # 已启动
+            return  # Already started.
 
         if not _get_console_hwnd():
-            return  # 没有控制台窗口
+            return  # No console window.
 
         _tray_instance = _TraySystem(name, icon_path, more_options)
         _tray_instance.start()
@@ -420,7 +420,7 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
 
 def stop_tray() -> None:
-    """停止托盘图标"""
+    """Stop the tray icon."""
     global _tray_instance, _tray_recording, _tray_paused
     if _tray_instance and _tray_instance.icon:
         _tray_instance.should_exit = True
@@ -434,21 +434,21 @@ def stop_tray() -> None:
 
 
 def set_recording_state(recording: bool) -> None:
-    """更新托盘图标录音状态（线程安全）"""
+    """Update tray recording state under the shared lock."""
     global _tray_recording
     _tray_recording = recording
     _refresh_tray_status()
 
 
 def set_dictation_paused(paused: bool) -> None:
-    """更新托盘图标听写暂停状态（线程安全）"""
+    """Update tray pause state under the shared lock."""
     global _tray_paused
     _tray_paused = paused
     _refresh_tray_status()
 
 
 def _refresh_tray_status() -> None:
-    """根据录音/暂停状态刷新托盘图标与标题"""
+    """Refresh the tray image and title from recording/pause state."""
     global _tray_instance
     if _tray_instance is None:
         return

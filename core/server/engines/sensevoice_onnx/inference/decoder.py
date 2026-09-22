@@ -6,13 +6,13 @@ import onnxruntime as ort
 
 class SenseVoiceDecoder:
     def __init__(self, decoder_path: str, onnx_provider="cpu", dml_pad_to: int = 30):
-        # 1. 资源路径
+        # 1. Resource paths.
         self.model_path = decoder_path
         decoder_path = Path(decoder_path)
         
         self.onnx_provider = onnx_provider.upper()
 
-        # 2. 初始化会话
+        # 2. Initialize the session.
         available_providers = ort.get_available_providers()
         providers = ['CPUExecutionProvider']
         
@@ -34,19 +34,19 @@ class SenseVoiceDecoder:
         
         self.session = ort.InferenceSession(str(decoder_path), providers=providers, sess_options=session_opts)
 
-        # 3. 精度适配
+        # 3. Adapt precision.
         in_type = self.session.get_inputs()[0].type
         self.input_dtype = np.float16 if 'float16' in in_type else np.float32
 
-        # 4. DML 预热
+        # 4. Warm up DirectML.
         self.use_dml = (self.onnx_provider == "DML")
-        self.fixed_len = int(dml_pad_to * 17) + 4 # 1s ≈ 17帧 + 4帧 Prompt
+        self.fixed_len = int(dml_pad_to * 17) + 4 # One second is roughly 17 frames plus four prompt frames.
         if self.use_dml and isinstance(dml_pad_to, int) and dml_pad_to > 0:
             self.warmup()
 
     def warmup(self):
-        """执行一次全量形状推理，触发 CTC Head 算子特化"""
-        # CTC Decoder 的输入形状通常是 (1, T_plus_4, 512)
+        """Run the full padded shape to specialize CTC head operators."""
+        # CTC input is typically (1, T_plus_4, 512).
         dummy_enc = np.zeros((1, self.fixed_len, 512), dtype=self.input_dtype)
         print(tr('terminal.decoder.decoder_dml_warmup_with_data_shape', value0=dummy_enc.shape))
         self.session.run(None, {"enc_out": dummy_enc})
@@ -54,31 +54,31 @@ class SenseVoiceDecoder:
 
     def forward(self, enc_out):
         """
-        执行 CTC Head 推理 (单次推理)
+        Run the CTC head once.
         """
         if enc_out.dtype != self.input_dtype:
             enc_out = enc_out.astype(self.input_dtype)
             
-        # 模型一次性返回 Top-100 的概率和索引
+        # The model returns top-100 probabilities and indexes in one call.
         topk_log_probs, topk_indices = self.session.run(None, {"enc_out": enc_out})
         return topk_log_probs, topk_indices
 
     def decode(self, enc_out, sp, prompt_len=4, T_valid=None, blank_id=0):
         """
-        [核心接口] 单次推理获取所有解码信息
-        返回去除空白和连续重复后的文本与时间戳。
+        Run one inference call for all decoding data.
+        Return text and timestamps after removing blanks and adjacent duplicates.
         """
-        # 1. 唯一的一次推理调用
+        # 1. Make the single inference call.
         _, topk_indices = self.forward(enc_out)
         
-        # 确定有效范围 (跳过 Prompt 区域)
+        # Select the valid region, skipping prompt frames.
         start = prompt_len
         end = (T_valid + prompt_len) if T_valid is not None else topk_indices.shape[1]
         
-        # 模型固定返回 Top-K，只取 Top-1；无需展开候选概率空间。
+        # The model returns top-k; use top-1 without expanding candidate probabilities.
         top1_indices = topk_indices[0, start:end, 0]
         
-        # --- B. 构造 Greedy 结果 (基于 Top-1) ---
+        # Build greedy results from top-1 indexes.
         greedy_ids = top1_indices
         collapsed = []
         if len(greedy_ids) > 0:

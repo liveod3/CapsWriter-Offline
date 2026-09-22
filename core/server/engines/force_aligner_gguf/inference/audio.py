@@ -1,6 +1,6 @@
 """
-audio.py - 音频预处理工具类
-职责：使用 ffmpeg 直接读取音频，支持所有格式（mp3/m4a/opus 等）。
+Audio preprocessing utilities.
+Load supported audio formats directly through FFmpeg.
 """
 
 from core.i18n import Notice
@@ -16,10 +16,10 @@ from . import logger
 
 def numpy_resample_poly(x, up, down, window_size=10):
     """
-    纯 numpy 实现的 resample_poly
-    算法精准复刻 scipy.signal.resample_poly，与 scipy 相似度达 0.99999998
+    NumPy polyphase resampling.
+    Follow scipy.signal.resample_poly's filter and phase approach.
     """
-    # 1. 约分
+    # 1. Reduce the rate ratio.
     g = math.gcd(up, down)
     up //= g
     down //= g
@@ -27,7 +27,7 @@ def numpy_resample_poly(x, up, down, window_size=10):
     if up == down:
         return x.copy()
 
-    # 2. 设计 FIR 滤波器 (与 scipy.signal.firwin 对齐)
+    # 2. Design the FIR filter using the firwin convention.
     max_rate = max(up, down)
     f_c = 1.0 / max_rate  
     half_len = window_size * max_rate
@@ -36,14 +36,14 @@ def numpy_resample_poly(x, up, down, window_size=10):
     t = np.arange(n_taps) - half_len
     h = np.sinc(f_c * t)
     
-    # 使用 Kaiser 窗 (beta=5.0)
-    # np.i0 是修饰过的第一类修正贝塞尔函数，与 scipy.special.i0 一致
+    # Use a Kaiser window with beta=5.0.
+    # np.i0 computes the modified Bessel function of the first kind, order zero.
     beta = 5.0
     kaiser_win = np.i0(beta * np.sqrt(1 - (2 * t / (n_taps - 1))**2)) / np.i0(beta)
     h = h * kaiser_win
     h = h * (up / np.sum(h))
 
-    # 3. 多相滤波 (复刻 upfirdn 逻辑)
+    # 3. Apply polyphase filtering with upfirdn-style indexing.
     length_in = len(x)
     length_out = int(math.ceil(length_in * up / down))
     
@@ -59,28 +59,28 @@ def numpy_resample_poly(x, up, down, window_size=10):
 
 
 def resample_audio(audio, sr, target_sr):
-    """音频重采样封装"""
+    """Resample audio."""
     if sr == target_sr:
         return audio
     return numpy_resample_poly(audio, target_sr, sr)
 
 
 def load_audio_numpy(audio_path, sample_rate=24000, start_second=None, duration=None):
-    """使用 soundfile + numpy 重采样读取音频"""
+    """Load through soundfile and resample with NumPy."""
     info = sf.info(audio_path)
     sr = info.samplerate
     
-    # 获取偏移量
+    # Resolve the start offset.
     start_frame = int(start_second * sr) if start_second is not None else 0
     frames = int(duration * sr) if duration is not None else -1
     
     audio, sr = sf.read(audio_path, start=start_frame, frames=frames, dtype='float32')
     
-    # 转单声道
+    # Convert to mono.
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
         
-    # 高质量重采样
+    # Resample audio.
     if sr != sample_rate:
         audio = resample_audio(audio, sr, sample_rate)
         
@@ -88,12 +88,12 @@ def load_audio_numpy(audio_path, sample_rate=24000, start_second=None, duration=
 
 
 def check_ffmpeg():
-    """检测系统是否安装 ffmpeg"""
+    """Check FFmpeg availability."""
     return shutil.which('ffmpeg') is not None
 
 
 def load_audio_ffmpeg(audio_path, sample_rate=24000, start_second=None, duration=None):
-    """使用 ffmpeg 直接读取音频"""
+    """Read audio directly through FFmpeg."""
     if not check_ffmpeg():
         raise RuntimeError(Notice('validation.audio.ffmpeg_not_found_install_ffmpeg_and_add_it'))
 
@@ -130,18 +130,18 @@ def load_audio_ffmpeg(audio_path, sample_rate=24000, start_second=None, duration
 
 def load_audio(audio_path, sample_rate=16000, start_second=None, duration=None):
     """
-    加载音频文件的主入口。
-    根据后缀名判断读取方式：
-    - soundfile 支持: .wav, .flac, .ogg, .mp3
-    - 其他 ffmpeg fallback: .m4a, .mp4, .opus, .wmv 等
+    Load an audio file.
+    Select the reader by extension:
+    - soundfile: .wav, .flac, .ogg, and .mp3.
+    - FFmpeg fallback: .m4a, .mp4, .opus, .wmv, and other formats.
     """
     if not os.path.exists(audio_path):
         raise FileNotFoundError(Notice('validation.audio.audio_file_does_not_exist', value0=audio_path))
         
-    # 获取后缀名
+    # Read the extension.
     ext = Path(audio_path).suffix.lower()
     
-    # 定义 soundfile 可以稳定处理的格式
+    # Formats handled by the soundfile path.
     SF_FORMATS = {'.wav', '.flac', '.ogg', '.mp3'}
     
     if ext in SF_FORMATS:

@@ -1,4 +1,4 @@
-"""按日期/进程归档诊断日志；清理范围仅限该处理器创建的归档。"""
+"""Archive diagnostics by date/process; expire only archives owned by this handler."""
 
 from __future__ import annotations
 from datetime import datetime, timedelta

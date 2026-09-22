@@ -142,7 +142,7 @@ Client ResultProcessor → 热词/规则 → 可选 LLM → 打字/粘贴/Toast/
 
 修复状态：已完成。服务端默认 `network_mode = 'local'`、`addr = '127.0.0.1'`，且 local 模式拒绝非回环监听地址。LAN 模式必须显式配置并从 `CAPSWRITER_AUTH_TOKEN` 读取至少 32 字符令牌，服务端在握手阶段使用常量时间比较验证 Bearer token；客户端兼容不同 websockets 版本发送认证 Header。服务端可加载证书与私钥启用 TLS，客户端会切换为 `wss://` 并校验证书链和主机名。
 
-配套文档：`docs/局域网连接安全配置.md` 说明了本机模式、LAN 令牌生成、TLS 配置、反向代理边界和明文 `ws://` 的适用范围；README 已增加入口。
+配套文档：`docs/user/network.md` 说明了本机模式、LAN 令牌生成、TLS 配置、反向代理边界和明文 `ws://` 的适用范围；README 已增加入口。
 
 原始证据（修复前）：服务端默认 `0.0.0.0`，客户端固定使用 `ws://`，握手没有认证或 TLS。同网段设备只要通过防火墙即可提交任务并占用推理资源。
 

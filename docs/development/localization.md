@@ -27,7 +27,7 @@ by the server. Clients in other directories or on other machines do not control
 this server's terminal language over the network.
 
 Start the updated application once. Later edits use the existing
-[configuration reload](configuration-reload.md) mechanism. Client changes normally
+[configuration reload](../reference/configuration.md) mechanism. Client changes normally
 apply within one to two seconds after pending recording, ASR, LLM, output and
 archive work finishes, or between files in a batch. A language menu checkmark
 shows the effective preference. Close and reopen the menu after a change to see
@@ -57,8 +57,7 @@ of each controlled record, so handler order cannot change archive language.
 Native llama/ONNX/OS output and arbitrary third-party exception details remain
 verbatim: they are external diagnostics, not project-owned interface strings.
 Command names, switches, configuration keys, provider/model names and error codes
-remain stable. Developer build scripts, comments/docstrings and upstream export
-tools belong to the separate internal-English TODO, not the runtime UI catalog.
+remain stable. Developer build scripts and comments/docstrings follow the [internal language policy](internal-language.md). Copied upstream export tools retain their original text. These are separate from runtime UI catalogs.
 
 `ClientConfig.language` still selects the ASR language. LLM prompts, translation
 targets, user-defined preset names, recognized text, clipboard contents, file
@@ -92,5 +91,5 @@ and hidden Chinese labels assigned before display. Explicit exceptions preserve
 recognition rules, prompts, ASR language aliases, multilingual rendering fixtures
 and the existing recognition-result abort sentinel. A synthetic spawned worker
 verifies language changes without loading models.
-The [manual acceptance checklist](validation/P1-multilingual-interface.md)
+The [manual acceptance checklist](../validation/P1-multilingual-interface.md)
 records desktop checks and the current acceptance status.

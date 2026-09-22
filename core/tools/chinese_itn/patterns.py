@@ -1,11 +1,11 @@
 """
-正则表达式模式定义
+Regular expression patterns.
 """
 
 import re
 from .mappings import common_units
 
-# 总模式，筛选出可能需要替换的内容
+# Select potential replacement spans.
 pattern = re.compile(rf"""(?ix)
 ([a-z]\s*)?
 (

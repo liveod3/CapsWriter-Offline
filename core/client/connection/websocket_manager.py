@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-WebSocket 连接管理模块
+WebSocket connection management.
 
-提供 WebSocketManager 类用于管理与服务端的 WebSocket 连接，
-包括连接建立、重连、消息发送和连接状态检查。
+Use WebSocketManager to connect to the server,
+reconnect, send messages, and check connection state.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 
 
 def _websockets_major_version() -> int:
-    """返回 websockets 主版本号，无法识别时按旧版 API 处理。"""
+    """Return the websockets major version, defaulting to the legacy API if unknown."""
     try:
         return int(websockets.__version__.split('.', 1)[0])
     except (AttributeError, TypeError, ValueError):
@@ -38,62 +38,62 @@ def _websockets_major_version() -> int:
 
 
 class CommunicationError(Exception):
-    """通信层通用异常"""
+    """Base transport exception."""
     pass
 
 
 class WebSocketManager:
     """
-    WebSocket 连接管理器
+    Manage a WebSocket connection.
 
-    负责管理与识别服务端的 WebSocket 连接，提供自动重连和
-    错误处理功能。
+    Connect to the recognition server with automatic reconnection
+    and error handling.
 
     Attributes:
-        app: 客户端 App 实例
-        max_retries: 最大重试次数
+        app: Client App instance.
+        max_retries: Maximum connection retries.
     """
 
     def __init__(self, app: CapsWriterClient):
         """
-        初始化 WebSocket 管理器
+        Initialize the WebSocket manager.
 
         Args:
-            app: 客户端 App 实例
+            app: Client App instance.
         """
         self.app = app
-        self._connect_fail_logged = False  # 断联后只记一次失败日志
+        self._connect_fail_logged = False  # Report a connection failure only once per disconnect.
         self._shutdown_requested = False
 
     @property
     def state(self) -> ClientState:
-        """快捷访问状态单例"""
+        """Access shared client state."""
         return self.app.state
     
     @property
     def is_connected(self) -> bool:
-        """检查是否已连接"""
+        """Return whether the connection is open."""
         return self.state.is_connected
     
     async def connect(self, *, announce: bool = True) -> bool:
         """
-        建立 WebSocket 连接
+        Connect to the server.
 
-        尝试连接到配置的服务端地址，如果失败会自动重试。
+        Retry failed connections to the configured address.
 
         Returns:
-            连接是否成功
+            Whether connection succeeded.
         """
-        # 退出流程一旦开始就不能再重连，否则事件循环停止时可能中断
-        # 刚建立的 TCP 连接，在服务端留下不完整的 WebSocket 握手。
+        # Do not reconnect after shutdown starts: stopping the loop could interrupt
+        # a new TCP connection and leave an incomplete WebSocket handshake.
         if self._shutdown_requested:
             return False
 
-        # 如果已连接，直接返回
+        # Return immediately if already connected.
         if self.is_connected:
             return True
 
-        # 清理旧连接
+        # Close the previous connection.
         if self.state.websocket is not None:
             self.state.websocket = None
 
@@ -125,14 +125,14 @@ class WebSocketManager:
                 ca_file = str(getattr(Config, 'tls_ca_file', '')).strip() or None
                 kwargs['ssl'] = ssl.create_default_context(cafile=ca_file)
 
-            # websockets>=16.0 默认走代理，本地连接需显式禁用，但 14 才引入这个参数
+            # websockets 16 defaults to proxies; disable them for local connections on versions >=14.
             if _websockets_major_version() >= 14:
                 kwargs["proxy"] = None  
             
             websocket = await websockets.connect(**kwargs)
 
-            # connect() 期间也可能收到退出请求。此时完成关闭握手，但不再
-            # 把连接发布到共享状态，避免结果处理循环继续使用它。
+            # Shutdown can start during connect(). Finish the close handshake without
+            # publishing the connection for result consumers to reuse.
             if self._shutdown_requested:
                 await websocket.close()
                 return False
@@ -160,13 +160,13 @@ class WebSocketManager:
     
     async def send(self, message: AudioMessage) -> bool:
         """
-        发送消息到服务端
+        Send a server message.
         
         Args:
-            message: 要发送的 AudioMessage 对象
+            message: AudioMessage to send.
             
         Returns:
-            发送是否成功
+            Whether sending succeeded.
         """
         if not self.is_connected:
             logger.warning(Notice('diagnostic.websocket_manager.cannot_send_message_websocket_is_disconnected'))
@@ -187,17 +187,17 @@ class WebSocketManager:
     
     async def receive(self) -> Optional[RecognitionMessage]:
         """
-        接收服务端消息
+        Receive server messages.
         
         Returns:
-            解析后的 RecognitionMessage；退出或未连接时返回 None。
+            Parsed RecognitionMessage, or None while disconnected or stopping.
 
         Raises:
-            CommunicationError: 非退出状态下的断线或消息解析失败。
+            CommunicationError: Unexpected disconnect or invalid response outside shutdown.
         """
         if self._shutdown_requested:
             return None
-        # recv() 等待期间 stop/reset 可能清空共享引用，保留本次接收的连接。
+        # Keep the receiving connection locally; stop/reset may clear the shared reference.
         websocket = self.state.websocket
         if websocket is None or not self.is_connected:
             logger.warning(Notice('diagnostic.websocket_manager.cannot_receive_message_websocket_is_disconnected'))
@@ -224,7 +224,7 @@ class WebSocketManager:
             raise CommunicationError(Notice('validation.websocket_manager.receive_failed', value0=type(e).__name__)) from None
     
     async def close(self) -> None:
-        """关闭 WebSocket 连接"""
+        """Close the WebSocket connection."""
         websocket = self.state.websocket
         if websocket is not None:
             await websocket.close()
@@ -233,18 +233,18 @@ class WebSocketManager:
             logger.info(Notice('diagnostic.websocket_manager.websocket_connection_closed'))
 
     def begin_shutdown(self) -> None:
-        """同步发布退出状态，阻止新的连接和自动重连。"""
+        """Publish shutdown synchronously to prevent new connections and retries."""
         self._shutdown_requested = True
 
     def close_sync(self) -> None:
         """
-        从同步上下文（如 teardown）关闭连接
+        Close the connection from synchronous code such as teardown.
         
-        使用 run_coroutine_threadsafe 安全地将关闭操作调度到已有的事件循环。
-        如果事件循环未运行，则直接置空连接引用。
+        Schedule closure on the existing loop with run_coroutine_threadsafe.
+        Clear the connection reference directly if the loop is not running.
         """
-        # 必须在调度异步 close 之前同步设置；退出可能来自托盘线程，
-        # 结果处理循环此时仍在事件循环线程中运行。
+        # Set shutdown before scheduling close: the tray thread can initiate exit
+        # while the result consumer still runs on the event-loop thread.
         self.begin_shutdown()
 
         websocket = self.state.websocket
@@ -253,11 +253,11 @@ class WebSocketManager:
 
         loop = self.app.loop
         if loop and loop.is_running():
-            # 捕获当前连接，避免随后 State.reset() 先清空共享引用，导致实际
-            # close 协程执行时找不到需要关闭的连接。
+            # Capture the connection before State.reset() clears the shared reference,
+            # so the close coroutine can still reach it.
             asyncio.run_coroutine_threadsafe(websocket.close(), loop)
             logger.debug(Notice('diagnostic.websocket_manager.websocket_closure_scheduled_on_its_event_loop'))
         else:
-            # 事件循环已停止，直接清空引用
+            # The loop has stopped; clear the reference directly.
             self.state.websocket = None
             logger.debug(Notice('diagnostic.websocket_manager.event_loop_stopped_websocket_reference_cleared'))

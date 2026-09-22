@@ -1,14 +1,14 @@
 """
-Toast 消息通知模块
+Toast notifications.
 
-提供简单的浮动消息通知功能。
+Display floating messages.
 
 Usage:
-    # 普通 Toast
-    toast("消息内容", duration=3000)
+    # Standard Toast.
+    toast("Message", duration=3000)
 
-    # 流式 Toast（用于测试）
-    toast_stream("消息内容", markdown=False)
+    # Simulated streaming Toast for development.
+    toast_stream("Message", markdown=False)
 """
 
 from core.i18n import Notice, tr
@@ -19,7 +19,7 @@ from typing import Union, Literal
 import sys
 import os
 
-# 直接运行时，将项目根目录添加到 sys.path
+# Add the project root to sys.path when run directly.
 if __name__ == "__main__":
     from core.i18n import initialize_tool_language
     initialize_tool_language()
@@ -46,7 +46,7 @@ from . import logger
 
 
 # ============================================================
-# 公共 API 函数
+# Public API.
 # ============================================================
 
 def toast(
@@ -61,19 +61,19 @@ def toast(
     window_type: Literal['text', 'label'] = 'text',
     markdown: bool = False
 ) -> None:
-    """显示浮动消息通知
+    """Display a floating notification.
 
     Args:
-        text: 消息文本
-        font_size: 字体大小
-        bg: 背景颜色
-        fg: 字体颜色
-        duration: 显示时长（毫秒）
-        initial_width: 初始宽度，0-1 为屏幕比例，>1 为像素值
-        initial_height: 初始高度，0 表示自动计算
-        streaming: 是否为流式模式
-        window_type: 窗口类型 ('text' 或 'label')
-        markdown: 是否启用 Markdown 渲染
+        text: Message text.
+        font_size: Font size.
+        bg: Background color.
+        fg: Text color.
+        duration: Display duration in milliseconds.
+        initial_width: Screen fraction for values 0-1; pixels for values above 1.
+        initial_height: Initial height; 0 calculates it automatically.
+        streaming: Enable streaming mode.
+        window_type: 'text' or 'label'.
+        markdown: Enable Markdown rendering.
     """
     manager = ToastMessageManager()
     msg = ToastMessage(
@@ -102,22 +102,22 @@ def toast_stream(
     window_type: Literal['text', 'label'] = 'text',
     markdown: bool = False
 ) -> None:
-    """模拟流式输入的 Toast（用于测试流式输出效果）
+    """Simulate streaming input for Toast development.
 
     Args:
-        text: 消息文本
-        font_size: 字体大小
-        bg: 背景颜色
-        fg: 字体颜色
-        duration: 显示时长（毫秒）
-        initial_width: 初始宽度
-        initial_height: 初始高度
-        window_type: 窗口类型 ('text' 或 'label')
-        markdown: 是否启用 Markdown 渲染
+        text: Message text.
+        font_size: Font size.
+        bg: Background color.
+        fg: Text color.
+        duration: Display duration in milliseconds.
+        initial_width: Initial width.
+        initial_height: Initial height.
+        window_type: 'text' or 'label'.
+        markdown: Enable Markdown rendering.
     """
     manager = ToastMessageManager()
 
-    # 创建流式 toast
+    # Create a streaming Toast.
     msg = ToastMessage(
         text="",
         font_size=font_size,
@@ -132,7 +132,7 @@ def toast_stream(
     )
     msg_id = manager.add_message(msg)
 
-    # 模拟流式输出
+    # Simulate streamed output.
     def simulate_streaming():
         for i in range(len(text) + 1):
             if i > 0:
@@ -149,23 +149,23 @@ def toast_stream(
 
 
 # ============================================================
-# 测试代码
+# Standalone development demo.
 # ============================================================
 
 if __name__ == "__main__":
-    # 测试时启用日志，保存到模块所在目录
+    # Save demo logs beside the module.
     log_file = os.path.join(os.path.dirname(__file__), 'toast_debug.log')
 
-    # 配置根日志（因为独立运行）
+    # Configure root logging for standalone execution.
     from core.ui.toast_logger import configure_toast_logging
     logging.basicConfig(
         level=logging.DEBUG,
         format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         handlers=[
             logging.FileHandler(log_file, encoding='utf-8', mode='w'),
-            # logging.StreamHandler()  # 同时输出到控制台
+            # logging.StreamHandler()  # Also write to the console.
         ],
-        force=True  # 强制重新配置
+        force=True  # Force logging reconfiguration.
     )
 
     logger.info(Notice('diagnostic.toast.log_file', value0=log_file))
@@ -184,7 +184,7 @@ if __name__ == "__main__":
     print(tr('terminal.toast.label_markdown_streaming'))
     print("=" * 60)
 
-    # 测试文本
+    # Sample text.
     plain_text = 5*"""在这个快节奏、信息爆炸的时代，我们似乎总是被一种无形的压力所裹挟，焦虑、烦恼、疲惫，像潮水般涌入我们的内心。我们争分夺秒地奔波于工作、学习、社交之间，却往往忽略了内心深处那片安静的土地。在这样的背景下，寻找静心，成为了我们重新审视自我、找回平衡的重要途径。"""
 
     markdown_text = """# Markdown 测试
@@ -206,31 +206,31 @@ def hello():
 
 > 这是一段引用文字"""*1
 
-    # ========== Text 版本测试 ==========
+    # Text widget demo.
 
-    # print("\n[测试 1] Text 版本 - 普通文本 - 非流式 (3秒)")
+    # print("\n[Test 1] Text: plain, non-streaming (3 seconds)")
     # toast(plain_text, bg="#075077", fg='white', duration=3000, window_type='text', initial_width=800)
     # time.sleep(4)
 
-    # print("[测试 2] Text 版本 - 普通文本 - 流式 (5秒)")
+    # print("[Test 2] Text: plain, streaming (5 seconds)")
     # toast_stream(plain_text, bg="#2E7D32", fg='white', duration=5000, window_type='text', initial_width=800, markdown=False)
     # time.sleep(7)
 
-    # print("[测试 3] Text 版本 - Markdown - 非流式 (3秒)")
+    # print("[Test 3] Text: Markdown, non-streaming (3 seconds)")
     # toast(markdown_text, bg="#1565C0", fg='white', duration=3000, window_type='text', initial_width=800, markdown=True)
     # time.sleep(4)
 
-    # print("[测试 4] Text 版本 - Markdown - 流式 (5秒)")
+    # print("[Test 4] Text: Markdown, streaming (5 seconds)")
     # toast_stream(markdown_text, bg="#C62828", fg='white', duration=5000, window_type='text', initial_width=800, markdown=True)
     # time.sleep(7)
 
-    # ========== Label 版本测试 ==========
+    # Label widget demo.
 
-    # print("[测试 5] Label 版本 - 普通文本 - 非流式 (3秒)")
+    # print("[Test 5] Label: plain, non-streaming (3 seconds)")
     # toast(plain_text, bg="#F57C00", fg='white', duration=3000, window_type='label', initial_width=800)
     # time.sleep(4)
 
-    # print("[测试 6] Label 版本 - 普通文本 - 流式 (5秒)")
+    # print("[Test 6] Label: plain, streaming (5 seconds)")
     # toast_stream(plain_text, bg="#7B1FA2", fg='white', duration=5000, window_type='label', initial_width=800, markdown=False)
     # time.sleep(7)
 
@@ -238,7 +238,7 @@ def hello():
     toast(markdown_text, bg="#00796B", fg='white', duration=3000, window_type='label', initial_width=800, markdown=True)
     time.sleep(4)
 
-    # print("[测试 8] Label 版本 - Markdown - 流式 (5秒)")
+    # print("[Test 8] Label: Markdown, streaming (5 seconds)")
     # toast_stream(markdown_text, bg="#5D4037", fg='white', duration=5000, window_type='label', initial_width=800, markdown=True)
     # time.sleep(7)
 

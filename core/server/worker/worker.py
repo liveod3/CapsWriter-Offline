@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-识别子进程 Worker 门面类
+Recognition worker facade.
 
-采用门面模式将复杂的加载、信号、任务处理逻辑进行组合并统一导出。
-该模块作为子进程运行的完整生命周期管理者。
+Coordinate model loading, signals, and task processing.
+Own the recognition subprocess lifecycle.
 """
 
 from core.i18n import Notice
@@ -24,69 +24,69 @@ from . import logger
 
 class RecognizerWorker:
     """
-    识别进程工作者 (Facade)
+    Recognition worker facade.
     
-    统一调度模型加载器与任务处理器，负责识别进程的完整运行。
+    Coordinate ModelLoader and TaskHandler for the subprocess lifetime.
     """
     def __init__(self, queue_in: Queue, queue_out: Queue, sockets_id: ListProxy,
                  align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int = None,
                  failure_event=None, progress_clock=None):
-        # 1. 初始化核心状态
+        # 1. Initialize worker state.
         self.state = WorkerState()
         
-        # 2. 初始化核心组件 (注入 state)
+        # 2. Inject state into core components.
         self.loader = ModelLoader(align_queue_in, align_queue_out, failure_event)
         self.handler = TaskHandler(queue_in, queue_out, sockets_id, self.state,
                                    failure_event, progress_clock)
         self.failure_event = failure_event
         
-        # 3. 状态追踪
+        # 3. Track lifecycle state.
         self.stdin_fn = stdin_fn
         self._is_running = False
 
     def _setup_environment(self):
-        """配置运行环境 (输入接管、信号处理、资源回收)"""
+        """Configure stdin, signals, and resource cleanup."""
         if self.stdin_fn is not None:
             try:
                 sys.stdin = os.fdopen(self.stdin_fn)
             except Exception as e:
                 logger.warning(Notice('diagnostic.worker.worker_cannot_take_over_standard_input', value0=str(e)))
 
-        # 注册信号处理器 (优雅退出)
+        # Register graceful shutdown signal handlers.
         def signal_handler(signum, frame):
             # sig_name = signal.Signals(signum).name
-            # logger.info(f"Worker 接收到信号 {sig_name} ({signum})，开始退出...")
+            # logger.info(f"Worker received {sig_name} ({signum}); stopping")
             # self.stop()
             # exit(0)
             ...
 
-        # 仅注册主信号
+        # Register primary signals only.
         signal.signal(signal.SIGINT, lambda signum, frame: None)
         
-        # atexit 兜底
+        # Register atexit fallback cleanup.
         atexit.register(self.stop)
         logger.debug(Notice('diagnostic.worker.worker_environment_configured'))
 
     def initialize(self):
-        """执行识别子进程环境初始化与模型加载"""
-        # 1. 系统环境配置
+        """Initialize the worker environment and load models."""
+        # 1. Configure the environment.
         self._setup_environment()
 
-        # 2. 载入核心识别模型
+        # 2. Load recognition models.
         logger.info(Notice('diagnostic.worker.worker_loading_speech_recognition_models'))
         self.loader.load()
         
-        # 3. 将加载好的引擎委派给处理器
+        # 3. Pass loaded engines to the handler.
         self.handler.set_engine(
             recognizer=self.loader.recognizer, 
             punc_model=self.loader.punc_model,
             aligner=self.loader.aligner
         )
         
-        # 4. 通知主进程模型已加载成功
+        # 4. Notify the parent that models are ready.
         self.handler.queue_out.put(True)
         
-        # 5. Windows 下物理内存清理 (优化项)
+        # 5. Optionally trim the Windows working set.
         if system() == 'Windows':
             from core.tools.empty_working_set import empty_current_working_set
             empty_current_working_set()
@@ -95,7 +95,7 @@ class RecognizerWorker:
 
     def start(self):
         """
-        启动子进程任务循环
+        Run the subprocess task loop.
         """
         if self._is_running:return
         self._is_running = True
@@ -113,7 +113,7 @@ class RecognizerWorker:
 
 
     def stop(self):
-        """统一停止 Worker 并释放资源"""
+        """Stop the worker and release resources."""
         if not self._is_running:return
         self._is_running = False
 
@@ -124,6 +124,6 @@ class RecognizerWorker:
 
     def run(self):
         """
-        供 multiprocessing 调用
+        Multiprocessing entry point.
         """
         self.start()

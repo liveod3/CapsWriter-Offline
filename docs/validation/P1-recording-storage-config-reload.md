@@ -97,5 +97,5 @@ not been exercised in this item.
   `test_worker_configuration.py`; adapted `test_audio_file_lifecycle.py` and
   `test_connection_task_isolation.py`, all under `tests/unit/`.
 - Documentation/data exclusion: `.gitignore`, `TODO.md`,
-  `docs/configuration-reload.md` and this acceptance record.
+  `docs/reference/configuration.md` and this acceptance record.
 - Local-only compatibility addition: ignored `config_client.py` (`audio_dir` only).

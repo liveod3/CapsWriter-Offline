@@ -1,12 +1,12 @@
 # coding: utf-8
 """
-剪贴板子模块
+Clipboard package.
 
-提供统一的剪贴板操作接口，包括：
-1. 安全读取剪贴板（支持多种编码）
-2. 安全写入剪贴板
-3. 剪贴板保存/恢复上下文管理器
-4. 粘贴文本（模拟 Ctrl+V）
+Provide clipboard operations:
+1. Read text with encoding fallbacks.
+2. Write text with error handling.
+3. Save and restore clipboard text through a context manager.
+4. Paste by simulating Ctrl+V.
 """
 
 from .. import logger

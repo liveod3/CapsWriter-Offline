@@ -11,8 +11,8 @@ from .chinese_itn import chinese_to_num as itn
 
 def results_to_srt(items: List[RecognitionResult], max_chars: int = 40) -> str:
     """
-    将 RecognitionResult 列表转换为 SRT 格式内容。
-    按逗号、句号、问号、感叹号以及换行符进行分行。
+    Convert RecognitionResult entries to SRT content.
+    Split at commas, sentence punctuation, and newlines.
     """
     if not items:
         return ""
@@ -21,7 +21,7 @@ def results_to_srt(items: List[RecognitionResult], max_chars: int = 40) -> str:
     current_texts = []
     start_time = None
     
-    # 匹配分割符号：中文全角标点、英文半角标点、以及可能存在的换行符
+    # Match Chinese/English punctuation and line breaks.
     split_pattern = re.compile(r'[，。？！、\n]|[,.?!]\s*')
     
     for i, item in enumerate(items):
@@ -31,15 +31,15 @@ def results_to_srt(items: List[RecognitionResult], max_chars: int = 40) -> str:
         current_texts.append(item.text)
         current_content = "".join(current_texts)
         
-        # 触发分割的条件：存在标点或超过最大字数
+        # Split at punctuation or the maximum line length.
         if split_pattern.search(item.text) or len(current_content) >= max_chars:
             content = current_content.strip()
             if content:
-                # 移除末尾标点用于 ITN 处理（可选，保持原样也行）
+                # Optionally remove trailing punctuation before ITN.
                 clean_content = content.rstrip("，。？！、,.?!")
                 itn_content = itn(clean_content)
                 
-                # 预测结束时间
+                # Estimate the end time.
                 end_time_val = items[i+1].start if (i+1) < len(items) else item.start + 0.5
                 
                 subtitles.append(srt.Subtitle(
@@ -51,7 +51,7 @@ def results_to_srt(items: List[RecognitionResult], max_chars: int = 40) -> str:
             current_texts = []
             start_time = None
             
-    # 处理剩余文本
+    # Process remaining text.
     if current_texts:
         content = "".join(current_texts).strip()
         if content:
@@ -67,7 +67,7 @@ def results_to_srt(items: List[RecognitionResult], max_chars: int = 40) -> str:
     return srt.compose(subtitles)
 
 def export_to_srt(path: str, result: TranscriptionResult):
-    """将转录结果保存为 SRT 文件"""
+    """Save transcription as SRT."""
     if not result.results:
         with open(path, "w", encoding="utf-8") as f: f.write("")
         return
@@ -78,7 +78,7 @@ def export_to_srt(path: str, result: TranscriptionResult):
     print(tr('terminal.exporters.subtitle_file_generated', value0=path))
 
 def export_to_json(path: str, result: TranscriptionResult):
-    """将转录结果保存为 JSON 格式的时间戳列表"""
+    """Save transcription as JSON timestamp records."""
     data = [
         {
             "text": r.text,
@@ -91,9 +91,9 @@ def export_to_json(path: str, result: TranscriptionResult):
     print(tr('terminal.exporters.timestamps_exported', value0=path))
 
 def export_to_txt(path: str, result: TranscriptionResult):
-    """将转录结果保存为普通文本"""
+    """Save transcription as plain text."""
     final_text = itn(result.text)
-    # 按标点换行
+    # Split lines at punctuation.
     formatted_text = re.sub(r'([，。？！：])', r'\1\n', final_text)
     with open(path, "w", encoding="utf-8") as f:
         f.write(formatted_text)

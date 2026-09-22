@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-识别子进程管理器 (ProcessManager)
+Recognition process manager (ProcessManager).
 
-负责维护单机识别进程的生命周期，包括启动、模型加载监控、异常退出捕获。
+Manage startup, model-loading supervision, and unexpected process exit.
 """
 from __future__ import annotations
 
@@ -32,9 +32,9 @@ if TYPE_CHECKING:
 
 class ProcessManager:
     """
-    识别子进程管理器
+    Recognition process manager.
     
-    由 CapsWriterServer 调用，专注于进程层级的控制。
+    Provide process-level control for CapsWriterServer.
     """
     def __init__(self, app: CapsWriterServer):
         self._process = None
@@ -60,34 +60,34 @@ class ProcessManager:
 
     def start(self):
         """
-        启动识别子进程并等待模型加载完成
+        Start recognition and wait for model readiness.
         
         Returns:
-            Process: 启动成功的子进程对象
+            Process: Started subprocess.
         """
-        # 防连续触发
+        # Ignore repeated activation.
         if self.is_alive: return
         self.is_alive = True
         self._monitor_stop.clear()
 
-        # 1. 前置检查
+        # 1. Check prerequisites.
         check_model(interactive=False)
 
-        # 2. 初始化共享资源
-        # 使用 Manager 管理共享列表，用于追踪活动连接
+        # 2. Initialize shared resources.
+        # Track active connections through a Manager list.
         state = self.app.state
         self._manager = Manager()
         state.sockets_id = self._manager.list()
         state.worker_failed = Event()
         state.worker_progress = Value('d', time.monotonic())
         
-        # 获取标准输入文件描述符，用于 Windows 下的信号传递补丁
+        # Capture stdin's file descriptor for Windows signal handling.
         stdin_fn = sys.stdin.fileno()
         
-        # 3. 先启动轻量 Aligner 兄弟进程（首个文件请求前不会加载模型）
+        # 3. Start the unloaded aligner sibling before the first file request.
         self._start_aligner_process()
 
-        # 4. 创建并启动 ASR 进程
+        # 4. Create and start ASR.
         self._process = Process(
             target=start_configured_worker,
             args=(self._child_config, 'asr', state.queue_in,
@@ -103,11 +103,11 @@ class ProcessManager:
         )
         self._process.start()
         
-        # 存入状态以便其他模块引用
+        # Publish the process in shared state.
         state.recognize_process = self._process
         logger.info(Notice('diagnostic.process_manager.recognition_process_started_pid', value0=self._process.pid))
 
-        # 5. 等待模型加载完成 (轮询方式)
+        # 5. Poll for model readiness.
         self._wait_for_models()
 
         # Monitor ASR progress and replace only clean idle aligner exits.
@@ -123,7 +123,7 @@ class ProcessManager:
         return self._process
 
     def _start_aligner_process(self):
-        """确保存在一个只等待请求、尚未必加载模型的 Aligner 进程。"""
+        """Ensure an aligner process is available to wait for requests."""
         with self._align_lock:
             if not self.is_alive:
                 return None
@@ -189,7 +189,7 @@ class ProcessManager:
         self._start_aligner_process()
 
     def _record_aligner_idle_exit(self):
-        """识别短时间内反复卸载/重载 Aligner 的资源抖动。"""
+        """Detect repeated aligner unload/reload cycles within a short interval."""
         now = time.monotonic()
         window = 60.0
         self._aligner_idle_exits.append(now)
@@ -264,19 +264,19 @@ class ProcessManager:
         console.line()
 
     def _handle_unexpected_exit(self):
-        """处理子进程加载模型时的意外退出"""
+        """Handle unexpected exit during model loading."""
         exit_code = self._process.exitcode
         if exit_code != 0:
             logger.error(Notice('diagnostic.process_manager.recognition_process_exited_unexpectedly_exitcode', value0=exit_code))
             logger.error(Notice('diagnostic.process_manager.possible_causes_include_damaged_models_native_library_conflicts'))
         
-        # 请求主系统同步退出
+        # Request synchronous application shutdown.
         self.app.stop()
 
     def stop(self):
-        """停止子进程"""
+        """Stop subprocesses."""
 
-        # 防连续触发
+        # Ignore repeated activation.
         if not self.is_alive: return
         self.is_alive = False
         self._monitor_stop.set()

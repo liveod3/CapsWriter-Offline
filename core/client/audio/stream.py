@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-音频流管理模块
+Audio stream management.
 
-提供 AudioStreamManager 类用于管理音频输入流，包括流的创建、
-启动、停止和设备检测。
+Use AudioStreamManager to create, start, and stop input streams
+and detect input devices.
 """
 
 from __future__ import annotations
@@ -32,19 +32,19 @@ if TYPE_CHECKING:
 
 class AudioStreamManager:
     """
-    音频流管理器
+    Manage audio input streams.
     
-    负责管理音频输入流的生命周期，包括：
-    - 检测和选择音频设备
-    - 创建和启动音频流
-    - 处理音频数据回调
-    - 流的重启和关闭
-    - 在空闲时通过重载 PortAudio 动态监控默认设备变动
+    Own the input stream lifecycle:
+    - Detect and select input devices.
+    - Create and start streams.
+    - Handle audio callbacks.
+    - Restart and close streams.
+    - Refresh PortAudio device enumeration while idle.
     
     Attributes:
-        state: 客户端状态实例
-        sample_rate: 采样率（默认 48000Hz）
-        block_duration: 每个数据块的时长（秒，默认 0.05s）
+        state: Client state instance.
+        sample_rate: Sample rate in Hz (default: 48000).
+        block_duration: Block duration in seconds (default: 0.05).
     """
     
     SAMPLE_RATE = 48000
@@ -52,17 +52,17 @@ class AudioStreamManager:
     
     def __init__(self, app: CapsWriterClient):
         """
-        初始化音频流管理器
+        Initialize stream management.
         
         Args:
-            app: 客户端 App 实例
+            app: Client App instance.
         """
         self.app = app
-        # 生命周期操作可能嵌套调用（例如 reopen() 内部调用 stop()/start()）。
+        # Lifecycle operations can nest, such as reopen() calling stop() and start().
         self._stream_lock = threading.RLock()
         self._ready_event = threading.Event()
         self._channels = 1
-        self._running = False  # 标志是否应该运行
+        self._running = False  # Whether the stream should run.
         self._last_input_device = None
         self._monitor_thread = None
         self._monitor_running = False
@@ -73,12 +73,12 @@ class AudioStreamManager:
 
     @property
     def state(self) -> ClientState:
-        """快捷访问状态单例"""
+        """Access shared client state."""
         return self.app.state
 
     @staticmethod
     def _get_input_device_selector():
-        """获取输入设备配置；空字符串与旧配置均回退到系统默认设备。"""
+        """Resolve the input device; empty or legacy settings use the system default."""
         selector = getattr(Config, 'input_device', None)
         if isinstance(selector, str):
             selector = selector.strip()
@@ -86,16 +86,16 @@ class AudioStreamManager:
         return selector
 
     def get_ready_event(self) -> threading.Event:
-        """返回当前音频流的就绪事件，供非阻塞 UI 等待使用。"""
+        """Return the stream readiness event for asynchronous UI feedback."""
         return self._ready_event
 
     def is_ready(self, ready_event: Optional[threading.Event] = None) -> bool:
-        """当前音频流是否已收到首个音频回调。"""
+        """Return whether the stream has delivered its first audio callback."""
         event = ready_event or self._ready_event
         return self._running and event is self._ready_event and event.is_set()
 
     def _commit_input_device(self, device_name: str) -> None:
-        """记录成功选择的输入设备，并在发生切换时统一提示。"""
+        """Remember the selected device and report changes consistently."""
         previous_device = self._last_input_device
         self._last_input_device = device_name
         if not previous_device or previous_device == device_name:
@@ -109,7 +109,7 @@ class AudioStreamManager:
         show_status_hint(message, duration_ms=2600, dot_color='#F59E0B')
 
     def _handle_monitored_device(self, device_name: str) -> None:
-        """处理监控线程观察到的设备，挂起时只更新状态，不重新占用麦克风。"""
+        """Update observed devices without reopening the microphone while suspended."""
         if self._shutdown.is_set() or not device_name or self.state.recording:
             return
 
@@ -123,12 +123,12 @@ class AudioStreamManager:
                 self.reopen()
             return
 
-        # 先前重开失败时，在设备重新可用后继续尝试恢复音频流。
+        # Retry failed stream recovery once the device becomes available.
         if not self._running and not self.state.dictation_paused:
             self.start(silent=True)
 
     def _query_monitored_input_device(self):
-        """查询监控目标；挂起且无流时先刷新 PortAudio 的设备枚举缓存。"""
+        """Query the target device, refreshing PortAudio when suspended without a stream."""
         if not self._running and self.state.stream is None:
             refresh_devices(sd)
 
@@ -146,19 +146,19 @@ class AudioStreamManager:
         ready_event: Optional[threading.Event] = None,
     ) -> None:
         """
-        音频数据回调函数
+        Handle incoming audio.
         
-        当音频流接收到新数据时调用，将数据放入异步队列中。
+        Place new audio samples in the asynchronous queue.
         """
         capture = getattr(self.state, 'capture', None)
-        # stream.start() 返回不代表硬件已经开始交付数据；首个回调才是真正就绪。
+        # start() does not establish hardware readiness; the first callback does.
         event = ready_event or self._ready_event
         if self._shutdown.is_set() or event is not self._ready_event:
             return
         if not event.is_set():
             event.set()
 
-        # 只在录音状态时处理数据
+        # Process samples only while recording.
         if not self.state.recording:
             return
         
@@ -208,7 +208,7 @@ class AudioStreamManager:
         self._monitor_thread.start()
 
     def _device_monitor_loop(self) -> None:
-        """后台静默监控系统默认输入设备变化的循环"""
+        """Monitor default input device changes in the background."""
         while self._monitor_running and not self._shutdown.is_set():
             self._monitor_wakeup.wait(4.0)
             self._monitor_wakeup.clear()
@@ -231,13 +231,13 @@ class AudioStreamManager:
                         logger.warning(Notice('diagnostic.stream.audio_recovery_failed'), type(exc).__name__)
                     continue
             
-            # 如果用户当前正在录音说话，绝对不要打断当前的音频流。
-            # 挂起期间仍可只读查询默认设备，但不会重新打开麦克风。
+            # Do not interrupt the stream during recording.
+            # Read device changes while suspended without reopening the microphone.
             if self.state.recording:
                 continue
                 
             try:
-                # 持锁查询，防止与 reopen() 内的 PortAudio 重初始化并发访问
+                # Hold the lock to serialize queries with PortAudio reinitialization in reopen().
                 with self._stream_lock:
                     if self._shutdown.is_set() or not self._monitor_running:
                         break
@@ -247,12 +247,12 @@ class AudioStreamManager:
 
             except Exception as e:
                 logger.debug(Notice('diagnostic.stream.hardware_monitor_loop_failed', value0=e))
-                # 确保在任何意外错误后，底层的录音流一定能够被拉起
+                # Attempt stream recovery after unexpected errors.
                 if (not self._running) and (not self.state.dictation_paused):
                     self.start(silent=True)
 
     def start(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
-        """在线程安全的生命周期锁内启动音频流。"""
+        """Start the stream under the lifecycle lock."""
         with self._stream_lock:
             if self._shutdown.is_set():
                 return None
@@ -261,13 +261,13 @@ class AudioStreamManager:
 
     def _start_locked(self, silent: bool = False, force: bool = False) -> Optional[sd.InputStream]:
         """
-        启动音频流
+        Start the input stream.
         
         Args:
-            silent: 是否静默启动（不向控制台打印设备选择信息）
+            silent: Suppress console feedback about device selection.
             
         Returns:
-            创建的音频输入流，如果失败返回 None
+            Created input stream, or None on failure.
         """
         if self._shutdown.is_set():
             return None
@@ -284,7 +284,7 @@ class AudioStreamManager:
             except Exception:
                 return None
             
-        # 检测音频设备
+        # Detect input devices.
         device_selector = self._get_input_device_selector()
         try:
             device = sd.query_devices(device=device_selector, kind='input')
@@ -310,7 +310,7 @@ class AudioStreamManager:
                 logger.error(Notice('diagnostic.stream.selected_microphone_not_found', value0=device_selector, value1=e))
             return None
         
-        # 创建音频流
+        # Create the input stream.
         stream = None
         try:
             ready_event = threading.Event()
@@ -354,7 +354,7 @@ class AudioStreamManager:
             return None
     
     def stop(self, keep_monitor: bool = False) -> None:
-        """在线程安全的生命周期锁内停止音频流。"""
+        """Stop the stream under the lifecycle lock."""
         try:
             with self._stream_lock:
                 self._stop_locked(keep_monitor=keep_monitor)
@@ -364,17 +364,17 @@ class AudioStreamManager:
 
     def _stop_locked(self, keep_monitor: bool = False) -> None:
         """
-        停止音频流
+        Stop the input stream.
         
         Args:
-            keep_monitor: 是否保持监控线程的运行标志。在重载驱动重建流时，应设为 True。
+            keep_monitor: Keep monitoring enabled while rebuilding the stream.
         """
         self._ready_event = threading.Event()
         self._recovery_requested = None
             
-        self._running = False  # 标记为停止
+        self._running = False  # Mark the stream as stopped.
 
-        # 仅在需要彻底释放硬件服务时关闭后台监听线程
+        # Stop monitoring only when fully releasing hardware resources.
         if not keep_monitor:
             self._monitor_running = False
             self._monitor_wakeup.set()
@@ -410,29 +410,29 @@ class AudioStreamManager:
     
     def reopen(self) -> Optional[sd.InputStream]:
         """
-        重新启动音频流
+        Restart the input stream.
         
         Returns:
-            新创建的音频输入流
+            Newly created input stream.
         """
         logger.info(Notice('diagnostic.stream.restarting_audio_stream'))
         
         with self._stream_lock:
             if self._shutdown.is_set() or self.state.dictation_paused:
                 return None
-            # 停止旧流，但指示监控线程保持运行，防止其被销毁
+            # Stop the old stream while keeping the monitor alive.
             self.stop(keep_monitor=True)
 
-            # 重载 PortAudio，更新设备列表
-            # 注意：不使用 sd._ffi.dlclose/dlopen 手动卸载/重载 DLL——
-            # 这是私有 API，在 Windows 上行为不可靠，且存在与监控线程的竞态，
-            # 可导致 access violation 崩溃（进程直接退出，无任何 Python 异常记录）。
-            # sd._terminate() + sd._initialize() 足以刷新设备枚举。
+            # Refresh PortAudio device enumeration.
+            # Do not unload/reload DLLs through private sd._ffi.dlclose/dlopen calls.
+            # On Windows these can race with monitoring and cause access violations
+            # that terminate the process without a Python exception.
+            # sd._terminate() and sd._initialize() are sufficient to refresh enumeration.
             refresh_devices(sd)
 
-            # 等待设备稳定
+            # Allow the device to settle.
             if self._shutdown.wait(0.1):
                 return None
 
-            # 启动新流
+            # Start the replacement stream.
             return self.start()

@@ -1,8 +1,8 @@
 # coding: utf-8
-"""轻量 GPU 显存压力监控。
+"""Monitor GPU memory pressure at low frequency.
 
-仅在识别任务执行期间按低频率调用 ``nvidia-smi``。监控结果用于给出
-诊断提示，不参与任务调度，也不会把“显存占用高”表述成已经证实的换页。
+Sample nvidia-smi only during recognition. Report advisory diagnostics;
+do not alter scheduling or infer paging from high memory usage alone.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from . import logger
 
 @dataclass(frozen=True)
 class GpuSample:
-    """一次 NVIDIA GPU 采样。"""
+    """One NVIDIA GPU sample."""
 
     used_mib: float
     total_mib: float
@@ -33,7 +33,7 @@ class GpuSample:
 
 
 def parse_nvidia_smi_output(output: str) -> list[GpuSample]:
-    """解析 ``nvidia-smi --format=csv,noheader,nounits`` 输出。"""
+    """Parse nvidia-smi CSV output without headers or units."""
     samples = []
     for line in output.splitlines():
         fields = [field.strip() for field in line.split(',')]
@@ -49,7 +49,7 @@ def parse_nvidia_smi_output(output: str) -> list[GpuSample]:
 
 
 class GpuPressureDetector:
-    """仅在显存压力连续出现时触发一次，避免瞬时峰值误报。"""
+    """Warn once after sustained pressure, ignoring transient peaks."""
 
     def __init__(self, threshold: float = 0.90, consecutive_samples: int = 3):
         self.threshold = min(1.0, max(0.5, float(threshold)))
@@ -62,7 +62,7 @@ class GpuPressureDetector:
             self._high_count += 1
         else:
             self._high_count = 0
-            # 留出 5% 回差；压力真正解除后，同一长任务可再次报告。
+            # Use 5% hysteresis so a long task can warn again after pressure clears.
             if sample.memory_ratio < self.threshold - 0.05:
                 self._reported = False
 
@@ -77,7 +77,7 @@ class GpuPressureDetector:
 
 
 class GpuMemoryMonitor:
-    """在后台采样 NVIDIA 专用显存，并向服务端终端发出压力告警。"""
+    """Sample NVIDIA dedicated memory in the background and report pressure."""
 
     def __init__(
         self,
@@ -189,5 +189,5 @@ class GpuMemoryMonitor:
 
 
 def highest_pressure(samples: Iterable[GpuSample]) -> Optional[GpuSample]:
-    """供诊断代码复用；空输入返回 None。"""
+    """Return a diagnostic summary, or None for empty input."""
     return max(samples, key=lambda item: item.memory_ratio, default=None)

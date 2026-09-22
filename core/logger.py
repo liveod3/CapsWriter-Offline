@@ -17,12 +17,12 @@ class ConsoleFeedbackFilter(logging.Filter):
 
 
 class TruncatingFileHandler(RotatingFileHandler):
-    """超过 maxBytes 后 truncate 文件，不保留任何备份文件"""
+    """Truncate oversized files without creating rotated backups."""
 
-    _TAIL_LINES = 10  # truncate 前保留的末尾行数
+    _TAIL_LINES = 10  # Number of trailing lines retained during truncation.
 
     def doRollover(self):
-        # truncate 前先读旧文件末尾几行
+        # Read the trailing lines before truncating.
         tail = ''
         try:
             with open(self.baseFilename, 'r', encoding=self.encoding) as f:
@@ -34,7 +34,7 @@ class TruncatingFileHandler(RotatingFileHandler):
         if self.stream:
             self.stream.close()
             self.stream = None
-        # 用 'w' 模式重开，直接清空文件从头写
+        # Reopen in write mode to truncate the existing file.
         self.stream = open(self.baseFilename, 'w', encoding=self.encoding)
         self.stream.write(f'--- Log truncated at {datetime.now()}\n')
         if tail:
@@ -43,31 +43,31 @@ class TruncatingFileHandler(RotatingFileHandler):
 
 
 class Logger:
-    """日志系统管理器"""
+    """Configure application logging."""
 
     _loggers = {}
 
     @classmethod
     def setup(cls, name: str, log_dir: str = None, level: str = 'INFO', max_bytes: int = 10 * 1024 * 1024, log_filename: str = None):
         """
-        设置并返回一个日志记录器
+        Configure and return a logger.
 
         Args:
-            name: 日志记录器名称（通常是 'server' 或 'client'）
-            log_dir: 日志文件目录，默认为项目根目录下的 logs 文件夹
-            level: 日志级别，可选值：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
-            max_bytes: 单个日志文件最大大小，默认 10MB
-            backup_count: 保留的日志文件数量，默认 5 个
-            log_filename: 自定义日志文件名前缀，如果不填则默认使用 name 或 'root'
+            name: Logger name, usually 'server' or 'client'.
+            log_dir: Log directory; defaults to logs under the application root.
+            level: 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'.
+            max_bytes: Maximum latest-log size in bytes; default 10 MB.
+            backup_count: Legacy compatibility argument.
+            log_filename: Optional filename prefix; defaults to name or 'root'.
 
         Returns:
-            logging.Logger: 配置好的日志记录器
+            logging.Logger: Configured logger.
         """
-        # 设置日志级别
+        # Set the log level.
         file_log_level = getattr(logging, level.upper(), logging.INFO)
-        console_log_level = logging.WARNING  # 控制台强制只打印 WARNING 及以上
+        console_log_level = logging.WARNING  # Limit console output to WARNING and above.
 
-        # 如果已经初始化过，更新级别并返回
+        # Update and return an existing logger.
         if name in cls._loggers:
             logger = cls._loggers[name]
             logger.setLevel(min(file_log_level, console_log_level))
@@ -78,26 +78,26 @@ class Logger:
                     handler.setLevel(console_log_level)
             return logger
 
-        # 创建日志记录器
+        # Create the logger.
         logger = logging.getLogger(name if name else None)
         logger.setLevel(min(file_log_level, console_log_level))
 
-        # 确保不会传播到 root logger
+        # Do not propagate records to the root logger.
         if name:
             logger.propagate = False
 
-        # 确定日志目录
+        # Resolve the log directory.
         if log_dir is None:
             from config_client import BASE_DIR
             log_dir = os.path.join(BASE_DIR, 'logs')
 
         from config_client import ClientConfig
         if getattr(ClientConfig, 'save_diagnostic_logs', True):
-            # 创建日志目录
+            # Create the log directory.
             Path(log_dir).mkdir(parents=True, exist_ok=True)
 
 
-            # 1. 文件处理器（根据传入 level 记录）
+            # 1. File handler uses the requested level.
             file_name_prefix = log_filename or name or 'root'
             log_file = os.path.join(log_dir, f'{file_name_prefix}_latest.log')
             formatter = logging.Formatter(
@@ -113,7 +113,7 @@ class Logger:
             file_handler.setFormatter(formatter)
             logger.addHandler(file_handler)
 
-            # latest 保留快速排障入口；独立归档按年/月保存，不包含音频文件。
+            # Keep latest logs for quick diagnosis and separate year/month archives without audio.
             from core.log_archive import DiagnosticArchiveHandler
             try:
                 archive = DiagnosticArchiveHandler(
@@ -124,10 +124,10 @@ class Logger:
                 archive.setLevel(file_log_level)
                 logger.addHandler(archive)
             except (OSError, ValueError):
-                # 归档失败不妨碍录音或 latest 日志；避免递归调用日志配置。
+                # Archive failure must not block recording or latest logs; avoid recursive configuration.
                 pass
 
-        # 2. 控制台处理器（固定 WARNING 及以上，使用 rich 渲染）
+        # 2. Rich console handler uses WARNING and above.
         stream_handler = RichHandler(
             level=console_log_level,
             rich_tracebacks=True,
@@ -138,7 +138,7 @@ class Logger:
         stream_handler.setFormatter(LocalizedFormatter())
         logger.addHandler(stream_handler)
 
-        # 缓存日志记录器
+        # Cache the logger.
         cls._loggers[name] = logger
 
         return logger
@@ -146,27 +146,27 @@ class Logger:
     @classmethod
     def get_logger(cls, name: str):
         """
-        获取已创建的日志记录器，如果不存在则创建一个默认的
+        Return an existing logger, or create a default logger.
 
         Args:
-            name: 日志记录器名称
+            name: Logger name.
 
         Returns:
-            logging.Logger: 日志记录器
+            logging.Logger: Logger instance.
         """
         if name not in cls._loggers:
-            # 如果 logger 还没有被初始化，先创建一个默认的（INFO 级别）
-            # 之后 core_client.py/core_server.py 会用正确的级别重新初始化
+            # Create a default INFO logger if initialization has not run yet.
+            # Client/server startup later applies the configured level.
             return cls.setup(name, level='INFO')
         return cls._loggers[name]
 
 
-# 便捷函数
+# Convenience functions.
 def setup_logger(name: str, log_dir: str = None, level: str = 'INFO', **kwargs):
-    """设置日志记录器的便捷函数"""
+    """Configure a logger through the shared manager."""
     return Logger.setup(name, log_dir, level, **kwargs)
 
 
 def get_logger(name: str):
-    """获取日志记录器的便捷函数"""
+    """Get a logger through the shared manager."""
     return Logger.get_logger(name)

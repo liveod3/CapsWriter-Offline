@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-音频录制模块
+Audio recording.
 
-提供 AudioRecorder 类用于管理录音会话，包括开始录音、
-发送音频数据到服务端、结束录音等功能。
+Use AudioRecorder to manage recording sessions,
+upload audio, and finish recording.
 """
 
 from __future__ import annotations
@@ -37,25 +37,25 @@ if TYPE_CHECKING:
     from core.client.state import ClientState
     from core.client.app import CapsWriterClient
 
-# 日志记录器
+# Module logger.
 
 
 class AudioRecorder:
     """
-    音频录制器
+    Audio recorder.
     
-    管理一次完整的录音会话，包括：
-    - 从音频流接收数据
-    - 可选地保存到本地文件
-    - 将音频数据发送到识别服务端
+    Manage one recording session:
+    - Receive data from the audio stream.
+    - Optionally save audio locally.
+    - Send audio to the recognition server.
     """
     
     def __init__(self, app: CapsWriterClient):
         """
-        初始化录制器
+        Initialize the recorder.
         
         Args:
-            app: 客户端 App 实例
+            app: Client App instance.
         """
         self.app = app
         self.task_id: str = str(uuid.uuid4())
@@ -70,12 +70,12 @@ class AudioRecorder:
 
     @property
     def state(self) -> ClientState:
-        """快捷访问状态单例"""
+        """Access shared client state."""
         return self.app.state
 
     @property
     def _ws_manager(self) -> WebSocketManager:
-        """快捷访问桥接到 app.ws"""
+        """Access app.ws."""
         return self.app.ws
 
     async def _create_recording_file(self, channels):
@@ -119,10 +119,10 @@ class AudioRecorder:
     
     async def record_and_send(self, capture=None) -> None:
         """
-        录音并发送数据
+        Record and upload audio.
         
-        从队列中读取音频数据，保存到文件（如果启用），
-        并发送到服务端进行识别。
+        Read queued audio, save it when enabled,
+        and send it to the server for recognition.
         """
         # Freeze the input source for this recorder, including while it drains
         # after a new recording has already claimed the microphone.
@@ -133,20 +133,20 @@ class AudioRecorder:
             if len(self.state.dictation_uploads) >= MAX_PENDING_DICTATIONS:
                 raise DictationSendError('PendingDictationLimit')
             self.state.dictation_uploads[self.task_id] = upload_done
-            # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
+            # Fix the ID at construction so shortcuts can display status when recording ends.
             logger.debug(Notice('diagnostic.recorder.recording_task_created_task', value0=self.task_id))
             
             self._start_time = 0.0
             self._duration = 0.0
             self._cache = []
             
-            # 音频文件管理
+            # Audio file management.
             file_path = None
             if Config.save_audio:
                 self._file_manager = await asyncio.to_thread(AudioFileManager)
                 self._writer = AsyncAudioWriter(self._file_manager)
             
-            # 从队列读取数据
+            # Read queued samples.
             while task := await input_queue.get():
                 if capture is None:
                     input_queue.task_done()
@@ -165,18 +165,18 @@ class AudioRecorder:
                     logger.debug(Notice('diagnostic.recorder.recording_started_timestamp', value0=self._start_time))
                     
                 elif task['type'] == 'data':
-                    # 在阈值之前积攒音频数据
+                    # Accumulate audio until the activation threshold.
                     if task['time'] - self._start_time < Config.threshold:
                         if len(self._cache) >= CaptureSession.MAX_PENDING_BLOCKS:
                             raise RuntimeError('CaptureBufferOverflow')
                         self._cache.append(task['data'])
                         continue
                     
-                    # 创建音频文件
+                    # Create the audio file.
                     if self._writer and file_path is None:
                         file_path = await self._create_recording_file(task['data'].shape[1])
                     
-                    # 获取音频数据
+                    # Retrieve audio samples.
                     if self._cache:
                         self._cache.append(task['data'])
                         data = np.concatenate(self._cache)
@@ -184,12 +184,12 @@ class AudioRecorder:
                     else:
                         data = task['data']
                     
-                    # 保存音频至本地文件
+                    # Save audio locally.
                     self._duration += len(data) / 48000
                     if self._writer:
                         await self._writer.call(self._file_manager.write, data)
                     
-                    # 发送音频数据用于识别
+                    # Upload audio for recognition.
                     message = AudioMessage(
                         task_id=self.task_id,
                         source='mic',
@@ -206,12 +206,12 @@ class AudioRecorder:
                     await self._send_message(message)
                     
                 elif task['type'] == 'finish':
-                    # 如果有缓存的数据未发送，先发送缓存
+                    # Send buffered audio first.
                     if self._cache:
                         data = np.concatenate(self._cache)
                         self._cache.clear()
 
-                        # 短录音可能在阈值前就结束，此时需要先创建文件再写入
+                        # Short recordings may finish before activation; create the file before writing.
                         if self._writer and file_path is None:
                             file_path = await self._create_recording_file(data.shape[1])
                         
@@ -234,7 +234,7 @@ class AudioRecorder:
                         )
                         await self._send_message(message)
 
-                    # 完成写入本地文件
+                    # Finish local audio output.
                     if self._writer:
                         await self._writer.close()
                         logger.debug(Notice('diagnostic.recorder.audio_file_writing_completed'))
@@ -244,7 +244,7 @@ class AudioRecorder:
                     )
                     logger.info(Notice('diagnostic.recorder.recording_task_completed_task_duration_s', value0=self.task_id, value1=self._duration))
                     
-                    # 告诉服务端音频片段结束了
+                    # Mark the final audio segment for the server.
                     message = AudioMessage(
                         task_id=self.task_id,
                         source='mic',
@@ -290,5 +290,5 @@ class AudioRecorder:
             await complete_cleanup(cleanup())
     
     def get_file_manager(self) -> Optional[AudioFileManager]:
-        """获取当前的文件管理器"""
+        """Return the current file manager."""
         return self._file_manager

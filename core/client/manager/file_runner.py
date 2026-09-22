@@ -27,7 +27,7 @@ DEFAULT_MEDIA_EXTENSIONS = frozenset({
 
 
 class TranscriptionTaskLog:
-    """为一次文件转写运行附加独立日志，并在结束时安全移除。"""
+    """Attach a per-run transcription log and remove it when the run ends."""
 
     def __init__(self, base_dir: Path, *, enabled: bool = True):
         self.base_dir = Path(base_dir)
@@ -36,7 +36,7 @@ class TranscriptionTaskLog:
         self._handler: logging.FileHandler | None = None
 
     def start(self, *, now: datetime | None = None) -> Path:
-        """开始记录；独立日志按 ``年份/月份`` 归档且不会覆盖。"""
+        """Start a unique log archived under YYYY/MM."""
         if not self.enabled or self._handler is not None:
             return self.path
 
@@ -82,7 +82,7 @@ class TranscriptionTaskLog:
         return self.path
 
     def close(self) -> None:
-        """停止独立日志记录；可重复调用。"""
+        """Stop per-run logging idempotently."""
         if self._handler is None:
             return
         logger.info(Notice('diagnostic.file_runner.file_transcription_log_closed'))
@@ -92,7 +92,7 @@ class TranscriptionTaskLog:
 
 
 def _configured_media_extensions() -> frozenset[str]:
-    """读取并规范化目录扫描使用的媒体扩展名。"""
+    """Normalize media extensions used for directory scanning."""
     configured = getattr(Config, 'file_media_extensions', DEFAULT_MEDIA_EXTENSIONS)
     try:
         extensions = {
@@ -111,10 +111,10 @@ def resolve_input_paths(
     recursive: bool | None = None,
 ) -> list[Path]:
     """
-    将文件和文件夹参数展开成稳定、有序且去重的文件列表。
+    Expand files and directories into a stable, ordered, deduplicated file list.
 
-    直接传入的媒体文件保持兼容；文件夹只扫描配置允许的媒体格式，避免把
-    已生成的 txt/json/srt 再次当作输入。
+    Keep direct media paths compatible; scan directories only for allowed extensions
+    so generated TXT, JSON, and SRT files are not treated as inputs.
     """
     if recursive is None:
         recursive = bool(getattr(Config, 'file_scan_recursive', True))
@@ -159,7 +159,7 @@ def resolve_input_paths(
 
 class FileRunner:
     """
-    文件模式运行器：负责一个或多个音视频文件的 ASR 转录。
+    Run ASR transcription for one or more media files.
     """
     def __init__(
         self,
@@ -182,7 +182,7 @@ class FileRunner:
         return self.app.ws
 
     async def _process_file(self, file: Path):
-        """处理单个输入；失败由调用方记录后继续下一个文件。"""
+        """Process one input; the caller reports failure and continues to the next file."""
         from ..transcribe import FileTranscriber
 
         transcriber = FileTranscriber(
@@ -236,7 +236,7 @@ class FileRunner:
                 self._failure_code = getattr(transcriber, 'failure_code', None)
 
     async def run(self):
-        """文件转录模式主循环 (Coroutine)"""
+        """Run the file transcription coroutine."""
         from ..ui import TipsDisplay
         from ..transcribe.file_transcriber import format_duration
 
@@ -341,8 +341,8 @@ class FileRunner:
                 Notice('diagnostic.file_runner.file_batch_completed_total_succeeded_failed_audio_s', value0=total, value1=succeeded_count, value2=failed_count, value3=total_audio, value4=batch_elapsed, value5=speed_ratio, value6=total_outputs)
             )
             
-            # 打包版双击/拖拽启动时保留窗口，便于用户查看结果；
-            # conda run、重定向或其他无 stdin 场景应当正常结束，不能把成功任务报成失败。
+            # Keep packaged double-click and drag-and-drop windows open for result review.
+            # Missing stdin in conda run or redirected sessions must not turn success into failure.
             if sys.stdin is not None and sys.stdin.isatty():
                 try:
                     input(tr('file.exit_prompt'))

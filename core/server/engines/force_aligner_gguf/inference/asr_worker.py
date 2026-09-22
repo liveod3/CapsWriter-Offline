@@ -8,7 +8,7 @@ from .encoder import QwenAudioEncoder
 from .aligner import QwenForcedAligner
 
 def do_encode_task(msg, encoder, from_enc_q):
-    """处理音频编码任务"""
+    """Handle an audio encoding request."""
     audio_embd, encode_time, = encoder.encode(msg.data)
     from_enc_q.put(StreamingMessage(
         msg_type=MsgType.MSG_EMBD, 
@@ -18,7 +18,7 @@ def do_encode_task(msg, encoder, from_enc_q):
     ))
 
 def do_align_task(msg, aligner, from_align_q):
-    """处理时间戳对齐任务"""
+    """Handle a timestamp alignment request."""
     if aligner is None:
         from_align_q.put(StreamingMessage(MsgType.MSG_ALIGN, data=None))
         return
@@ -40,15 +40,15 @@ def do_align_task(msg, aligner, from_align_q):
         from_align_q.put(StreamingMessage(MsgType.MSG_ALIGN, data=None))
 
 def asr_helper_worker_proc(to_worker_q, from_enc_q, from_align_q, config: ASREngineConfig):
-    """ASR 辅助进程：同步处理任务，但分流结果回复 (一进两出架构)"""
+    """Process helper tasks synchronously with separate encoding and alignment reply queues."""
     
-    # 1. 资源初始化
+    # 1. Initialize resources.
     try:
         # Split Model Paths
         frontend_path = os.path.join(config.model_dir, config.encoder_frontend_fn)
         backend_path = os.path.join(config.model_dir, config.encoder_backend_fn)
         
-        # 初始化 Split Encoder
+        # Initialize the split encoder.
         encoder = QwenAudioEncoder(
             frontend_path=frontend_path,
             backend_path=backend_path,
@@ -70,7 +70,7 @@ def asr_helper_worker_proc(to_worker_q, from_enc_q, from_align_q, config: ASREng
         from_enc_q.put(StreamingMessage(MsgType.MSG_ERROR, data=e))
         return
 
-    # 2. 统一任务循环
+    # 2. Process incoming tasks.
     while True:
         msg: StreamingMessage = to_worker_q.get()
         

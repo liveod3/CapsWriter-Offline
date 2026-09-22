@@ -1,4 +1,4 @@
-"""托盘菜单的统一矢量式图标，按 DPI 绘制为原生菜单位图。"""
+"""Render shared vector tray icons into DPI-scaled native menu bitmaps."""
 
 from PIL import Image, ImageDraw
 

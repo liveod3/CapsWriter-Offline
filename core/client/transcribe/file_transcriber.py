@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-文件转录模块
+File transcription module.
 
-提供 FileTranscriber 类用于将音视频文件转录为字幕。
+Use FileTranscriber to produce subtitles from media files.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ class MediaDecodeError(RuntimeError):
 
 
 def format_duration(seconds: float) -> str:
-    """将秒数格式化为适合终端统计信息的紧凑时长。"""
+    """Format seconds as a compact terminal duration."""
     seconds = max(0.0, seconds)
     hours, remainder = divmod(int(seconds + 0.5), 3600)
     minutes, whole_seconds = divmod(remainder, 60)
@@ -58,7 +58,7 @@ def format_duration(seconds: float) -> str:
 
 @dataclass(frozen=True)
 class TranscriptionSummary:
-    """单个文件转写完成后的终端统计信息。"""
+    """Terminal statistics for one completed file."""
 
     audio_duration: float
     elapsed: float
@@ -68,18 +68,18 @@ class TranscriptionSummary:
 
     @property
     def speed_ratio(self) -> float:
-        """音频长度 / 转写耗时；1.0 表示实时速度。"""
+        """Return audio duration divided by elapsed time; 1.0 is real time."""
         return self.audio_duration / self.elapsed if self.elapsed > 0 else 0.0
 
     @property
     def rtf(self) -> float:
-        """标准实时因子（转写耗时 / 音频长度），越小越快。"""
+        """Return elapsed time divided by audio duration; lower is faster."""
         return self.elapsed / self.audio_duration if self.audio_duration > 0 else 0.0
 
 
 @dataclass
 class ProgressEstimator:
-    """根据累计与最近处理速度平滑估算实时速度和 ETA。"""
+    """Smooth throughput and ETA using cumulative and recent progress."""
 
     started_at: float
     completed: float = 0.0
@@ -105,8 +105,8 @@ class ProgressEstimator:
         delta_audio = max(0.0, completed - self.last_completed)
         recent_speed = delta_audio / delta_time if delta_audio else overall_speed
 
-        # 累计速度抵抗单个分片抖动，最近速度及时跟随模型负载变化；再用
-        # EWMA 抑制 ETA 在相邻分片之间大幅跳动。
+        # Cumulative speed limits chunk jitter; recent speed tracks load changes.
+        # Apply EWMA to smooth ETA changes between chunks.
         measurement = overall_speed * 0.65 + recent_speed * 0.35
         if self.smoothed_speed > 0:
             lower = self.smoothed_speed / 3
@@ -126,13 +126,13 @@ class ProgressEstimator:
             self.eta_deadline = None
 
     def live_speed(self, *, now: float | None = None) -> float:
-        """返回已确认音频时长 / 已耗时，随终端刷新实时更新。"""
+        """Return confirmed audio duration divided by elapsed time at each refresh."""
         now = time.perf_counter() if now is None else now
         elapsed = max(now - self.started_at, 1e-6)
         return self.completed / elapsed
 
     def eta_seconds(self, *, now: float | None = None) -> float | None:
-        """返回平滑 ETA；分片回报之间按墙钟时间连续倒计时。"""
+        """Return smoothed ETA, counting down by wall time between progress updates."""
         if self.eta_deadline is None:
             return None
         now = time.perf_counter() if now is None else now
@@ -140,7 +140,7 @@ class ProgressEstimator:
 
 
 class LiveMetricsColumn(ProgressColumn):
-    """渲染动态 ETA 和实时倍速。"""
+    """Render ETA and throughput relative to real time."""
 
     def render(self, task) -> Text:
         estimator: ProgressEstimator = task.fields['estimator']
@@ -156,7 +156,7 @@ class LiveMetricsColumn(ProgressColumn):
 
 
 async def read_fixed_chunk(reader: asyncio.StreamReader, chunk_size: int) -> bytes:
-    """从异步管道累计读取一个定长块；到达 EOF 时返回最后一个不足定长的块。"""
+    """Accumulate a fixed-size pipe block, returning a shorter final block at EOF."""
     if chunk_size <= 0:
         raise ValueError(Notice('validation.file_transcriber.chunk_size_must_be_positive'))
 
@@ -171,13 +171,13 @@ async def read_fixed_chunk(reader: asyncio.StreamReader, chunk_size: int) -> byt
 
 class FileTranscriber:
     """
-    文件转录器
+    File transcriber.
     
-    协调转录流程：
-    1. 检查环境与文件
-    2. 调用 MediaTool 提取音频
-    3. 通过 WebSocket 发送数据
-    4. 调用 ResultHandler 处理结果
+    Coordinate transcription:
+    1. Validate the environment and input.
+    2. Extract audio through MediaTool.
+    3. Upload audio over WebSocket.
+    4. Process results through ResultHandler.
     """
     
     def __init__(
@@ -188,12 +188,12 @@ class FileTranscriber:
         output_formats: frozenset[str],
     ):
         """
-        初始化文件转录器
+        Initialize the file transcriber.
         
         Args:
-            app: 客户端 App 实例
-            file: 要转录的文件路径
-            output_formats: 本次任务需要保存的结果格式
+            app: Client App instance.
+            file: Input media path.
+            output_formats: Formats to save for this run.
         """
         self.app = app
         self.file = file
@@ -217,7 +217,7 @@ class FileTranscriber:
         self._send_window = asyncio.BoundedSemaphore(max_inflight)
 
     def _start_progress(self) -> None:
-        """启动单行实时进度；非交互输出保持安静，避免重定向日志膨胀。"""
+        """Start single-line progress; keep noninteractive output quiet to bound log size."""
         if not console.is_terminal or self._progress is not None:
             return
         self._progress = Progress(
@@ -253,7 +253,7 @@ class FileTranscriber:
         )
 
     def _update_progress(self, processed: float, *, finished: bool = False) -> None:
-        """以服务端确认的已处理音频时长更新进度。"""
+        """Update progress from server-confirmed processed audio duration."""
         if self._progress is None or self._progress_task_id is None:
             return
         total = self._audio_duration if self._audio_duration > 0 else None
@@ -292,28 +292,28 @@ class FileTranscriber:
 
     @property
     def state(self) -> ClientState:
-        """快捷访问状态单例"""
+        """Access shared client state."""
         return self.app.state
 
     @property
     def _ws_manager(self) -> 'WebSocketManager':
-        """快捷访问桥接到 app.ws"""
+        """Access app.ws."""
         return self.app.ws
     
     async def check(self) -> bool:
-        """检查转录条件"""
-        # 检查文件是否存在
+        """Check transcription prerequisites."""
+        # Check that the file exists.
         if not self.file.exists():
             self.failure_code = 'missing_file'
             logger.error(Notice('diagnostic.file_transcriber.input_file_not_found'), extra={'console_handled': True})
             return False
 
-        # 检查媒体工具环境 (FFmpeg)
+        # Check FFmpeg availability.
         if not MediaTool.check_environment():
             self.failure_code = 'decoder_unavailable'
             return False
 
-        # 检查服务端连接
+        # Check the server connection.
         if not await asyncio.wait_for(
             self._ws_manager.connect(announce=False), self._io_timeout
         ):
@@ -325,9 +325,9 @@ class FileTranscriber:
         return True
     
     async def send(self) -> bool:
-        """发送音频数据到服务端 (异步流式处理)"""
+        """Stream audio asynchronously to the server."""
         
-        # 1. 预先获取时长
+        # 1. Probe duration.
         self._audio_duration = await MediaTool.get_audio_duration(self.file)
         
         logger.info(Notice('diagnostic.file_transcriber.file_transcription_started_task'), self.task_id[:8])
@@ -335,7 +335,7 @@ class FileTranscriber:
         self._started_at = time.perf_counter()
         self._start_progress()
         
-        # 2. 启动 FFmpeg 进程
+        # 2. Start FFmpeg.
         ffmpeg_cmd = MediaTool.build_ffmpeg_cmd(self.file)
         
         process = None
@@ -346,9 +346,9 @@ class FileTranscriber:
                 stderr=asyncio.subprocess.DEVNULL
             )
             
-            # StreamReader.read(n) 不保证一次返回 n 字节。必须在客户端先累计出
-            # 一个完整识别分片，否则“在途消息数”会按管道碎片消耗，并在服务端
-            # 凑够首个识别片段前形成相互等待。
+            # StreamReader.read(n) may return fewer than n bytes. Accumulate complete
+            # recognition chunks so pipe fragments do not consume the in-flight window
+            # before the server has enough audio to process its first chunk.
             chunk_size = AudioFormat.seconds_to_bytes(Config.file_seg_duration)
             bytes_sent = 0
             progress = 0.0
@@ -389,7 +389,7 @@ class FileTranscriber:
             if returncode != 0:
                 raise MediaDecodeError(f'DecoderExit:{returncode}')
 
-            # 发送结束标志
+            # Send the final marker.
             final_message = AudioMessage(
                 task_id=self.task_id,
                 source='file',
@@ -437,7 +437,7 @@ class FileTranscriber:
                 await complete_cleanup(reap_process(process))
     
     async def receive(self) -> bool:
-        """接收转录结果"""
+        """Receive transcription results."""
         message = None
         loop = asyncio.get_running_loop()
         deadline = loop.time() + self._result_timeout
@@ -476,7 +476,7 @@ class FileTranscriber:
                 if msg.is_final:
                     # Do not save a final received while the sender is failing.
                     await asyncio.wait_for(self._send_complete.wait(), self._io_timeout)
-                    message = msg # 保持变量名兼容后续调用
+                    message = msg # Preserve names used by subsequent processing.
                     break
         except Exception as exc:
             if self.failure_code is None:
@@ -494,7 +494,7 @@ class FileTranscriber:
         if message is None:
             return False
 
-        # 调用结果处理器进行保存和格式化
+        # Format and save through the result handler.
         try:
             text_display, sequence, output_paths = ResultHandler.save_results(
                 self.file,
@@ -534,7 +534,7 @@ class FileTranscriber:
 
 
     async def close(self) -> None:
-        """释放资源，关闭 WebSocket 连接"""
+        """Release resources and close the WebSocket connection."""
         self._stop_progress(discard=self.summary is None)
         websocket = getattr(self.state, 'websocket', None)
         try:

@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-客户端状态管理模块
+Client state management.
 
-提供 ClientState 类用于管理客户端的全局状态。
-使用 dataclass 提供类型安全和清晰的状态定义。
+Store shared client state in ClientState.
+Use dataclasses for explicit fields and type annotations.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from rich.theme import Theme
 from . import logger
 
 
-# 配置 Rich console
+# Configure the Rich console.
 _theme = Theme({
     'ui.title': 'bold #F8FAFC',
     'ui.accent': 'bold #38BDF8',
@@ -44,7 +44,7 @@ _theme = Theme({
     'ui.progress.done': '#5EE6A8',
     'markdown.code': '#38BDF8',
     'markdown.item.number': '#FFD166',
-    # 兼容尚未迁移的旧标记，避免同一客户端出现两套基础色。
+    # Retain legacy color tags so the client uses one base palette.
     'green': '#5EE6A8',
     'green4': '#5EE6A8',
     'cyan': '#38BDF8',
@@ -58,21 +58,21 @@ console = Console(highlight=False, soft_wrap=True, theme=_theme)
 @dataclass
 class ClientState:
     """
-    客户端运行状态
+    Client runtime state.
 
-    管理客户端运行过程中的所有共享状态，包括事件循环、消息队列、
-    WebSocket 连接、音频流和录音状态等。
+    Share the event loop, message queues,
+    WebSocket connection, audio stream, and recording state.
 
     Attributes:
-        loop: asyncio 事件循环
-        queue_in: 音频数据输入队列
-        queue_out: 处理结果输出队列（保留）
-        websocket: WebSocket 客户端连接
-        stream: 音频输入流
-        recording: 是否正在录音
-        recording_start_time: 录音开始时间戳
-        audio_files: 任务ID到音频文件路径的映射
-        last_recognition_text: 最近一次识别的最终文本，用于保留 ASR 原文
+        loop: asyncio event loop.
+        queue_in: Incoming audio queue.
+        queue_out: Reserved result output queue.
+        websocket: Client WebSocket connection.
+        stream: Audio input stream.
+        recording: Whether recording is active.
+        recording_start_time: Recording start timestamp.
+        audio_files: Mapping from task IDs to audio paths.
+        last_recognition_text: Most recent final ASR text, before LLM processing.
     """
 
     queue_in: asyncio.Queue = field(default_factory=asyncio.Queue)
@@ -99,23 +99,23 @@ class ClientState:
     last_activity_time: float = field(default_factory=time.time)
     audio_files: Dict[str, Path] = field(default_factory=dict)
 
-    # 最近一次识别结果（未经 LLM 处理）
+    # Most recent recognition result before LLM processing.
     last_recognition_text: Optional[str] = None
     
-    # 最近一次输出内容（如果是 LLM 润色，则是润色结果；否则是原始识别结果）
+    # Most recent output: LLM output when used, otherwise the ASR result.
     last_output_text: Optional[str] = None
     
 
     
     def reset(self) -> None:
         """
-        重置状态
+        Reset shared state.
         
-        清理所有状态，关闭连接和流。用于重新初始化或退出时清理。
+        Clear state and release connections and streams for reinitialization or shutdown.
         """
         logger.debug(Notice('diagnostic.state.resetting_client_state'))
         
-        # 关闭 WebSocket 连接
+        # Close the WebSocket connection.
         ws = self.websocket
         if ws is not None:
             try:
@@ -125,7 +125,7 @@ class ClientState:
                 pass
             self.websocket = None
         
-        # 关闭音频流
+        # Close the audio stream.
         if self.stream is not None:
             try:
                 self.stream.close()
@@ -134,7 +134,7 @@ class ClientState:
                 pass
             self.stream = None
         
-        # 重置其他状态
+        # Reset remaining state.
         with self.recording_lock:
             if self.capture is not None:
                 self.capture.cancel()
@@ -155,10 +155,10 @@ class ClientState:
     
     def start_recording(self, start_time: float) -> None:
         """
-        开始录音
+        Start recording.
         
         Args:
-            start_time: 录音开始的时间戳
+            start_time: Recording start timestamp.
         """
         self.recording = True
         self.recording_start_time = start_time
@@ -166,10 +166,10 @@ class ClientState:
     
     def stop_recording(self) -> float:
         """
-        停止录音
+        Stop recording.
         
         Returns:
-            录音持续时间（秒）
+            Recording duration in seconds.
         """
         duration = 0.0
         if self.recording_start_time > 0:
@@ -182,7 +182,7 @@ class ClientState:
     
     @property
     def is_connected(self) -> bool:
-        """检查 WebSocket 是否已连接"""
+        """Return whether the WebSocket is connected."""
         if self.websocket is None:
             return False
         try:
@@ -192,24 +192,24 @@ class ClientState:
     
     def register_audio_file(self, task_id: str, file_path: Path) -> None:
         """
-        注册音频文件
+        Register an audio file.
         
         Args:
-            task_id: 任务ID
-            file_path: 音频文件路径
+            task_id: Task identifier.
+            file_path: Audio file path.
         """
         self.audio_files[task_id] = file_path
         logger.debug(Notice('diagnostic.state.audio_file_registered_task'), task_id[:8])
     
     def pop_audio_file(self, task_id: str) -> Optional[Path]:
         """
-        获取并移除音频文件路径
+        Get and remove an audio path.
         
         Args:
-            task_id: 任务ID
+            task_id: Task identifier.
             
         Returns:
-            音频文件路径，如果不存在则返回 None
+            Audio file path, or None if absent.
         """
         file_path = self.audio_files.pop(task_id, None)
         if file_path:
@@ -218,9 +218,9 @@ class ClientState:
 
     def set_output_text(self, text: str) -> None:
         """
-        设置最近一次输出文本
+        Set the most recent output text.
         
         Args:
-            text: 输出文本内容
+            text: Output text.
         """
         self.last_output_text = text

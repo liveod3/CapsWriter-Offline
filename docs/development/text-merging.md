@@ -1,7 +1,7 @@
 # Text overlap merging
 
-Implementation: [text_merger.py](../core/server/merger/text_merger.py).
-This path builds the `text` result without timestamps; timestamp-based merging is a separate path in [merger](../core/server/merger/).
+Implementation: [text_merger.py](../../core/server/merger/text_merger.py).
+This path builds the `text` result without timestamps; timestamp-based merging is a separate path in [merger](../../core/server/merger).
 
 ## Current behavior
 
@@ -16,4 +16,4 @@ The splice can discard unmatched text after the selected block in the previous i
 
 The windows and thresholds are implementation details, not public configuration fields. Earlier references to `util/constants.py`, `OVERLAP_CHARS = 20` and `ERROR_TOLERANCE = 3` no longer describe the implementation.
 
-Tests: [test_text_processing.py](../tests/unit/test_text_processing.py). Use synthetic text fixtures; model accuracy requires separate audio evaluation.
+Tests: [test_text_processing.py](../../tests/unit/test_text_processing.py). Use synthetic text fixtures; model accuracy requires separate audio evaluation.

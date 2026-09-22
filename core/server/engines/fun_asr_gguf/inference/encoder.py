@@ -8,13 +8,13 @@ from pathlib import Path
 from . import logger
 
 class FunASRMelExtractor:
-    """FunASR 专用 Mel 特征提取器 - 极致对齐 torchaudio"""
+    """Extract FunASR Mel features using torchaudio conventions."""
     def __init__(self, sr=16000, n_fft=400, n_mels=80, f_min=20, f_max=8000):
         self.sr = sr
         self.n_fft = n_fft
         self.n_mels = n_mels
         
-        # 1. 动态生成极致对齐的梅尔矩阵 (复刻 torchaudio 逻辑)
+        # Build the Mel matrix using torchaudio's formulas.
         hz_to_mel = lambda f: 2595.0 * np.log10(1.0 + (f / 700.0))
         mel_to_hz = lambda m: 700.0 * (10.0 ** (m / 2595.0) - 1.0)
 
@@ -30,20 +30,20 @@ class FunASRMelExtractor:
         self.filters = fb.astype(np.float32)
         
         self.hop_length = 160
-        # 预计算汉明窗 (纯 NumPy 实现，对齐 torchaudio periodic=True / scipy sym=False)
+        # Precompute a periodic Hamming window with NumPy.
         self.window = (0.54 - 0.46 * np.cos(2.0 * np.pi * np.arange(self.n_fft) / self.n_fft)).astype(np.float32)
         self.pre_emphasis = 0.97
 
     def extract(self, audio: np.ndarray) -> np.ndarray:
-        # 1. 均值归一化
+        # 1. Subtract the mean.
         audio = audio - np.mean(audio)
         
-        # 2. 向量化预加重
+        # 2. Apply vectorized pre-emphasis.
         audio_pe = np.empty_like(audio)
         audio_pe[0] = audio[0]
         audio_pe[1:] = audio[1:] - self.pre_emphasis * audio[:-1]
         
-        # 3. STFT (使用 np.fft.rfft)
+        # 3. Compute STFT through np.fft.rfft.
         half_n_fft = self.n_fft // 2
         y = np.pad(audio_pe, (half_n_fft, half_n_fft), mode='constant')
         num_frames = 1 + (len(y) - self.n_fft) // self.hop_length
@@ -53,16 +53,16 @@ class FunASRMelExtractor:
             strides=(y.strides[0] * self.hop_length, y.strides[0])
         )
         
-        # 加窗并执行 FFT
+        # Apply the window and FFT.
         win_frames = frames * self.window
         stft_res = np.fft.rfft(win_frames, n=self.n_fft, axis=1)
         magnitudes = np.abs(stft_res)**2 
         
-        # 4. Mel 映射与 Log
+        # 4. Apply Mel filters and logarithms.
         mel_spec = np.dot(magnitudes, self.filters) 
         log_mel = np.log(mel_spec + 1e-7)
         
-        # 5. LFR 堆叠 (7 帧叠加, 6 帧跳跃)
+        # 5. Stack seven LFR frames with a stride of six.
         T_mel = log_mel.shape[0]
         T_lfr = (T_mel + 5) // 6
         
@@ -78,7 +78,7 @@ class FunASRMelExtractor:
         return lfr_feat
 
 class AudioEncoder:
-    """FunASR 音频编码器 (基于 ONNX Runtime)"""
+    """FunASR audio encoder using ONNX Runtime."""
     def __init__(self, model_path: str, onnx_provider: str = 'CPU', dml_pad_to: int = 30):
         self.model_path = model_path
         self.onnx_provider = onnx_provider.upper()
@@ -117,15 +117,15 @@ class AudioEncoder:
             providers=providers
         )
         
-        # 检测模型输入精度
+        # Detect model input precision.
         in_type = self.sess.get_inputs()[0].type
         self.input_dtype = np.float16 if 'float16' in in_type else np.float32
         
-        # 自动热身
+        # Warm up automatically.
         self.warmup()
 
     def warmup(self):
-        """执行热身，确保 DML 算子已编译"""
+        """Warm up to compile DirectML operators."""
         if self.dml_pad_to <= 0:
             return
             
@@ -137,13 +137,13 @@ class AudioEncoder:
         self.sess.run(None, {'lfr_feat': dummy_lfr, 'mask': dummy_mask})
 
     def encode(self, audio: np.ndarray) -> tuple:
-        """执行编码，返回 (audio_embeddings, encoder_output)"""
-        # 1. 预处理
+        """Encode and return audio embeddings plus encoder output."""
+        # 1. Preprocess audio.
         lfr_feat = self.preprocessor.extract(audio)
         actual_t_lfr = lfr_feat.shape[0]
         
-        # 2. 确定 Padding 长度
-        # CPU, CUDA 和 TensorRT 模式下无需长 Padding
+        # 2. Determine padding length.
+        # CPU, CUDA, and TensorRT do not require long fixed padding.
         padding_secs = self.dml_pad_to
         current_provider = self.sess.get_providers()[0]
         if current_provider in ('CPUExecutionProvider', 'CUDAExecutionProvider', 'TensorrtExecutionProvider'):
@@ -151,7 +151,7 @@ class AudioEncoder:
             
         target_t_lfr = int((padding_secs * 100 + 5) // 6) + 1
         
-        # 3. 执行 Padding 以规避 DML 重编译
+        # 3. Pad to avoid DirectML recompilation.
         if actual_t_lfr < target_t_lfr:
             padded_feat = np.zeros((target_t_lfr, 560), dtype=self.input_dtype)
             padded_feat[:actual_t_lfr, :] = lfr_feat.astype(self.input_dtype)
@@ -163,7 +163,7 @@ class AudioEncoder:
             lfr_input = lfr_feat.astype(self.input_dtype)
             mask_input = np.ones(actual_t_lfr, dtype=self.input_dtype)
 
-        # 4. 推理
+        # 4. Run inference.
         lfr_feed = lfr_input.reshape(1, -1, 560)
         mask_feed = mask_input.reshape(1, -1)
         
@@ -175,7 +175,7 @@ class AudioEncoder:
         enc_output = outputs[0]  # [1, T_lfr, 512]
         adaptor_raw = outputs[1] # [1, T_adapt, 1024]
         
-        # 5. 后处理：长度裁切 (计算有效帧数，对齐 FunASR 逻辑)
+        # 5. Slice to the valid frame count using FunASR conventions.
         T_mel_valid = (len(audio) // 160) + 1
         T_lfr_valid = (T_mel_valid + 5) // 6
         olens_1 = 1 + (T_lfr_valid - 3 + 2) // 2

@@ -1,7 +1,7 @@
 """
-Toast Text 窗口模块
+Text-based Toast windows.
 
-基于 Text 组件的浮动消息窗口，适合流式输出场景（如 LLM 实时显示）。
+Use a Text widget for incremental streaming display.
 """
 
 from core.i18n import Notice
@@ -25,19 +25,19 @@ from .toast_constants import (
 )
 from .toast_logger import get_toast_logger
 
-# 配置日志（智能检测主程序配置）
+# Reuse application logging when available.
 logger = get_toast_logger(__name__)
 
 
 class ToastWindowText(ToastWindowBase):
-    """基于 Text 组件的浮动消息窗口
+    """Display floating messages with a Text widget.
     
-    适合流式输出场景，支持增量插入文本，窗口高度自动增长。
+    Append streamed text and grow the window to fit.
     
     Features:
-        - 支持流式文本输出（逐字显示）
-        - 窗口高度根据内容自动调整
-        - 支持 Markdown 渲染（流式完成后转换）
+        - Incremental text output.
+        - Automatic height adjustment.
+        - Markdown conversion after streaming completes.
     """
 
     def __init__(
@@ -56,37 +56,37 @@ class ToastWindowText(ToastWindowBase):
         markdown: bool = False,
         editable: bool = False
     ) -> None:
-        """创建基于 Text 组件的浮动消息窗口
+        """Create a Text-based notification.
         
         Args:
-            parent_root: 父窗口（Tk 主窗口）
-            text: 初始文本内容
-            font_size: 字体大小（像素）
-            font_family: 字体名称，空字符串使用默认字体
-            bg: 背景颜色
-            fg: 前景色（文字颜色）
-            duration: 自动关闭时长（毫秒）
-            initial_width: 初始宽度，0-1 为屏幕比例，>1 为像素值
-            initial_height: 初始高度，0 表示自动计算
-            streaming: 是否为流式输出模式
-            stop_callback: 窗口关闭时的回调函数
-            markdown: 是否启用 Markdown 渲染
-            editable: Markdown 渲染后是否允许编辑
+            parent_root: Owning Tk root.
+            text: Initial text.
+            font_size: Font size in pixels.
+            font_family: Font family; an empty string uses the default.
+            bg: Background color.
+            fg: Foreground text color.
+            duration: Automatic close delay in milliseconds.
+            initial_width: Screen fraction for values 0-1; pixels for values above 1.
+            initial_height: Initial height; 0 calculates it automatically.
+            streaming: Whether streaming output is enabled.
+            stop_callback: Callback invoked when closing.
+            markdown: Enable Markdown rendering.
+            editable: Allow editing rendered Markdown.
         """
-        # 初始化基类
+        # Initialize the base class.
         super().__init__(
             parent_root, text, font_size, font_family, bg, fg,
             duration, initial_width, initial_height, streaming,
             stop_callback, markdown, editable
         )
 
-        # 创建字体对象用于计算行高
+        # Create a font object to measure line height.
         font_name = self.font_family if self.font_family else DEFAULT_FONT_FAMILY
         self.my_font = font.Font(family=font_name, size=self.font_size)
         self.line_height = self.my_font.metrics('linespace')
         self.last_char_count = 0
 
-        # 创建 Text 组件
+        # Create the Text widget.
         text_height = STREAMING_TEXT_HEIGHT if streaming else NON_STREAMING_TEXT_HEIGHT
         
         self.text_area = tk.Text(
@@ -105,13 +105,13 @@ class ToastWindowText(ToastWindowBase):
             height=text_height
         )
 
-        # 锚定在左上角，使用 fill=BOTH 填充窗口
+        # Anchor at the top left and fill the window.
         self.text_area.pack(side=tk.TOP, anchor='nw', fill=tk.BOTH, expand=True)
 
-        # 禁用 Text 组件的默认滚轮行为，让其传播到窗口
-        # 通过将事件绑定到空函数来阻止 Text 的内置滚动，但不阻止传播
+        # Replace Text's built-in wheel scrolling with window movement.
+        # Bind a no-op to bypass widget scrolling while allowing propagation.
         def pass_to_window(event):
-            # 让窗口处理这个事件
+            # Let the window handle the event.
             self.window.event_generate('<MouseWheel>', x=event.x, y=event.y, delta=event.delta)
             return "break"
 
@@ -119,19 +119,19 @@ class ToastWindowText(ToastWindowBase):
         self.text_area.bind('<Button-4>', pass_to_window)  # Linux
         self.text_area.bind('<Button-5>', pass_to_window)  # Linux
 
-        # 初始化时插入初始文本
+        # Insert initial text.
         if text:
             self.text_area.config(state=tk.NORMAL)
             self.text_area.insert(tk.END, text)
             self.text_area.config(state=tk.DISABLED)
             self.last_char_count = len(text)
 
-        # 强制更新布局
+        # Recalculate layout.
         self.window.update_idletasks()
 
-        # 如果是非流式模式，需要先设置窗口宽度，再计算实际行数
+        # In non-streaming mode, set width before measuring wrapped lines.
         if not streaming and text:
-            # 先设置窗口宽度（临时使用单行高度）
+            # Apply width using a temporary single-line height.
             calculated_width = self._calculate_actual_width()
             screen_width = self.window.winfo_screenwidth()
             screen_height = self.window.winfo_screenheight()
@@ -139,61 +139,61 @@ class ToastWindowText(ToastWindowBase):
             temp_y = screen_height // 2
             self.window.geometry(f'{calculated_width}x100+{temp_x}+{temp_y}')
 
-            # 强制更新，让 Text 组件按照正确宽度重新计算换行
+            # Update the layout so wrapping uses the actual width.
             self.window.update_idletasks()
 
-            # 现在计算实际行数
+            # Count rendered lines.
             result = self.text_area.count('1.0', 'end', 'displaylines')
             actual_lines = result[0] if result else 1
             self.text_area.config(height=actual_lines)
 
-        # 设置初始窗口位置（此时已经知道正确的行数）
+        # Set the initial position using the measured line count.
         self._set_window_position(initial=True)
         
-        # 如果是非流式模式且启用了 Markdown，立即转换
+        # Render Markdown immediately in non-streaming mode.
         if not streaming and markdown:
             self.window.update()
             self._switch_to_markdown()
 
     def _set_window_position(self, initial: bool = False) -> None:
-        """设置窗口位置
+        """Position the window.
 
         Args:
-            initial: 是否为初始位置（屏幕中央，单行高度）
+            initial: Use the initial centered position and single-line height.
         """
         try:
             screen_width = self.window.winfo_screenwidth()
             screen_height = self.window.winfo_screenheight()
 
-            # 更新窗口以确保获取正确的尺寸
+            # Update the window before reading dimensions.
             self.window.update_idletasks()
 
-            # 使用基类的宽度计算方法
+            # Use the base width calculation.
             calculated_width = self._calculate_actual_width()
 
-            # 获取实际渲染的行数
+            # Read the rendered line count.
             result = self.text_area.count('1.0', 'end', 'displaylines')
             current_lines = result[0] if result else 1
 
-            # 精确计算高度：行数 * 行高 + 上下 Padding
+            # Height is line count times line height plus vertical padding.
             needed_h = (current_lines * self.line_height) + HEIGHT_PADDING
 
-            # 如果设置了初始高度，使用较大值
+            # Respect a larger explicitly supplied height.
             if self.initial_height > 0:
                 window_height = max(self.initial_height, needed_h)
             else:
                 window_height = needed_h
 
-            # 限制最小高度
+            # Enforce minimum height.
             window_height = max(window_height, MIN_WINDOW_HEIGHT)
             window_width = calculated_width
 
             if initial:
-                # 初始位置：水平居中，顶部在屏幕中间
+                # Initially center horizontally with the top at the screen midpoint.
                 x = (screen_width - window_width) // 2
                 y = screen_height // 2
             else:
-                # 保持当前位置，只更新大小
+                # Resize without changing position.
                 x = self.window.winfo_x()
                 y = self.window.winfo_y()
 
@@ -202,18 +202,18 @@ class ToastWindowText(ToastWindowBase):
             logger.warning(Notice('diagnostic.toast_label.window_positioning_failed', value0=e))
 
     def update_text(self, new_text: str) -> None:
-        """更新文本内容（增量插入模式）
+        """Append newly streamed text.
         
-        仅在流式模式下有效。增量插入新字符到 Text 组件末尾，
-        并根据内容自动调整窗口高度。
+        In streaming mode, append new characters to the Text widget
+        and resize the window to fit the content.
         
         Args:
-            new_text: 完整的新文本内容
+            new_text: Complete updated text.
         """
         if not self.streaming:
             return
 
-        # 检查窗口是否还存在
+        # Check that the window still exists.
         try:
             if not self.window.winfo_exists():
                 self.streaming = False
@@ -222,35 +222,35 @@ class ToastWindowText(ToastWindowBase):
             self.streaming = False
             return
 
-        # 计算新增的字符
+        # Compute newly added characters.
         current_char_count = len(new_text)
         if current_char_count > self.last_char_count:
-            # 保存完整文本
+            # Retain the complete text.
             self.full_text = new_text
             
-            # 获取新增部分
+            # Extract newly added text.
             new_chars = new_text[self.last_char_count:]
 
             try:
-                # 更新 Text 组件
+                # Update the Text widget.
                 self.text_area.config(state=tk.NORMAL)
                 self.text_area.insert(tk.END, new_chars)
                 self.text_area.config(state=tk.DISABLED)
 
-                # 强制同步布局计算
+                # Recalculate layout synchronously.
                 self.window.update_idletasks()
 
-                # 计算需要的窗口高度
+                # Compute required height.
                 result = self.text_area.count('1.0', 'end', 'displaylines')
                 current_lines = result[0] if result else 1
                 needed_h = (current_lines * self.line_height) + HEIGHT_PADDING
                 current_h = self.window.winfo_height()
                 current_w = self.window.winfo_width()
 
-                # 更新 Text 组件的高度，使其能显示所有行
+                # Resize the Text widget to show all lines.
                 self.text_area.config(height=current_lines)
 
-                # 如果需要增长高度
+                # Increase height if needed.
                 if needed_h > current_h:
                     curr_x = self.window.winfo_x()
                     curr_y = self.window.winfo_y()
@@ -258,11 +258,11 @@ class ToastWindowText(ToastWindowBase):
 
                 self.last_char_count = current_char_count
             except tk.TclError:
-                # 窗口已被销毁，停止流式输出
+                # Stop streaming if the window has been destroyed.
                 self.streaming = False
 
     def _destroy_content_widget(self) -> None:
-        """销毁 Text 组件"""
+        """Destroy the Text widget."""
         if hasattr(self, 'text_area'):
             try:
                 self.text_area.destroy()

@@ -17,11 +17,11 @@ class Token:
 
 class CTCTokenizer:
     """
-    Nano CTC 分词器接口
+    Nano CTC tokenizer interface.
     """
     def __init__(self, id2token, encode_fn=None):
         self.id2token = id2token
-        # 预构建反向查表字典，加速 encode()
+        # Precompute reverse lookup for encode().
         self.token2id = {v: k for k, v in id2token.items()}
         self._piece_size = len(id2token) if id2token else 0
         
@@ -29,13 +29,13 @@ class CTCTokenizer:
         return self._piece_size
         
     def id_to_piece(self, i):
-        # 兼容 SentencePiece 接口
+        # SentencePiece-compatible interface.
         return self.id2token.get(i, f"<{i}>")
         
     def encode(self, text):
         """
-        将文本编码为 CTC token ID 列表。
-        按字符遍历，在 CTC 词表中查找对应 ID（精确匹配）。
+        Encode text as CTC token IDs.
+        Look up each character by exact match in the CTC vocabulary.
         """
         result = []
         for char in text:
@@ -49,7 +49,7 @@ class CTCTokenizer:
         return [self.id_to_piece(i) for i in ids]
 
 class CTCDecoder:
-    """FunASR CTC 推理与解码器 (多阶段内部流水线)"""
+    """Run FunASR CTC inference and decoding in separate stages."""
     def __init__(self, model_path: str, tokens_path: str, onnx_provider: str = 'CPU', dml_pad_to: int = 30):
         self.model_path = model_path
         self.tokens_path = tokens_path
@@ -59,7 +59,7 @@ class CTCDecoder:
         self.sess = None
         self.id2token = {}
         self.input_dtype = np.float32
-        self.tokenizer = None   # CTCTokenizer 包装器
+        self.tokenizer = None   # CTCTokenizer adapter.
         self._load_tokens()
         
         self._initialize_session()
@@ -95,7 +95,7 @@ class CTCDecoder:
             providers=providers
         )
         
-        # 检测模型输入精度
+        # Detect model input precision.
         in_type = self.sess.get_inputs()[0].type
         self.input_dtype = np.float16 if 'float16' in in_type else np.float32
 
@@ -103,7 +103,7 @@ class CTCDecoder:
         self.id2token = load_ctc_tokens(self.tokens_path)
         self.tokenizer = CTCTokenizer(self.id2token)
         
-        # 精准寻找 Blank ID：优先匹配包含关键标识的符号
+        # Prefer explicit blank-token markers when resolving the blank ID.
         self.blank_id = None
         for tid, token_text in self.id2token.items():
             clean_text = token_text.lower().strip()
@@ -124,12 +124,12 @@ class CTCDecoder:
         self.sess.run(None, {in_name: dummy_enc})
 
     # ================================================================
-    # 对外唯一入口：decode()
-    # 返回 CTC tokens 与耗时
+    # Public entry point: decode().
+    # Return CTC tokens and elapsed time.
     # ================================================================
 
     def decode(self, enc_output: np.ndarray, enable_ctc: bool) -> tuple:
-        """CTC 仅用于原始文本与时间戳，不执行词表替换。"""
+        """Use CTC for raw text and timestamps without vocabulary replacement."""
         stats = {"infer": 0.0, "decode": 0.0}
         if not enable_ctc or self.sess is None:
             return [], stats
@@ -142,16 +142,16 @@ class CTCDecoder:
         return results, stats
 
     # ================================================================
-    # 内部阶段方法
+    # Internal stages.
     # ================================================================
 
     def _infer(self, enc_output: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
-        """阶段 1: ONNX 推理，返回 (topk_log_probs, topk_indices)"""
+        """Run ONNX inference and return top-k log probabilities and indexes."""
         outputs = self.sess.run(None, {"enc_output": enc_output})
         return outputs[0], outputs[1]
 
     def _greedy_decode(self, top1_indices: np.ndarray) -> Tuple[str, List[Token]]:
-        """阶段 2: 基于 Top-1 Index 的贪婪解码"""
+        """Decode greedily from top-1 indexes."""
         ctc_text, ctc_results, _ = decode_ctc_indices(top1_indices, self.id2token)
         return ctc_text, ctc_results
 
@@ -161,7 +161,7 @@ class CTCDecoder:
 
 
 def load_ctc_tokens(filename):
-    """加载 CTC 词表"""
+    """Load the CTC vocabulary."""
     id2token = dict()
     if not os.path.exists(filename):
         return id2token
@@ -187,7 +187,7 @@ def load_ctc_tokens(filename):
 
 def decode_ctc_indices(indices, id2token):
     """
-    Greedy search 贪心解码 (直接基于 Indices)。
+    Decode greedily from token indexes.
     """
     t0 = time.perf_counter()
     blank_id = max(id2token.keys()) if id2token else 0
@@ -216,7 +216,7 @@ def decode_ctc_indices(indices, id2token):
         token_text = id2token.get(token_id, "")
         if not token_text: continue
 
-        # Calculate time (只计算起始位置)
+        # Calculate token start times only.
         t_timestamp = max((start * frame_shift_ms) / 1000.0, 0.0)
 
         results.append(Token(

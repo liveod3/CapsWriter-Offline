@@ -1,17 +1,17 @@
 # coding: utf-8
 """
-服务端模块
+Server package.
 
-提供 CapsWriter 服务端的所有功能模块。
+Provide CapsWriter server components.
 
-模块架构：
-- context: 全局上下文管理（连接池、消息队列）
-- schema: 数据类定义（Task, Result）
-- check_model: 模型文件检查
-- worker: 识别工作进程入口 (由 init_recognizer 处理)
-- recognize: 语音识别核心流程
-- ws_recv: WebSocket 接收处理
-- ws_send: WebSocket 发送处理
+Package layout:
+- state: Shared connections and queues.
+- schema: Task and Result dataclasses.
+- worker/check_model: Model file validation.
+- worker/worker: Recognition process entry point.
+- worker/pipeline: Recognition pipeline.
+- connection/ws_recv: WebSocket input.
+- connection/ws_send: WebSocket output.
 """
 
 from core.server.state import console

@@ -8,7 +8,7 @@ from ..language import get_language, ENGINE_SENSEVOICE
 
 
 class SenseVoiceStream(RecognitionStream):
-    """SenseVoice 识别流结构"""
+    """SenseVoice stream state."""
     def __init__(self, sample_rate=16000):
         super().__init__(sample_rate)
         self.audio_data = None
@@ -19,7 +19,7 @@ class SenseVoiceStream(RecognitionStream):
 
 
 class SenseVoiceEngine(BaseASREngine):
-    """SenseVoice 推理引擎适配器"""
+    """SenseVoice engine adapter."""
 
     def __init__(self, config: SenseVoiceConfig):
         super().__init__(config)
@@ -27,7 +27,7 @@ class SenseVoiceEngine(BaseASREngine):
 
     @property
     def capabilities(self) -> List[EngineCapabilities]:
-        """声明 SenseVoice 具备的能力集"""
+        """Declare SenseVoice capabilities."""
         return [
             EngineCapabilities.ASR, 
             EngineCapabilities.PUNC, 
@@ -35,7 +35,7 @@ class SenseVoiceEngine(BaseASREngine):
         ]
 
     def create_stream(self) -> SenseVoiceStream:
-        """创建识别流"""
+        """Create a recognition stream."""
         return SenseVoiceStream()
 
     def decode_stream(
@@ -47,12 +47,12 @@ class SenseVoiceEngine(BaseASREngine):
         **kwargs
     ):
         """
-        解码识别流
+        Decode a recognition stream.
         """
         if stream.audio_data is None:
             return
 
-        # 语言映射：统一代码 → SenseVoice lid ('auto', 'zh', 'en', 'ja', 'ko', 'yue')
+        # Map the unified language to SenseVoice lid: auto, zh, en, ja, ko, or yue.
         lid = get_language(ENGINE_SENSEVOICE, language) if language else None
         res = self.engine.recognize(
             stream.audio_data,
@@ -60,15 +60,15 @@ class SenseVoiceEngine(BaseASREngine):
             itn=itn
         )
 
-        # 更新结果
+        # Update results.
         stream.result.text = res.text
         
-        # 将内部 RecognitionResult 转换为 tokens 和 timestamps 以兼容 server_recognize
+        # Convert backend results into tokens and timestamps for the server pipeline.
         stream.result.tokens = [r.text for r in res.results]
         stream.result.timestamps = [r.start for r in res.results]
 
 
     def cleanup(self):
-        """释放资源"""
+        """Release resources."""
         pass
 

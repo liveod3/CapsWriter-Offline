@@ -7,7 +7,7 @@ repos:
         language: system
         types: [python]
       - id: mypy-critical-paths
-        name: mypy（关键纯 Python 模块）
+        name: mypy (critical pure Python modules)
         entry: >-
           python -m mypy core/protocol.py core/server/schema.py
           core/server/merger
@@ -16,7 +16,7 @@ repos:
         pass_filenames: false
         types: [python]
       - id: pytest-unit
-        name: pytest（快速单元测试）
+        name: pytest (fast unit tests)
         entry: python -m pytest -q
         language: system
         pass_filenames: false
@@ -25,7 +25,19 @@ repos:
         name: compileall
         entry: >-
           python -m compileall -q start_client.py start_server.py
-          config_templates core LLM tests
+          config_templates core LLM tests scripts
         language: system
         pass_filenames: false
         types: [python]
+      - id: internal-language
+        name: Internal language policy
+        entry: python scripts/check_internal_language.py
+        language: system
+        pass_filenames: false
+        always_run: true
+      - id: documentation
+        name: Documentation links and structure
+        entry: python scripts/check_docs.py
+        language: system
+        pass_filenames: false
+        files: '\.md$|^scripts/check_docs\.py$'

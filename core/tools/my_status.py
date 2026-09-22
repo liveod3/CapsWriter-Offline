@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-Rich Status 扩展模块
+Rich Status extension.
 
-提供增强版的 Status 类，支持状态追踪。
+Track whether a status animation is running.
 """
 
 from rich.console import RenderableType
@@ -13,13 +13,13 @@ from core.i18n import tr
 
 class Status(RichStatus):
     """
-    增强版 Rich Status
+    Stateful Rich Status.
     
-    扩展 rich.status.Status，添加 started 属性用于追踪状态。
-    防止重复启动和停止动画。
+    Add a started property to rich.status.Status
+    to avoid duplicate starts and stops.
     
     Attributes:
-        started: 是否已启动动画
+        started: Whether the animation has started.
     """
     
     def __init__(
@@ -33,14 +33,14 @@ class Status(RichStatus):
         refresh_per_second: float = 12.5
     ):
         """
-        初始化 Status
+        Initialize the status display.
         
         Args:
-            status: 要显示的状态文本
-            spinner: 动画类型名称
-            spinner_style: 动画样式
-            speed: 动画速度
-            refresh_per_second: 刷新频率
+            status: Status text.
+            spinner: Spinner name.
+            spinner_style: Spinner style.
+            speed: Animation speed.
+            refresh_per_second: Refresh rate.
         """
         super().__init__(
             status,
@@ -54,7 +54,7 @@ class Status(RichStatus):
         self._message_id = message_id
 
     def start(self) -> None:
-        """启动动画（如果尚未启动）"""
+        """Start the animation if needed."""
         if not self.started:
             # Reused status objects must resolve the current locale at each start.
             if self._message_id is not None:
@@ -63,7 +63,7 @@ class Status(RichStatus):
             super().start()
 
     def stop(self) -> None:
-        """停止动画（如果已启动）"""
+        """Stop the animation if running."""
         if self.started:
             self.started = False
             super().stop()

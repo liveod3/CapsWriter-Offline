@@ -1,8 +1,8 @@
 from __future__ import annotations
 """
-Toast 消息管理器模块
+Toast message management.
 
-提供 ToastMessageManager 单例类，管理所有 Toast 窗口的生命周期。
+Manage Toast window lifetimes through the ToastMessageManager singleton.
 """
 
 from core.i18n import Notice
@@ -15,7 +15,7 @@ from typing import Literal, Optional, Callable, Union, List, TYPE_CHECKING
 import sys
 import os
 
-# 直接运行时，将项目根目录添加到 sys.path
+# Add the project root to sys.path when run directly.
 if __name__ == "__main__":
     file_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(file_dir))
@@ -41,36 +41,36 @@ else:
     )
     from .toast_logger import get_toast_logger
 
-# 用于类型注解的前向引用
+# Forward references for type annotations.
 if TYPE_CHECKING:
     from .toast_base import ToastWindowBase
 
 
-# 配置日志（智能检测主程序配置）
+# Reuse application logging when available.
 logger = get_toast_logger(__name__)
 
 
 # ============================================================
-# 数据类
+# Configuration dataclass.
 # ============================================================
 
 @dataclass
 class ToastMessage:
-    """Toast 消息配置数据类
+    """Toast message configuration.
 
     Attributes:
-        text: 消息文本内容
-        font_size: 字体大小（像素）
-        font_family: 字体名称，空字符串使用系统默认
-        bg: 背景颜色（十六进制或颜色名）
-        fg: 前景色（文字颜色）
-        duration: 显示时长（毫秒）
-        initial_width: 初始宽度，0-1 为屏幕比例，>1 为像素值
-        initial_height: 初始高度，0 表示自动计算
-        streaming: 是否为流式模式
-        window_type: 窗口类型 ('text' 或 'label')
-        stop_callback: 窗口关闭时的回调函数
-        markdown: 是否启用 Markdown 渲染
+        text: Message text.
+        font_size: Font size in pixels.
+        font_family: Font family; empty uses the system default.
+        bg: Background color as hex or a color name.
+        fg: Foreground text color.
+        duration: Display duration in milliseconds.
+        initial_width: Screen fraction for values 0-1; pixels for values above 1.
+        initial_height: Initial height; 0 calculates it automatically.
+        streaming: Enable streaming mode.
+        window_type: 'text' or 'label'.
+        stop_callback: Callback invoked when closing.
+        markdown: Enable Markdown rendering.
     """
     text: str
     font_size: int = 14
@@ -84,23 +84,23 @@ class ToastMessage:
     window_type: Literal['text', 'label'] = 'text'
     stop_callback: Optional[Callable[[], None]] = None
     markdown: bool = False
-    editable: bool = False  # Markdown 渲染后是否允许编辑
+    editable: bool = False  # Allow editing after Markdown rendering.
 
 
 # ============================================================
-# Toast 消息管理器
+# Toast message manager.
 # ============================================================
 
 class ToastMessageManager:
-    """Toast 消息管理器（单例模式）
+    """Manage Toast messages through one shared instance.
 
-    在独立的线程中运行 Tkinter 主循环，管理所有 Toast 窗口的生命周期。
+    Run Tk's event loop on its own thread and own Toast window lifetimes.
 
     Features:
-        - 单例模式，确保只有一个 Tkinter 主循环
-        - 消息队列，支持并发添加消息
-        - 活动窗口跟踪，支持流式输出更新
-        - UUID 消息标识，精确匹配和操作
+        - One singleton and one Tk event loop.
+        - A queue for concurrent producers.
+        - Active-window tracking for streaming updates.
+        - UUID message identities for targeted operations.
     """
 
     _instance: Optional[ToastMessageManager] = None
@@ -114,7 +114,7 @@ class ToastMessageManager:
             return cls._instance
 
     def __init__(self) -> None:
-        # 多个快捷键/事件线程可同时首次投递，不能暴露尚未初始化完的队列。
+        # Concurrent first submissions must not observe a partially initialized queue.
         with self._lock:
             if self._initialized:
                 return
@@ -126,10 +126,10 @@ class ToastMessageManager:
         self.ui_queue: Queue = Queue()
         self._ui_closed = False
         self.is_running = False
-        self.active_windows: List = []  # 运行时类型，避免循环导入
+        self.active_windows: List = []  # Resolve runtime types without circular imports.
         self.root: Optional[tk.Tk] = None
 
-        # 在子线程中启动 Tkinter
+        # Start Tk on its owning thread.
         self.manager_thread = threading.Thread(
             target=self._run_manager,
             daemon=True,
@@ -138,24 +138,24 @@ class ToastMessageManager:
         self.manager_thread.start()
 
     def _run_manager(self) -> None:
-        """在子线程中运行 Tkinter 主循环"""
-        # 创建隐藏的主窗口
+        """Run the Tk event loop on its owning thread."""
+        # Create a hidden root window.
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.tk.call('tk', 'scaling', TK_SCALING_FACTOR)
 
-        # 设置窗口关闭时的行为
+        # Register window-close behavior.
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # 开始处理队列
+        # Start queue processing.
         self.is_running = True
         self._process_queue()
 
-        # 启动 Tkinter 主循环
+        # Enter the Tk event loop.
         self.root.mainloop()
 
     def _on_close(self) -> None:
-        """关闭所有窗口并退出"""
+        """Close all windows and exit."""
         self.is_running = False
         self._ui_closed = True
 
@@ -171,11 +171,11 @@ class ToastMessageManager:
             self.root.quit()
 
     def _process_queue(self) -> None:
-        """处理队列中的消息"""
+        """Process queued messages."""
         if not self.is_running:
             return
         try:
-            # 只在 Tk 线程创建/修改状态窗；一次处理有上限，避免饿死主循环。
+            # Create/update windows only on the Tk thread; bound each batch to keep it responsive.
             for _ in range(128):
                 try:
                     callback = self.ui_queue.get_nowait()
@@ -189,7 +189,7 @@ class ToastMessageManager:
                 msg = self.message_queue.get_nowait()
                 msg_id = getattr(msg, '_id', 'unknown')
 
-                # 根据 window_type 选择窗口类
+                # Select the window class by window_type.
                 WindowClass = ToastWindowLabel if msg.window_type == 'label' else ToastWindowText
 
                 toast_window = WindowClass(
@@ -208,17 +208,17 @@ class ToastMessageManager:
                     editable=msg.editable
                 )
 
-                # 保存消息ID到窗口对象
+                # Map the message ID to its window.
                 toast_window._msg_id = msg_id
                 self.active_windows.append(toast_window)
 
-                # 设置窗口销毁时的回调
+                # Register the destruction callback.
                 toast_window.window.bind(
                     '<Destroy>',
                     lambda _, w=toast_window: self._remove_window(w)
                 )
 
-            # 清理已销毁的窗口
+            # Remove destroyed windows.
             self.active_windows = [
                 w for w in self.active_windows
                 if self._window_exists(w)
@@ -227,48 +227,48 @@ class ToastMessageManager:
         except Exception as e:
             logger.warning(Notice('diagnostic.toast_manager.message_queue_processing_failed', value0=e))
 
-        # 继续处理队列
+        # Schedule the next queue pass.
         if self.is_running and self.root:
             self.root.after(QUEUE_POLL_INTERVAL_MS, self._process_queue)
 
     def post_ui(self, callback) -> None:
-        """非阻塞投递；root 尚未就绪时保留命令，关闭后丢弃。"""
+        """Enqueue without waiting; retain work before root readiness and discard after closure."""
         if not self._ui_closed:
             self.ui_queue.put(callback)
 
     def _window_exists(self, window) -> bool:
-        """检查窗口是否存在"""
+        """Return whether the window exists."""
         try:
             return window.window.winfo_exists()
         except tk.TclError:
             return False
 
     def _remove_window(self, window) -> None:
-        """从活动窗口列表中移除窗口"""
+        """Remove a window from the active set."""
         if window in self.active_windows:
             self.active_windows.remove(window)
 
     def add_message(self, msg: ToastMessage) -> Optional[str]:
-        """添加 ToastMessage 对象到队列
+        """Enqueue a ToastMessage.
 
         Args:
-            msg: Toast 消息配置对象
+            msg: Message configuration.
 
         Returns:
-            消息唯一标识符（用于后续更新、完成、关闭操作）
+            Unique message ID for updates, completion, and closure.
         """
         import uuid
         msg_id = str(uuid.uuid4())
-        msg._id = msg_id  # 添加唯一标识符
+        msg._id = msg_id  # Assign a unique identifier.
         self.message_queue.put(msg)
         return msg_id
 
     def update_toast(self, msg_id: str, new_text: str) -> None:
-        """更新指定 ID 的 Toast 文字
+        """Update the Toast identified by msg_id.
 
         Args:
-            msg_id: 消息唯一标识符
-            new_text: 新的完整文本内容
+            msg_id: Unique message identifier.
+            new_text: Complete replacement text.
         """
         for window in self.active_windows:
             if getattr(window, '_msg_id', None) == msg_id:
@@ -277,10 +277,10 @@ class ToastMessageManager:
         logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     def finish_toast(self, msg_id: str) -> None:
-        """完成指定 ID 的 Toast 的流式输出
+        """Finish streaming for the Toast identified by msg_id.
 
         Args:
-            msg_id: 消息唯一标识符
+            msg_id: Unique message identifier.
         """
         for window in self.active_windows:
             if getattr(window, '_msg_id', None) == msg_id:
@@ -290,10 +290,10 @@ class ToastMessageManager:
         logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     def close_toast(self, msg_id: str) -> None:
-        """关闭指定 ID 的 Toast
+        """Close the Toast identified by msg_id.
 
         Args:
-            msg_id: 消息唯一标识符
+            msg_id: Unique message identifier.
         """
         for window in self.active_windows[:]:
             if getattr(window, '_msg_id', None) == msg_id:
@@ -306,14 +306,14 @@ class ToastMessageManager:
         logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     async def wait_for_window(self, msg_id: str, timeout: float = 1.0) -> Optional[ToastWindowBase]:
-        """异步等待指定 ID 的窗口创建完成
+        """Wait asynchronously for the requested window to be created.
 
         Args:
-            msg_id: 消息唯一标识符
-            timeout: 超时时间（秒）
+            msg_id: Unique message identifier.
+            timeout: Deadline in seconds.
 
         Returns:
-            窗口对象，如果超时则返回 None
+            Window instance, or None on timeout.
         """
         import asyncio
         start = asyncio.get_event_loop().time()
@@ -321,6 +321,6 @@ class ToastMessageManager:
             for window in self.active_windows:
                 if getattr(window, '_msg_id', None) == msg_id:
                     return window
-            await asyncio.sleep(0.01)  # 10ms 轮询间隔
+            await asyncio.sleep(0.01)  # Poll every 10 ms.
         logger.warning(Notice('diagnostic.toast_manager.timed_out_waiting_for_window', value0=msg_id[:8]))
         return None

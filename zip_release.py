@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-打包脚本 - 使用 7zip 压缩 dist 目录中的构建产物
+Archive release directories with 7-Zip.
 
-功能：
-1. 打包 CapsWriter-Offline（服务端+客户端）
-2. 打包 CapsWriter-Offline-Client（仅客户端）
-3. 智能排除模型文件（.onnx, .dll, .json 等），但保留说明文档
+Features:
+1. Package CapsWriter-Offline (server and client).
+2. Package CapsWriter-Offline-Client (client only).
+3. Exclude nested model payloads while retaining top-level model instructions.
 """
 
 import os
@@ -16,13 +16,13 @@ from datetime import datetime
 
 
 def find_7zip():
-    """查找 7zip 可执行文件"""
+    """Locate the 7-Zip executable."""
     possible_paths = [
         r"C:\Program Files\7-Zip\7z.exe",
         r"C:\Program Files (x86)\7-Zip\7z.exe",
     ]
 
-    # 从 PATH 环境变量查找
+    # Search PATH.
     for path in os.environ.get("PATH", "").split(os.pathsep):
         possible_paths.append(os.path.join(path, "7z.exe"))
 
@@ -35,76 +35,76 @@ def find_7zip():
 
 def should_include_file(file_path, is_client_only=False):
     """
-    判断文件是否应该被打包
+    Return whether a file belongs in the archive.
 
-    打包规则：
-    - 所有文件，除了 models/模型名/子目录/... 的内容
-    - models/模型名/文件 会被打包（层级深度 == 2）
-    - models/模型名/子目录/文件  不会被打包（层级深度 >= 3）
-    - 如果是【仅客户端】打包：
-        - 排除 core 目录下的所有 .dll 文件（客户端不需要本地识别引擎）
+    Inclusion rules:
+    - Include files outside nested model payload directories.
+    - Include models/<model>/<file> at depth two.
+    - Exclude models/<model>/<subdirectory>/<file> at depth three or more.
+    - For the client-only package:
+        - Exclude DLLs beneath core because the client does not run local inference.
     """
     path = Path(file_path)
     parts = path.parts
 
-    # 1. 客户端特殊排除逻辑
+    # 1. Apply client-only exclusions.
     if is_client_only:
-        # 排除 core 中的 dll 文件
+        # Exclude DLLs beneath core.
         if 'core' in parts and path.suffix.lower() == '.dll':
             return False
 
-    # 2. 检查是否在 models 目录下
+    # 2. Check for the models directory.
     if 'models' not in parts:
-        return True  # 非 models 目录，全部打包
+        return True  # Include files outside models.
 
-    # 找到 models 在路径中的位置
+    # Find models in the relative path.
     try:
         models_index = parts.index('models')
     except ValueError:
         return True
 
-    # 排除 models 目录下的所有 .zip 文件（原始压缩包不打包）
+    # Exclude model download ZIP archives.
     if 'models' in parts and path.suffix.lower() == '.zip' or  path.suffix.lower() == '.cfg':
         return False
 
-    # models/模型名/子目录/... 的深度 >= 3 不打包
+    # Exclude nested model payloads at depth three or more.
     depth = len(parts) - models_index
 
-    if depth >= 4:  # models/模型名/子目录/文件 或更深
+    if depth >= 4:  # models/<model>/<subdirectory>/<file> or deeper.
         return False
-    else:  # models/模型名/文件 或更浅
+    else:  # models/<model>/<file> or shallower.
         return True
 
 
 def create_file_list(dist_folder, output_file='file_list.txt', is_client_only=False):
     """
-    创建要打包的文件列表
+    Build the archive file list.
 
-    7zip 使用 @参数从文件读取列表
-    每行一个文件路径（相对于 dist 父目录）
+    7-Zip reads this list through an @ argument.
+    Write one path per line relative to the dist directory.
     """
     files = []
 
-    # 遍历 dist 目录，收集所有要打包的文件
+    # Traverse dist and collect archive inputs.
     dist_path = Path(dist_folder)
     if not dist_path.exists():
         return files, None
 
     for root, dirs, filenames in os.walk(dist_path):
-        # 排除不需要打包的文件夹
+        # Exclude unwanted directories.
         dirs[:] = [d for d in dirs if d not in ('__pycache__', '.vscode', '.git')]
 
         for filename in filenames:
             file_path = os.path.join(root, filename)
             if should_include_file(file_path, is_client_only):
-                # 计算相对于 dist 父目录的路径
+                # Compute paths relative to dist.
                 rel_path = os.path.relpath(file_path, dist_path.parent)
                 files.append(rel_path)
 
     if not files:
         return files, None
 
-    # 写入文件列表
+    # Write the file list.
     list_file = Path(output_file)
     list_file.write_text('\n'.join(files), encoding='utf-8')
 
@@ -112,55 +112,55 @@ def create_file_list(dist_folder, output_file='file_list.txt', is_client_only=Fa
 
 
 def package_with_7zip(source_dir, output_zip, file_list_file):
-    """使用 7zip 打包目录"""
+    """Archive a directory with 7-Zip."""
 
     seven_zip = find_7zip()
     if not seven_zip:
         raise FileNotFoundError(
-            "找不到 7zip。请确认已安装 7-Zip。\n"
-            "下载地址: https://www.7-zip.org/"
+            "Cannot find 7-Zip. Install it before creating an archive.\n"
+            "Download: https://www.7-zip.org/"
         )
 
     source_path = Path(source_dir)
     if not source_path.exists():
-        raise FileNotFoundError(f"源目录不存在: {source_dir}")
+        raise FileNotFoundError(f"Source directory does not exist: {source_dir}")
 
-    # 确保输出目录存在
+    # Create the output directory if needed.
     output_path = Path(output_zip)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # 文件列表处理
-    # 文件列表在当前工作目录，需要从 dist 目录访问
+    # Resolve the file list.
+    # The list is in the working directory; pass its path from dist.
     dist_dir = source_path.parent
     list_file_abs = Path(file_list_file).absolute()
     list_file_rel_to_dist = os.path.relpath(list_file_abs, dist_dir)
 
-    # 构建 7zip 命令
-    # 使用 -tzip 创建 ZIP 格式（兼容性好）
-    # 使用 -mx9 最大压缩
-    # 使用 @file_list.txt 从文件读取要打包的文件列表
+    # Build the 7-Zip command.
+    # Use -tzip for ZIP output.
+    # Use -mx9 for maximum compression.
+    # Read archive inputs from @file_list.txt.
     cmd = [
         seven_zip,
-        'a',                      # 添加到压缩包
-        '-tzip',                  # ZIP 格式
-        '-mx9',                   # 最大压缩级别
-        str(output_path.absolute()),  # 输出文件（绝对路径）
-        f'@{list_file_rel_to_dist}',  # 从文件读取列表（相对于 dist 目录）
+        'a',                      # Add files to the archive.
+        '-tzip',                  # ZIP format.
+        '-mx9',                   # Maximum compression.
+        str(output_path.absolute()),  # Absolute output path.
+        f'@{list_file_rel_to_dist}',  # Read paths relative to dist from the list.
     ]
 
-    # 读取文件列表统计信息
+    # Read file-list statistics.
     with open(file_list_file, 'r', encoding='utf-8') as f:
         files_count = len(f.readlines())
 
-    print(f"\n正在打包: {source_path.name}")
-    print(f"输出文件: {output_zip}")
-    print(f"打包文件数: {files_count}")
-    print(f"工作目录: {dist_dir.absolute()}")
+    print(f"\nPackaging: {source_path.name}")
+    print(f"Output archive: {output_zip}")
+    print(f"Files to archive: {files_count}")
+    print(f"Working directory: {dist_dir.absolute()}")
 
-    # 执行压缩（从 dist 目录运行）
+    # Run compression from dist.
     result = subprocess.run(
         cmd,
-        cwd=str(dist_dir),  # 从 dist 目录运行
+        cwd=str(dist_dir),  # Run from dist.
         capture_output=True,
         text=True,
         encoding='utf-8',
@@ -168,14 +168,14 @@ def package_with_7zip(source_dir, output_zip, file_list_file):
     )
 
     if result.returncode != 0:
-        print(f"\n错误: 7zip 执行失败")
+        print(f"\nError: 7-Zip failed")
         print(f"STDOUT: {result.stdout}")
         print(f"STDERR: {result.stderr}")
         raise subprocess.CalledProcessError(result.returncode, cmd)
 
-    print("\n✅ 打包成功！")
+    print("\n✅ Archive created.")
 
-    # 显示压缩包信息
+    # Display archive information.
     info_result = subprocess.run(
         [seven_zip, 'l', str(output_path.absolute())],
         capture_output=True,
@@ -185,86 +185,86 @@ def package_with_7zip(source_dir, output_zip, file_list_file):
     )
 
     if info_result.returncode == 0:
-        # 解析文件数量和大小
+        # Count files and total bytes.
         lines = info_result.stdout.split('\n')
         for line in lines:
             if 'files' in line.lower() or '文件夹' in line or '文件' in line:
-                print(f"\n压缩包信息: {line.strip()}")
+                print(f"\nArchive information: {line.strip()}")
                 break
 
 
 def main():
-    """主函数"""
+    """Run the entry point."""
     dist_dir = Path('dist')
 
-    # 检查 dist 目录
+    # Check dist exists.
     if not dist_dir.exists():
-        print(f"错误: dist 目录不存在")
-        print(f"请先运行 PyInstaller 构建: pyinstaller build.spec")
+        print(f"Error: dist does not exist")
+        print(f"Build with PyInstaller first: pyinstaller build.spec")
         return
 
     print("=" * 60)
-    print("CapsWriter-Offline 打包脚本")
+    print("CapsWriter-Offline release archiver")
     print("=" * 60)
 
-    # 构建输出目录
+    # Create the archive output directory.
     release_dir = Path('release')
     release_dir.mkdir(exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d")
 
-    # 打包配置列表
+    # Package configurations.
     packages = []
 
-    # 检查 CapsWriter-Offline（服务端+客户端）
+    # Check the combined server/client package.
     server_dist = dist_dir / 'CapsWriter-Offline'
     if server_dist.exists():
         packages.append({
             'source': server_dist,
             'output': release_dir / f'CapsWriter-Offline-{timestamp}.zip',
-            'name': '服务端+客户端'
+            'name': 'server and client'
         })
 
-    # 检查 CapsWriter-Offline-Client（仅客户端）
+    # Check the client-only package.
     client_dist = dist_dir / 'CapsWriter-Offline-Client'
     if client_dist.exists():
         packages.append({
             'source': client_dist,
             'output': release_dir / f'CapsWriter-Offline-Client-{timestamp}.zip',
-            'name': '仅客户端'
+            'name': 'client only'
         })
 
     if not packages:
-        print(f"\n错误: dist 目录中没有找到构建产物")
-        print(f"请先运行 PyInstaller 构建:")
+        print(f"\nError: no build artifacts found in dist")
+        print(f"Build with PyInstaller first:")
         print(f"  pyinstaller build.spec")
         print(f"  pyinstaller build-client.spec")
         return
 
-    print(f"\n找到 {len(packages)} 个待打包的构建产物")
+    print(f"\nFound {len(packages)} packages to archive")
 
-    # 逐个打包
+    # Archive each package.
     success_count = 0
     for idx, pkg in enumerate(packages):
         try:
             print(f"\n{'=' * 60}")
-            print(f"打包: {pkg['name']}")
+            print(f"Package: {pkg['name']}")
             print(f"{'=' * 60}")
 
-            # 生成唯一的文件列表名（避免冲突）
+            # Use a unique file-list name to avoid collisions.
             list_file_name = f'file_list_{idx}.txt'
 
-            # 生成文件列表
+            # Generate the file list.
             is_client_only = pkg['source'].name == 'CapsWriter-Offline-Client'
             files, list_file = create_file_list(pkg['source'], list_file_name, is_client_only)
 
             if not files:
-                print(f"\n警告: 没有找到要打包的文件")
+                print(f"\nWarning: no files to archive")
                 continue
 
-            print(f"文件列表: {list_file}")
+            print(f"File list: {list_file}")
 
-            # 打包
+            # Create the archive.
             package_with_7zip(
                 pkg['source'],
                 pkg['output'],
@@ -273,25 +273,25 @@ def main():
 
             success_count += 1
 
-            # 删除临时文件列表
+            # Remove the temporary file list.
             try:
                 list_file.unlink()
-                print(f"已删除临时文件列表: {list_file}")
+                print(f"Removed temporary file list: {list_file}")
             except Exception as cleanup_error:
-                print(f"警告: 无法删除临时文件列表 {list_file}: {cleanup_error}")
+                print(f"Warning: cannot remove temporary file list {list_file}: {cleanup_error}")
 
         except Exception as e:
-            print(f"\n打包失败: {e}")
+            print(f"\nPackaging failed: {e}")
 
-    # 总结
+    # Report results.
     print(f"\n{'=' * 60}")
-    print(f"打包完成: {success_count}/{len(packages)} 成功")
+    print(f"Packaging complete: {success_count}/{len(packages)} succeeded")
     print(f"{'=' * 60}")
-    print(f"\n输出目录: {release_dir.absolute()}")
+    print(f"\nOutput directory: {release_dir.absolute()}")
 
-    # 列出生成的文件
+    # List generated archives.
     if success_count > 0:
-        print(f"\n生成的文件:")
+        print(f"\nCreated archives:")
         for file in sorted(release_dir.glob('*.zip')):
             size_mb = file.stat().st_size / (1024 * 1024)
             print(f"  {file.name} ({size_mb:.1f} MB)")

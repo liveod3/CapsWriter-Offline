@@ -1,7 +1,7 @@
 """
-Toast Label 窗口模块
+Label-based Toast windows.
 
-基于 Label 组件的浮动消息窗口，适合普通提示消息。
+Display ordinary notifications with a Label widget.
 """
 
 from core.i18n import Notice
@@ -23,19 +23,19 @@ from .toast_constants import (
 )
 from .toast_logger import get_toast_logger
 
-# 配置日志（智能检测主程序配置）
+# Reuse application logging when available.
 logger = get_toast_logger(__name__)
 
 
 class ToastWindowLabel(ToastWindowBase):
-    """基于 Label 组件的浮动消息窗口
+    """Display floating messages with a Label widget.
     
-    适合普通提示消息，支持简单的文本更新。
+    Support ordinary notifications and complete-text updates.
     
     Features:
-        - 简单高效的文本显示
-        - 自动换行（使用 wraplength）
-        - 支持 Markdown 渲染
+        - Plain text display.
+        - Automatic wrapping through wraplength.
+        - Optional Markdown rendering.
     """
 
     def __init__(
@@ -54,43 +54,43 @@ class ToastWindowLabel(ToastWindowBase):
         markdown: bool = False,
         editable: bool = False
     ) -> None:
-        """创建基于 Label 组件的浮动消息窗口
+        """Create a Label-based notification.
         
         Args:
-            parent_root: 父窗口（Tk 主窗口）
-            text: 初始文本内容
-            font_size: 字体大小（像素）
-            font_family: 字体名称，空字符串使用默认字体
-            bg: 背景颜色
-            fg: 前景色（文字颜色）
-            duration: 自动关闭时长（毫秒）
-            initial_width: 初始宽度，0-1 为屏幕比例，>1 为像素值
-            initial_height: 初始高度，0 表示自动计算
-            streaming: 是否为流式输出模式
-            stop_callback: 窗口关闭时的回调函数
-            markdown: 是否启用 Markdown 渲染
-            editable: Markdown 渲染后是否允许编辑
+            parent_root: Owning Tk root.
+            text: Initial text.
+            font_size: Font size in pixels.
+            font_family: Font family; an empty string uses the default.
+            bg: Background color.
+            fg: Foreground text color.
+            duration: Automatic close delay in milliseconds.
+            initial_width: Screen fraction for values 0-1; pixels for values above 1.
+            initial_height: Initial height; 0 calculates it automatically.
+            streaming: Whether streaming output is enabled.
+            stop_callback: Callback invoked when closing.
+            markdown: Enable Markdown rendering.
+            editable: Allow editing rendered Markdown.
         """
-        # 初始化基类
+        # Initialize the base class.
         super().__init__(
             parent_root, text, font_size, font_family, bg, fg,
             duration, initial_width, initial_height, streaming,
             stop_callback, markdown, editable
         )
 
-        # 计算实际宽度
+        # Compute the actual width.
         actual_width = self._calculate_actual_width()
 
-        # 用于增量插入
+        # Track incremental updates.
         self.last_char_count = 0
 
-        # 处理文本：在中文字符后添加零宽空格
+        # Add zero-width spaces after CJK characters for wrapping.
         processed_text = add_zero_width_for_chinese(text) if text else text
 
-        # 如果未指定字体，使用默认字体
+        # Use the default font when none is supplied.
         font_name = font_family if font_family else DEFAULT_FONT_FAMILY
 
-        # 创建文字标签
+        # Create the text label.
         self.label = tk.Label(
             self.window,
             text=processed_text,
@@ -102,7 +102,7 @@ class ToastWindowLabel(ToastWindowBase):
             anchor='nw'
         )
 
-        # 使用 fill=BOTH 和 expand=True 填充窗口
+        # Fill the window with fill=BOTH and expand=True.
         self.label.pack(
             side=tk.TOP,
             fill=tk.BOTH,
@@ -111,53 +111,53 @@ class ToastWindowLabel(ToastWindowBase):
             pady=DEFAULT_PADDING_Y
         )
 
-        # 初始化字符计数
+        # Initialize the character count.
         if text:
             self.last_char_count = len(text)
 
-        # 强制更新布局
+        # Recalculate layout.
         self.window.update_idletasks()
 
-        # 设置初始窗口位置
+        # Set the initial position.
         self._set_window_position(initial=True)
         
-        # 如果是非流式模式且启用了 Markdown，立即转换
+        # Render Markdown immediately in non-streaming mode.
         if not streaming and markdown:
             self.window.update()
             self._switch_to_markdown()
 
     def _set_window_position(self, initial: bool = False) -> None:
-        """设置窗口位置
+        """Position the window.
         
         Args:
-            initial: 是否为初始位置（屏幕中央，单行高度）
+            initial: Use the initial centered position and single-line height.
         """
         try:
             screen_width = self.window.winfo_screenwidth()
             screen_height = self.window.winfo_screenheight()
 
-            # 计算初始宽度
+            # Compute initial width.
             calculated_width = self._calculate_actual_width()
 
-            # 获取 Label 的理想高度
+            # Get the Label's requested height.
             needed_h = self.label.winfo_reqheight() + LABEL_HEIGHT_PADDING
 
-            # 如果设置了初始高度，使用较大值
+            # Respect a larger explicitly supplied height.
             if self.initial_height > 0:
                 window_height = max(self.initial_height, needed_h)
             else:
                 window_height = needed_h
 
-            # 限制最小高度
+            # Enforce minimum height.
             window_height = max(window_height, MIN_WINDOW_HEIGHT)
             window_width = calculated_width
 
             if initial:
-                # 初始位置：水平居中，顶部在屏幕中间
+                # Initially center horizontally with the top at the screen midpoint.
                 x = (screen_width - window_width) // 2
                 y = screen_height // 2
             else:
-                # 保持当前位置，只更新大小
+                # Resize without changing position.
                 x = self.window.winfo_x()
                 y = self.window.winfo_y()
 
@@ -166,38 +166,38 @@ class ToastWindowLabel(ToastWindowBase):
             logger.warning(Notice('diagnostic.toast_label.window_positioning_failed', value0=e))
 
     def update_text(self, new_text: str) -> None:
-        """更新文本内容
+        """Update the displayed text.
         
-        Label 不支持增量插入，每次更新都会替换全部文本。
+        Label replaces all text on each update; it does not support incremental insertion.
         
         Args:
-            new_text: 新的完整文本内容
+            new_text: Complete replacement text.
         """
         if not self.streaming:
             return
 
-        # 计算新增的字符
+        # Compute newly added characters.
         current_char_count = len(new_text)
         if current_char_count > self.last_char_count:
-            # 保存完整文本
+            # Retain the complete text.
             self.full_text = new_text
 
-            # 处理文本：在中文字符后添加零宽空格
+            # Add zero-width spaces after CJK characters for wrapping.
             processed_text = add_zero_width_for_chinese(new_text)
 
             try:
-                # Label 不支持增量插入，只能替换全部文本
+                # Replace all Label text.
                 self.label.config(text=processed_text)
 
-                # 强制同步布局计算
+                # Recalculate layout synchronously.
                 self.window.update_idletasks()
 
-                # 计算窗口需要的新高度
+                # Compute the required height.
                 needed_h = self.label.winfo_reqheight() + LABEL_HEIGHT_PADDING
                 current_h = self.window.winfo_height()
                 current_w = self.window.winfo_width()
 
-                # 如果需要增长高度
+                # Increase height if needed.
                 if needed_h > current_h:
                     curr_x = self.window.winfo_x()
                     curr_y = self.window.winfo_y()
@@ -205,11 +205,11 @@ class ToastWindowLabel(ToastWindowBase):
 
                 self.last_char_count = current_char_count
             except tk.TclError:
-                # 窗口已被销毁
+                # The window has been destroyed.
                 self.streaming = False
 
     def _destroy_content_widget(self) -> None:
-        """销毁 Label 组件"""
+        """Destroy the Label widget."""
         if hasattr(self, 'label'):
             try:
                 self.label.destroy()

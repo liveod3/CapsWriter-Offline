@@ -1,11 +1,11 @@
 import numpy as np
 
 def load_audio(audio_path, sample_rate=16000, use_normalizer=True, start_second=None, duration=None):
-    """加载音频文件并转换为 16kHz PCM，支持按需加载指定片段"""
+    """Load 16 kHz PCM, optionally decoding only a requested segment."""
     from pydub import AudioSegment
     
-    # 使用 pydub 的 start_second 和 duration 参数来减少解码量（如果环境支持）
-    # 如果环境中的 pydub 不支持这些参数，它们会被忽略或报错，这里通过 kwargs 传递更稳健
+    # Use pydub start_second and duration options to limit decoding when supported.
+    # Forward these through kwargs; behavior depends on the installed pydub version.
     load_kwargs = {
         "frame_rate": sample_rate, 
         "channels": 1

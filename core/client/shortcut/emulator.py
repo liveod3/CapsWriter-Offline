@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-按键模拟器
+Input emulator.
 
-负责异步模拟键盘和鼠标按键输入
+Simulate keyboard and mouse input asynchronously.
 """
 
 from core.i18n import Notice
@@ -15,31 +15,31 @@ from core.client.shortcut.key_mapper import KeyMapper
 
 class ShortcutEmulator:
     """
-    快捷键模拟器
+    Shortcut emulator.
 
-    使用常驻的 controller 对象，避免重复创建开销
+    Reuse controller objects to avoid repeated setup.
     """
 
     def __init__(self):
-        """初始化模拟器"""
+        """Initialize the emulator."""
         self._keyboard_controller = keyboard.Controller()
         self._mouse_controller = mouse.Controller()
         self._emulating_keys = set()
 
     def is_emulating(self, key_name: str) -> bool:
-        """检查是否正在模拟指定按键"""
+        """Return whether the specified key is being simulated."""
         return key_name in self._emulating_keys
 
     def clear_emulating_flag(self, key_name: str) -> None:
-        """清除模拟标志"""
+        """Clear the simulation flag."""
         self._emulating_keys.discard(key_name)
 
     def emulate_key(self, key_name: str) -> None:
         """
-        异步模拟键盘按键
+        Simulate a keyboard key asynchronously.
 
         Args:
-            key_name: 按键名称（如 'caps_lock', 'f12'）
+            key_name: Key name, such as 'caps_lock' or 'f12'.
         """
         self._emulating_keys.add(key_name)
 
@@ -53,14 +53,14 @@ class ShortcutEmulator:
 
     def emulate_mouse_click(self, button_name: str) -> None:
         """
-        异步模拟鼠标按键
+        Simulate a mouse button asynchronously.
 
         Args:
-            button_name: 鼠标按键名称（'x1' 或 'x2'）
+            button_name: Mouse button name ('x1' or 'x2').
         """
         self._emulating_keys.add(button_name)
 
-        # pynput 鼠标按键对象映射
+        # Map names to pynput mouse buttons.
         button_map = {
             'x1': mouse.Button.x1,
             'x2': mouse.Button.x2

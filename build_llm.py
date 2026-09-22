@@ -1,4 +1,4 @@
-"""发行包仅复制公开 LLM 配置，禁止链接包含本机凭据的工作目录。"""
+"""Package public LLM configuration without linking local credentials."""
 
 from pathlib import Path
 import shutil
@@ -9,7 +9,7 @@ import tomllib
 def copy_llm_configuration(source_root, destination_root):
     source = Path(source_root) / "LLM"
     destination = Path(destination_root) / "LLM"
-    # 旧 spec 曾创建 LLM junction。遇到遗留链接时停止，不穿过链接覆写本机 Key。
+    # Older specs created an LLM junction. Stop at legacy links to protect local keys.
     for path in (
         destination,
         destination / "providers.toml",

@@ -1,49 +1,49 @@
 import os
 from pathlib import Path
 
-# 这是受 Git 跟踪的服务端默认配置模板。
-# 首次使用时将本文件复制到仓库根目录，并重命名为 config_server.py。
-# 请在根目录副本中保存本机设置，不要直接修改或移动本模板。
+# Git-tracked server configuration defaults.
+# Copy this file to the repository root as config_server.py for first use.
+# Keep local settings in that copy. Do not move or edit this template for local use.
 
-# 版本信息
+# Configuration version.
 __version__ = '2.6'
 
-# 项目根目录
+# Application directory when copied to the repository root.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
-# 服务端配置
+# Server configuration.
 # format_num/format_spell reload for new tasks; model/network/resource changes
-# require restart. See docs/configuration-reload.md.
+# require restart. See docs/reference/configuration.md.
 class ServerConfig:
     # Fallback UI language when the local ClientConfig has no ui_language field.
     # Normally follows config_client.py, including live language-menu changes.
     # Values: 'auto' (system), 'en', or 'zh-CN'. Independent of ASR language.
     ui_language = 'auto'
 
-    # 网络模式：'local' 仅允许本机访问；'lan' 允许局域网访问并强制令牌认证
+    # Network mode: 'local' restricts access to loopback; 'lan' requires token authentication.
     network_mode = 'local'
     addr = '127.0.0.1'
     port = '6016'
 
-    # LAN 模式令牌从环境变量读取，服务端与客户端必须使用相同值。
-    # 可用 `python -c "import secrets; print(secrets.token_urlsafe(32))"` 生成随机令牌。
+    # Read the LAN token from the environment; clients must use the same token.
+    # Generate a token with `python -c "import secrets; print(secrets.token_urlsafe(32))"`.
     auth_token = os.environ.get('CAPSWRITER_AUTH_TOKEN', '')
 
-    # 可选 TLS。跨不可信网络时必须同时配置证书与私钥，并在客户端启用 TLS。
+    # Optional TLS: configure certificate and key, and enable client TLS on untrusted networks.
     tls_certfile = ''
     tls_keyfile = ''
 
-    # 网络输入与资源上限。默认值兼容客户端每次发送约 1 分钟 float32 音频。
+    # Input and resource limits accommodate roughly one minute of float32 audio per message.
     websocket_max_message_bytes = 6 * 1024 * 1024
     websocket_max_queue = 16
     max_connections = 8
     connection_idle_timeout = 300
 
-    # 单任务与推理队列上限，防止异常客户端无限占用内存或推理资源。
+    # Bound per-task audio and inference queues to limit memory and compute use.
     max_message_audio_bytes = 4 * 1024 * 1024
-    max_task_audio_bytes = 4 * 60 * 60 * 16000 * 4  # 最多 4 小时音频
-    max_task_duration = 6 * 60 * 60                  # 最多保持 6 小时
+    max_task_audio_bytes = 4 * 60 * 60 * 16000 * 4  # At most four hours of audio.
+    max_task_duration = 6 * 60 * 60                  # Keep a task for at most six hours.
     max_context_length = 4096
     max_tasks_per_connection = 4
     queue_in_maxsize = 32
@@ -61,82 +61,82 @@ class ServerConfig:
     # Maximum worker-loop stall or task inactivity (including queued partial tasks).
     worker_stall_timeout = 600.0
 
-    # 语音模型选择：'qwen_asr', 'fun_asr_nano', 'sensevoice', 'paraformer'
+    # ASR engine: 'qwen_asr', 'fun_asr_nano', 'sensevoice', or 'paraformer'.
     model_type = 'qwen_asr'
 
-    format_num = True       # 输出时是否将中文数字转为阿拉伯数字
-    format_spell = True     # 输出时是否调整中英之间的空格
+    format_num = True       # Convert Chinese number words to Arabic numerals in output.
+    format_spell = True     # Adjust spacing between Chinese and English text.
 
-    enable_tray = True        # 是否启用托盘图标功能
+    enable_tray = True        # Enable the tray icon.
 
-    # 日志配置
-    log_level = 'DEBUG'        # 日志级别：'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'
-    # Forced Aligner 在独立兄弟进程中按需加载；空闲后退出整个进程，避免在
-    # ASR 进程内卸载共享 GPU 后端。0 表示进程常驻。
-    aligner_idle_timeout = 1   # 单卡 GPU 下快速让出显存；进程监控器会自动补位
+    # Logging settings.
+    log_level = 'DEBUG'        # Log level: 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'.
+    # Load the forced aligner on demand in a sibling process; exit it when idle instead
+    # of unloading shared GPU backends inside ASR. Use 0 to keep the process resident.
+    aligner_idle_timeout = 1   # Release GPU memory promptly; the supervisor replaces the idle process.
     aligner_request_timeout = 60  # Request deadline; stop service on timeout to reap a wedged aligner.
 
-    # GPU 预加速配置（有识别任务时，提前调高显存频率，降低延迟，需管理员权限运行）
-    gpu_boost_enabled = False                   # 总开关，默认关闭
-    gpu_boost_cmd = 'nvidia-smi -lmc 9000'      # GPU 预加速命令，锁定显存频率到9000MHz（根据实际 GPU 调整）
-    gpu_unboost_cmd = 'nvidia-smi -rmc'         # GPU 取消预加速命令，恢复显存到默认频率
-    gpu_unboost_timeout = 1                     # 空闲多少秒后取消加速
+    # Raise GPU memory clocks before recognition to reduce latency; requires administrator rights.
+    gpu_boost_enabled = False                   # Master switch; disabled by default.
+    gpu_boost_cmd = 'nvidia-smi -lmc 9000'      # Lock GPU memory to 9000 MHz; adjust for the installed GPU.
+    gpu_unboost_cmd = 'nvidia-smi -rmc'         # Restore default GPU memory clocks.
+    gpu_unboost_timeout = 1                     # Idle seconds before restoring default clocks.
 
-    # NVIDIA 专用显存压力提示。仅在推理期间低频采样，不参与调度；没有
-    # nvidia-smi（AMD/Intel/部分精简驱动）时会静默停用。
+    # Sample NVIDIA dedicated memory during inference for advisory warnings only.
+    # Disable silently when nvidia-smi is unavailable, including AMD/Intel systems.
     gpu_memory_warning_enabled = True
-    gpu_memory_warning_interval = 1.0           # 采样间隔（秒），最低 0.5
-    gpu_memory_warning_threshold = 0.90         # 专用显存占比阈值
-    gpu_memory_warning_consecutive_samples = 3  # 连续命中次数，抑制瞬时峰值误报
+    gpu_memory_warning_interval = 1.0           # Sampling interval in seconds; minimum 0.5.
+    gpu_memory_warning_threshold = 0.90         # Dedicated memory usage threshold.
+    gpu_memory_warning_consecutive_samples = 3  # Require consecutive samples to ignore transient peaks.
 
-    # 集成显卡兼容性补丁
-    # os.environ["GGML_VK_DISABLE_COOPMAT"] = "1"   # AMD集显无法加载 GGUF 模型时尝试
-    # os.environ["GGML_VK_DISABLE_F16"] = "1"       # 集成显卡解码有误，强制熔断时尝试
+    # Integrated GPU compatibility workarounds.
+    # os.environ["GGML_VK_DISABLE_COOPMAT"] = "1"   # Try if AMD integrated GPUs cannot load GGUF.
+    # os.environ["GGML_VK_DISABLE_F16"] = "1"       # Try for decode errors or forced circuit breaks.
 
 
 
 
 class ModelDownloadLinks:
-    """模型下载链接配置"""
-    # 统一导向 GitHub Release 模型页面
+    """Model download locations."""
+    # Use the GitHub model release page for all downloads.
     models_page = "https://github.com/HaujetZhao/CapsWriter-Offline/releases/tag/models"
 
 
 class ModelPaths:
-    """模型文件路径配置"""
+    """Model file paths."""
 
-    # 基础目录
+    # Base directory.
     model_dir = Path() / 'models'
 
-    # Paraformer 模型路径
+    # Paraformer model paths.
     paraformer_dir = model_dir / 'Paraformer' / "speech_paraformer-large-vad-punc_asr_nat-zh-cn-16k-common-vocab8404-onnx"
     paraformer_model = paraformer_dir / 'model.onnx'
     paraformer_tokens = paraformer_dir / 'tokens.txt'
 
-    # 标点模型路径
+    # Punctuation model path.
     punc_model_dir = model_dir / 'Punct-CT-Transformer' / 'sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12' / 'model.onnx'
 
-    # SenseVoice 模型路径，自带标点
+    # SenseVoice includes punctuation.
     sensevoice_dir = model_dir / 'SenseVoice-Small' / 'Sensevoice-Small-ONNX'
     sensevoice_encoder = sensevoice_dir / 'SenseVoice-Encoder.fp16.onnx'
     sensevoice_decoder = sensevoice_dir / 'SenseVoice-CTC.fp16.onnx'
     sensevoice_tokenizer = sensevoice_dir / 'tokenizer.bpe.model'
 
 
-    # Fun-ASR-Nano 模型路径，自带标点
+    # Fun-ASR-Nano includes punctuation.
     fun_asr_nano_gguf_dir = model_dir / 'Fun-ASR-Nano' / 'Fun-ASR-Nano-GGUF'
     fun_asr_nano_gguf_encoder_adaptor = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-Encoder-Adaptor.fp16.onnx'
     fun_asr_nano_gguf_ctc = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-CTC.fp16.onnx'
     fun_asr_nano_gguf_llm_decode = fun_asr_nano_gguf_dir / 'Fun-ASR-Nano-Decoder.q5_k.gguf'
     fun_asr_nano_gguf_token = fun_asr_nano_gguf_dir / 'tokens.txt'
 
-    # Qwen3-ASR 模型路径，自带标点
+    # Qwen3-ASR includes punctuation.
     qwen3_asr_gguf_dir = model_dir / 'Qwen3-ASR' / 'Qwen3-ASR-1.7B'
     qwen3_asr_gguf_encoder_frontend = qwen3_asr_gguf_dir / 'qwen3_asr_encoder_frontend.onnx'
     qwen3_asr_gguf_encoder_backend = qwen3_asr_gguf_dir / 'qwen3_asr_encoder_backend.onnx'
     qwen3_asr_gguf_llm_decode = qwen3_asr_gguf_dir / 'qwen3_asr_llm.gguf'
 
-    # Force-Aligner 模型路径
+    # Forced aligner model paths.
     force_aligner_gguf_dir = model_dir / 'Qwen3-ForcedAligner' / 'Qwen3-ForcedAligner-0.6B'
     force_aligner_gguf_encoder_frontend = force_aligner_gguf_dir / 'qwen3_aligner_encoder_frontend.int4.onnx'
     force_aligner_gguf_encoder_backend = force_aligner_gguf_dir / 'qwen3_aligner_encoder_backend.int4.onnx'
@@ -145,7 +145,7 @@ class ModelPaths:
 
 
 class ParaformerArgs:
-    """Paraformer 模型参数配置"""
+    """Paraformer model arguments."""
 
     paraformer = ModelPaths.paraformer_model.as_posix()
     tokens = ModelPaths.paraformer_tokens.as_posix()
@@ -158,71 +158,71 @@ class ParaformerArgs:
 
 
 class SenseVoiceArgs:
-    """SenseVoice 模型参数配置"""
+    """SenseVoice model arguments."""
 
     encoder_path = ModelPaths.sensevoice_encoder.as_posix()
     decoder_path = ModelPaths.sensevoice_decoder.as_posix()
     tokenizer_path = ModelPaths.sensevoice_tokenizer.as_posix()
-    itn = True                  # 原生输出阿拉伯数字
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
+    itn = True                  # Produce Arabic numerals natively.
+    onnx_provider = 'CPU'       # ONNX execution provider: CPU or DML.
+    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
 
 
 class FunASRNanoGGUFArgs:
-    """Fun-ASR-Nano-GGUF 模型参数配置"""
+    """Fun-ASR-Nano GGUF model arguments."""
 
-    # 模型路径
+    # Model paths.
     encoder_onnx_path = ModelPaths.fun_asr_nano_gguf_encoder_adaptor.as_posix()
     ctc_onnx_path = ModelPaths.fun_asr_nano_gguf_ctc.as_posix()
     decoder_gguf_path = ModelPaths.fun_asr_nano_gguf_llm_decode.as_posix()
     tokens_path = ModelPaths.fun_asr_nano_gguf_token.as_posix()
 
-    # 显卡加速
-    onnx_provider = 'CPU'       # ONNX 推理后端 (CPU, DML)
-    llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
-    vulkan_force_fp32 = False   # 是否强制 FP32 计算（如果 GPU 是 Intel 集显且出现精度溢出，可设为 True）
+    # GPU acceleration.
+    onnx_provider = 'CPU'       # ONNX execution provider: CPU or DML.
+    llm_use_gpu = True          # Enable GPU acceleration for GGUF.
+    vulkan_force_fp32 = False   # Force FP32; try for precision overflow on Intel integrated GPUs.
     
-    # 模型细节
-    enable_ctc = True           # 是否启用 CTC 时间戳对齐
-    n_predict = 512             # LLM 最大生成 token 数
-    n_threads = None            # 线程数，None 表示自动
-    dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
+    # Model parameters.
+    enable_ctc = True           # Enable CTC timestamp alignment.
+    n_predict = 512             # Maximum generated tokens.
+    n_threads = None            # Thread count; None selects automatically.
+    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
     verbose = False
 
 class Qwen3ASRGGUFArgs:
-    """Qwen3-ASR-GGUF 模型参数配置"""
+    """Qwen3-ASR GGUF model arguments."""
 
-    # 模型路径
+    # Model paths.
     model_dir = ModelPaths.qwen3_asr_gguf_dir.as_posix()
     encoder_frontend_fn = ModelPaths.qwen3_asr_gguf_encoder_frontend.name
     encoder_backend_fn = ModelPaths.qwen3_asr_gguf_encoder_backend.name
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
-    # 显卡加速
-    onnx_provider = 'DML'       # ONNX 编码器使用 DirectML GPU；不可用时引擎回退 CPU
-    llm_use_gpu = True          # 是否启用 GPU 加速 GGUF 模型
+    # GPU acceleration.
+    onnx_provider = 'DML'       # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
+    llm_use_gpu = True          # Enable GPU acceleration for GGUF.
     
-    # 模型细节
-    n_ctx = 2048                # 上下文窗口大小
-    chunk_size = 80.0           # 分段长度（秒）
-    memory_num = 1              # 记忆段数
-    dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
+    # Model parameters.
+    n_ctx = 2048                # Context window size.
+    chunk_size = 80.0           # Segment duration in seconds.
+    memory_num = 1              # Number of remembered segments.
+    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
     verbose = False
 
 
 class ForceAlignerGGUFArgs:
-    """Force-Aligner-GGUF 模型参数配置"""
+    """Forced aligner GGUF model arguments."""
 
-    # 模型路径
+    # Model paths.
     model_dir = ModelPaths.force_aligner_gguf_dir.as_posix()
     encoder_frontend_fn = ModelPaths.force_aligner_gguf_encoder_frontend.name
     encoder_backend_fn = ModelPaths.force_aligner_gguf_encoder_backend.name
     llm_fn = ModelPaths.force_aligner_gguf_llm_decode.name
 
-    # 显卡加速
-    onnx_provider = 'DML'       # ONNX 编码器使用 DirectML GPU；不可用时引擎回退 CPU
-    llm_use_gpu = True          # GGUF 解码器将模型层卸载到 GPU
+    # GPU acceleration.
+    onnx_provider = 'DML'       # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
+    llm_use_gpu = True          # Offload GGUF decoder layers to the GPU.
     
-    # 对齐细节
-    n_ctx = 3072                # 上下文窗口大小
-    dml_pad_to = 30             # 开启 DirectML 加速时，短音频统一填充到指定长度，有加速效果
+    # Alignment parameters.
+    n_ctx = 3072                # Context window size.
+    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.

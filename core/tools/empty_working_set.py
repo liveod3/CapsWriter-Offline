@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-Windows 内存管理工具
+Windows working-set utilities.
 
-提供清空进程工作集的功能，用于释放物理内存。
-仅在 Windows 平台有效。
+Trim a process working set to release resident physical pages.
+Supported only on Windows.
 """
 
 import ctypes
@@ -12,34 +12,34 @@ from platform import system
 
 def empty_working_set(pid: int) -> None:
     """
-    清空指定进程的物理内存工作集
+    Trim the specified process's working set.
     
-    通过 Windows API 释放进程占用的物理内存，
-    将其移至页面文件，减少内存占用。
+    Ask Windows to remove resident pages;
+    this does not release virtual allocations or guarantee a particular paging outcome.
     
     Args:
-        pid: 进程 ID
+        pid: Process identifier.
         
     Note:
-        仅在 Windows 平台有效，其他平台调用会失败。
+        Calls on other platforms fail.
     """
-    # 获取进程句柄（PROCESS_ALL_ACCESS = 0x1F0FFF）
+    # Open the process with PROCESS_ALL_ACCESS (0x1F0FFF).
     handle = ctypes.windll.kernel32.OpenProcess(0x1F0FFF, False, pid)
     
     if handle:
-        # 清空工作集
+        # Trim the working set.
         ctypes.windll.psapi.EmptyWorkingSet(handle)
         
-        # 关闭进程句柄
+        # Close the process handle.
         ctypes.windll.kernel32.CloseHandle(handle)
 
 
 def empty_current_working_set() -> None:
     """
-    清空当前进程的物理内存工作集
+    Trim the current process's working set.
     
-    获取当前进程 ID 并清空其工作集。
-    通常在程序初始化完成后调用，释放初始化阶段占用的内存。
+    Get the current process ID and trim its resident pages.
+    Typically called after initialization to reduce the resident startup footprint.
     """
     if system() == 'Windows':
         pid = ctypes.windll.kernel32.GetCurrentProcessId()

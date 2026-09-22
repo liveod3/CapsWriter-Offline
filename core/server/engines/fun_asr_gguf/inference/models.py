@@ -13,24 +13,24 @@ from .prompt_builder import PromptBuilder
 from .schema import ASREngineConfig
 
 class Models:
-    """管理所有模型组件的代码"""
+    """Manage model components."""
     
     def __init__(self, config: ASREngineConfig):
         self.config = config
         verbose = self.config.verbose
         
-        # 运行时组件
+        # Runtime components.
         self.encoder = None
         self.ctc_decoder = None
         
-        # LLM 相关
+        # Decoder components.
         self.model = None
         self.ctx = None
         self.vocab = None
         self.eos_token = None
         self.embedding_table = None
         
-        # 辅助组件
+        # Auxiliary components.
         self.prompt_builder = None
         
         self._initialized = False
@@ -44,7 +44,7 @@ class Models:
             raise RuntimeError(Notice('validation.models.model_initialization_failed', value0=type(e).__name__)) from None
 
     def _load_models(self, verbose):
-        """执行实际的模型加载逻辑"""
+        """Load model components."""
         # 1. Encoder (ONNX)
         vprint(Notice('terminal.models.loading_audio_encoder'), verbose)
         self.encoder = AudioEncoder(
@@ -84,7 +84,7 @@ class Models:
             n_threads=self.config.n_threads,
         )
         
-        # 6. Prompt构建器
+        # 6. Prompt builder.
         vprint(Notice('terminal.models.initializing_prompt_builder'), verbose)
         self.prompt_builder = PromptBuilder(self.vocab, self.embedding_table)
 

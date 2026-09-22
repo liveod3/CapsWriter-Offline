@@ -1,5 +1,5 @@
 # coding: utf-8
-"""已有 TXT/JSON 结果的 SRT 重建运行器。"""
+"""Rebuild SRT from existing TXT and JSON results."""
 
 from __future__ import annotations
 

@@ -16,17 +16,17 @@ from .models import Models
 from .ctc_aligner import CTCAligner
 from .llm_decoder import LLMDecoder
 
-# 全局静默 Reporter，用于默认参数，避免重复创建线程
+# Reuse a silent reporter to avoid creating threads for default arguments.
 _SILENT_REPORTER = DisplayReporter(verbose=False)
 
 class InferencePipeline:
-    """ASR 核心指挥者 (Conductor)：负责调度音频编码、CTC 解码、Prompt 构建及 LLM 推理等细粒度组件"""
+    """Coordinate encoding, CTC decoding, prompt construction, and decoder inference."""
     def __init__(self, models: Models):
         self.models = models
         self.llm_decoder = LLMDecoder(models)
 
     def create_stream(self) -> RecognitionStream:
-        """创建识别流"""
+        """Create a recognition stream."""
         return RecognitionStream(sample_rate=self.models.config.sample_rate)
 
     def decode_stream(
@@ -45,7 +45,7 @@ class InferencePipeline:
         reporter = reporter or _SILENT_REPORTER
         timings = Timings()
 
-        # 0. 检查原始音频数据长度，空音频防御
+        # 0. Reject empty audio before inference.
         if len(stream.audio_data) < 1600:
             return DecodeResult(text="", timings=timings)
         
@@ -79,7 +79,7 @@ class InferencePipeline:
         full_embd = np.concatenate([p_embd, audio_embd.astype(np.float32), s_embd], axis=0)
         n_input_tokens = full_embd.shape[0]
 
-        # 5. LLM 解码循环：若熔断则加温重试（总共最多解码7次，最后的温度是2.1）
+        # 5. Retry aborted decoding at higher temperatures, up to seven attempts and 2.1.
         llm_res = None
         current_temp = temperature
         for retry_idx in range(7):
@@ -90,7 +90,7 @@ class InferencePipeline:
                 stream_output=verbose, reporter=reporter,
                 temperature=current_temp, top_p=top_p, top_k=top_k
             )
-            if not llm_res.is_aborted: break    # 正常解码就跳出循环
+            if not llm_res.is_aborted: break    # Stop retrying after normal completion.
             llm_res.text += "====解码有误，强制熔断===="
             current_temp += 0.3
         text = llm_res.text.strip()

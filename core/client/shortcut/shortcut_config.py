@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-快捷键配置数据类
+Shortcut configuration dataclass.
 
-定义 Shortcut 数据结构，用于配置快捷键行为。
-避免循环导入：此模块不依赖 config.py。
+Define Shortcut settings and behavior.
+Avoid circular imports by keeping configuration imports out of this module.
 """
 
 from dataclasses import dataclass
@@ -13,59 +13,59 @@ from typing import Literal, Optional
 @dataclass
 class Shortcut:
     """
-    快捷键配置类
+    Shortcut configuration.
 
     Attributes:
-        key: 快捷键名称（支持 pynput 格式，如 'caps_lock', 'a', 'f1', 'ctrl+shift+a'）
-        type: 输入类型，'keyboard' 或 'mouse'
-        suppress: 是否阻塞按键事件（让其它程序收不到这个按键消息）
-        hold_mode: 长按模式。True=按下录音松开停止；False=单击开始再次单击停止
-        threshold: 按下快捷键后触发语音识别的时间阈值（秒），用于防止误触。None 表示使用 Config.threshold
-        enabled: 是否启用此快捷键
+        key: pynput key name, such as 'caps_lock', 'a', 'f1', or 'ctrl+shift+a'.
+        type: Input type, 'keyboard' or 'mouse'.
+        suppress: Prevent other applications from receiving the original key event.
+        hold_mode: True records while held; False toggles recording on each press.
+        threshold: Activation delay in seconds to avoid accidental input; None uses Config.threshold.
+        enabled: Enable this shortcut.
 
-    注意：
-        - 非阻塞模式下，对于可恢复的切换键（CapsLock/NumLock/ScrollLock），会自动补发以恢复状态
-        - 在阻塞模式下，短按松开会自动补发按键，不影响单击功能
+    Notes:
+        - Unsuppressed lock keys (CapsLock/NumLock/ScrollLock) are replayed to restore their state.
+        - Suppressed short presses are replayed on release to preserve normal key behavior.
     """
     key: str
     type: Literal['keyboard', 'mouse'] = 'keyboard'
     suppress: bool = False
     hold_mode: bool = True
-    threshold: Optional[float] = None  # None 表示使用 Config.threshold
+    threshold: Optional[float] = None  # None uses Config.threshold.
     enabled: bool = True
 
     def __post_init__(self):
-        """初始化后验证配置"""
-        # 规范化键名
+        """Normalize configuration after initialization."""
+        # Normalize the key name.
         self.key = self._normalize_key(self.key)
 
     def get_threshold(self, default_threshold: float = 0.3) -> float:
         """
-        获取快捷键的阈值
+        Return the shortcut activation threshold.
 
         Args:
-            default_threshold: 默认阈值
+            default_threshold: Fallback threshold.
 
         Returns:
-            float: 阈值（秒）
+            float: Threshold in seconds.
         """
         return self.threshold if self.threshold is not None else default_threshold
 
     @staticmethod
     def _normalize_key(key: str) -> str:
         """
-        规范化键名
+        Normalize a key name.
 
         Args:
-            key: 原始键名
+            key: Original key name.
 
         Returns:
-            str: 规范化后的键名（pynput 格式）
+            str: Normalized name in pynput format.
         """
-        # 转小写
+        # Convert to lowercase.
         key = key.lower().strip()
 
-        # 替换常见别名
+        # Replace common aliases.
         aliases = {
             'capslock': 'caps_lock',
             'caps lock': 'caps_lock',
@@ -76,34 +76,34 @@ class Shortcut:
         for old, new in aliases.items():
             key = key.replace(old, new)
 
-        # 移除左右修饰符标记（pynput 会自动处理）
-        # 保留 'left ctrl' 这样的形式
+        # Normalize modifier aliases for pynput.
+        # Retain forms such as 'left ctrl'.
 
         return key
 
     def is_toggle_key(self) -> bool:
         """
-        判断是否是切换型按键（需要恢复的锁键）
+        Return whether this is a lock key requiring state restoration.
 
         Returns:
-            bool: 是否是切换型按键
+            bool: Whether the key has a restorable toggle state.
 
-        注意：使用 RESTORABLE_KEYS 常量定义可恢复的按键
+        RESTORABLE_KEYS defines the supported lock keys.
         """
         from core.client.shortcut.key_mapper import RESTORABLE_KEYS
 
-        # 检查 key 是否包含可恢复的切换键
+        # Check for a restorable lock key in the name.
         return any(toggle_key in self.key for toggle_key in RESTORABLE_KEYS)
 
 
-# 预定义常用快捷键配置
+# Common shortcut presets.
 @dataclass
 class CommonShortcuts:
-    """常用快捷键预设"""
+    """Common shortcut presets."""
 
     @staticmethod
     def caps_lock() -> Shortcut:
-        """CapsLock 键（默认配置）"""
+        """Caps Lock preset; not the application default."""
         return Shortcut(
             key='caps_lock',
             type='keyboard',
@@ -114,7 +114,7 @@ class CommonShortcuts:
 
     @staticmethod
     def mouse_x2() -> Shortcut:
-        """鼠标 X2 键（前进键）"""
+        """Mouse X2 (Forward) preset."""
         return Shortcut(
             key='x2',
             type='mouse',
@@ -125,7 +125,7 @@ class CommonShortcuts:
 
     @staticmethod
     def f12() -> Shortcut:
-        """F12 键"""
+        """F12 preset."""
         return Shortcut(
             key='f12',
             type='keyboard',
@@ -136,7 +136,7 @@ class CommonShortcuts:
 
     @staticmethod
     def space() -> Shortcut:
-        """空格键"""
+        """Space preset."""
         return Shortcut(
             key='space',
             type='keyboard',

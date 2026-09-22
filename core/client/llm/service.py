@@ -1,4 +1,4 @@
-"""独立文本动作：默认纠错或显式预设，无角色执行、历史或剪贴板采集。"""
+"""Run one default or explicit text action without roles, history, or clipboard capture."""
 
 from __future__ import annotations
 
@@ -77,7 +77,7 @@ class TextActionService:
             return TextResult(text, text)
         self._loop = asyncio.get_running_loop()
         epoch = self._cancel_epoch
-        # 模式在请求入口固定，菜单切换只影响后续请求。
+        # Snapshot the mode at entry; menu changes apply to subsequent requests.
         default_preset = getattr(self.config, "llm_default_preset", "correct_asr")
         options = llm_options(self.config)
         if not any(options.values()) or (preset_id in options and not options[preset_id]):
@@ -92,18 +92,18 @@ class TextActionService:
         try:
             if progress_callback:
                 progress_callback('status.prepare_llm')
-            # 每次请求加载静态文件，编辑后下次请求生效；没有文件监控线程。
+            # Reload static files per request; no file-watching thread is needed.
             catalog = await asyncio.to_thread(load_catalog, self.directory)
             if self._stopped or epoch != self._cancel_epoch:
                 return TextResult(text, text, cancelled=True)
-            # 关闭的能力不参加口令匹配，避免绕过开关或吞掉原文中的口令。
+            # Exclude disabled capabilities from matching so triggers cannot bypass switches.
             catalog = Catalog(catalog.providers, {
                 key: preset for key, preset in catalog.presets.items()
                 if options.get(key, True)
             })
             if isinstance(default_preset, str) and not options.get(default_preset, True):
-                # 旧菜单可能留下默认翻译；只开润色时应实际执行润色。
-                # 不自动回退到翻译，避免普通听写意外变成另一种语言。
+                # Legacy menus may leave translation as default; correction-only mode must correct.
+                # Never fall back to translation and unexpectedly change the dictation language.
                 default_preset = "correct_asr" if options["correct_asr"] else None
             if preset_id is not None:
                 preset = catalog.presets[preset_id]
@@ -138,7 +138,7 @@ class TextActionService:
             )
             self._active.add(request)
             try:
-                # 限制整个请求的耗时，防止持续发送少量数据绕过 HTTP 读取超时。
+                # Bound the entire request so a trickling response cannot evade the HTTP read timeout.
                 async with asyncio.timeout(provider.timeout):
                     result = await request
             finally:

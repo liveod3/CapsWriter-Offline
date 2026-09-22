@@ -1,23 +1,23 @@
 # coding: utf-8
 """
-客户端 UI 门面模块
+Client UI facade.
 
-该模块作为客户端访问 UI 功能的统一入口。
-在导入此模块时，会自动将客户端的 logger 注入到通用 UI 模块中。
-并重新导出常用的 UI 组件。
+Provide one entry point for client UI components.
+Inject the client logger into shared UI components on import
+and re-export commonly used components.
 """
 
 from .. import logger
 import core.ui
 
-# 1. 注入 Client Logger 到通用 UI 模块
+# 1. Inject the client logger into shared UI components.
 core.ui.set_ui_logger(logger)
 
-# 2. 导出客户端特有的 UI 组件
+# 2. Export client-specific UI components.
 from core.client.ui.tips import TipsDisplay
 
-# 3. 重新导出通用 UI 组件 (Re-export)
-# 这样客户端其他模块只需 from core.client.ui import ... 即可
+# 3. Re-export shared UI components.
+# Client modules can import these from core.client.ui.
 from core.ui import (
     toast,
     toast_stream,
@@ -28,7 +28,7 @@ from core.ui import (
     stop_tray,
 )
 
-# 4. 导出菜单处理器（供 Startup 使用）
+# 4. Export the menu handler for startup.
 
 __all__ = [
     'logger',

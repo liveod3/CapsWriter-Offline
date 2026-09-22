@@ -1,4 +1,4 @@
-"""以合成 CTC token 验证解码和时间戳，不加载模型或 GPU 库。"""
+"""Test CTC decoding and timing with synthetic tokens, without models or GPU libraries."""
 
 import importlib.util
 import logging

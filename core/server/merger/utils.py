@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-Token 处理工具函数
+Token utilities.
 
-提供对识别结果中的 Token 列表进行基础处理的辅助方法。
+Provide basic transformations for recognition tokens.
 """
 
 from core.i18n import Notice
@@ -15,13 +15,13 @@ from . import logger
 
 def process_tokens_safely(tokens: List) -> List[str]:
     """
-    安全处理 tokens，过滤无效 UTF-8 编码
+    Filter invalid UTF-8 while normalizing tokens.
     
     Args:
-        tokens: 原始 token 列表
+        tokens: Original token list.
         
     Returns:
-        清理后的字符串 token 列表
+        Cleaned string tokens.
     """
     clean_tokens = []
     for token in tokens:
@@ -33,16 +33,16 @@ def process_tokens_safely(tokens: List) -> List[str]:
 
 def tokens_to_text(tokens: List[str]) -> str:
     """
-    将 tokens 序列化为最终显示文本
+    Serialize tokens into display text.
     
-    处理 Paraformer 特有的 @@ 标记（表示后续 token 应直接拼接）。
-    对于现代模型（如 Fun-ASR-Nano），空格本身通常已存在于 token 列表中。
+    Handle Paraformer @@ continuation markers by joining the next token directly.
+    Other engines, including Fun-ASR-Nano, usually include spaces in their tokens.
     
     Args:
-        tokens: token 列表
+        tokens: Token list.
         
     Returns:
-        合并后的完整文本
+        Complete merged text.
     """
     return "".join(tokens).replace('@@', '')
 
@@ -52,16 +52,16 @@ def remove_trailing_punctuation(
     timestamps: List[float]
 ) -> Tuple[List[str], List[float]]:
     """
-    移除末尾的标点符号
+    Remove trailing punctuation.
     
-    常用于某些模型在片段末尾产生的重复或不必要的标点。
+    Remove redundant punctuation produced at segment boundaries.
     
     Args:
-        tokens: token 列表
-        timestamps: 时间戳列表
+        tokens: Token list.
+        timestamps: Timestamp list.
         
     Returns:
-        (处理后的 tokens, 处理后的 timestamps)
+        Tuple of processed tokens and timestamps.
     """
     if tokens and tokens[-1] in Punctuation.ALL:
         logger.debug(Notice('diagnostic.utils.removed_trailing_punctuation'))

@@ -1,5 +1,5 @@
 # coding: utf-8
-"""CapsWriter 客户端命令行解析。"""
+"""Parse the CapsWriter client command line."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from config_client import ClientConfig as Config, __version__
 
 
 class ClientMode(str, Enum):
-    """客户端运行模式。"""
+    """Client execution modes."""
 
     MIC = "mic"
     TRANSCRIBE = "transcribe"
@@ -52,7 +52,7 @@ class LocalizedArgumentParser(argparse.ArgumentParser):
 
 @dataclass(frozen=True)
 class ClientCommand:
-    """完成校验后的单次客户端运行参数。"""
+    """Validated options for one client invocation."""
 
     mode: ClientMode
     inputs: tuple[Path, ...] = ()
@@ -63,7 +63,7 @@ class ClientCommand:
 
 
 def configured_output_formats() -> frozenset[str]:
-    """从兼容旧配置的布尔开关生成默认输出格式。"""
+    """Derive default output formats from backward-compatible boolean settings."""
     enabled = {
         name
         for name, attribute, default in (
@@ -183,7 +183,7 @@ def _normalize_compatibility_args(
     arguments: list[str],
     cwd: Path,
 ) -> list[str]:
-    """将双击、拖拽和旧式裸路径调用转换成正式子命令。"""
+    """Normalize double-click, drag-and-drop, and legacy bare paths into subcommands."""
     if not arguments:
         return [ClientMode.MIC.value]
 
@@ -231,7 +231,7 @@ def parse_client_command(
     *,
     cwd: Path | None = None,
 ) -> ClientCommand:
-    """解析正式 CLI，并兼容无参数、拖拽和旧式裸路径调用。"""
+    """Parse explicit CLI commands and legacy no-argument or bare-path invocations."""
     set_language(getattr(Config, "ui_language", "auto"))
     parser = _build_parser()
     arguments = list(sys.argv[1:] if argv is None else argv)

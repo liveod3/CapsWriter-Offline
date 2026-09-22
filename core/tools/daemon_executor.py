@@ -6,10 +6,10 @@ from concurrent.futures import Future, ThreadPoolExecutor
 
 class SimpleDaemonExecutor(ThreadPoolExecutor):
     """
-    一个极其简单的 Executor，为每个任务创建一个守护线程。
-    注意：这没有池化（Pooling），每个任务一个线程。
-    对于 IO 密集型且任务数量不多的场景（如 ws_send, ws_recv），这是完全可以接受的。
-    而且这保证了真正的 Daemon 行为。
+    Create one daemon thread per submitted task.
+    This executor does not pool threads.
+    Use it for a small number of blocking I/O tasks, such as queue consumers.
+    Threads retain daemon shutdown behavior.
     """
     def submit(self, fn, *args, **kwargs):
         f = Future()

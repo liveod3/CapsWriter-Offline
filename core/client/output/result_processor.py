@@ -1,4 +1,4 @@
-"""最终识别结果：可选单次文本动作、焦点保护与独立归档。"""
+"""Process final results with optional text actions, focus protection, and archives."""
 
 from __future__ import annotations
 
@@ -82,8 +82,8 @@ class ResultProcessor:
                 try:
                     message = await self.ws.receive()
                 except CommunicationError as exc:
-                    # 接收异常属于连接边界，不能让它结束整个麦克风运行器。
-                    # 主动退出保持安静；其他断线清理后由外层循环重新连接。
+                    # A receive failure belongs to the connection boundary, not the microphone runner.
+                    # Exit quietly on shutdown; otherwise clean up and let the outer loop reconnect.
                     if not self._exit_event.is_set():
                         logger.warning(Notice('diagnostic.result_processor.connection_interrupted'), type(exc).__name__)
                     self._fail_unfinished(notify=not self._exit_event.is_set())
@@ -225,7 +225,7 @@ class ResultProcessor:
         )
         self.app.progress.finish(message.task_id)
         final_text = result.text
-        # 无论失败/取消都可从菜单找回本次文字；取消不会自动上屏。
+        # Keep text available in the menu after failure or cancellation; cancellation skips insertion.
         self.state.set_output_text(final_text)
         console.print(tr('result.transcription'), original, markup=False)
         if result.processed:
@@ -249,7 +249,7 @@ class ResultProcessor:
             info = get_active_window_info()
             process_name = info.get("process_name", "").lower()
             paste = Config.paste or any(name.lower() == process_name for name in Config.paste_apps)
-            # LLM 等完整结果返回后一次性输出。
+            # Insert LLM output once the complete response is available.
             await self.app.output.output(final_text, paste=paste)
             broadcast_output_udp(final_text)
             for application, delay in Config.enter_apps:

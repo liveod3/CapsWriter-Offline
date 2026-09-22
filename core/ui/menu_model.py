@@ -1,4 +1,4 @@
-"""菜单动作声明，将文案、说明、图标与业务回调分离。"""
+"""Declare menu actions separately from labels, descriptions, icons, and callbacks."""
 
 from dataclasses import dataclass, field
 from typing import Callable

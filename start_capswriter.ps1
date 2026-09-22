@@ -8,7 +8,7 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($ServerOnly -and $ClientOnly) {
-    throw '-ServerOnly 与 -ClientOnly 不能同时使用。'
+    throw '-ServerOnly and -ClientOnly are mutually exclusive.'
 }
 
 function Resolve-CapsWriterPython {
@@ -38,8 +38,8 @@ function Resolve-CapsWriterPython {
     }
 
     throw @'
-找不到 Conda 环境 capswriter。
-请先创建该环境，或确保它已登记在 %USERPROFILE%\.conda\environments.txt 中。
+Cannot find the capswriter Conda environment.
+Create it first or register it in %USERPROFILE%\.conda\environments.txt.
 '@
 }
 
@@ -80,10 +80,10 @@ Set-Location -LiteralPath $rootLiteral
 `$env:CONDA_PREFIX = `$environmentPath
 `$env:CONDA_SHLVL = '1'
 `$env:PATH = (`$environmentBins -join [IO.Path]::PathSeparator) + [IO.Path]::PathSeparator + `$env:PATH
-Write-Host 'Conda 环境: capswriter' -ForegroundColor DarkGray
+Write-Host 'Conda environment: capswriter' -ForegroundColor DarkGray
 & $pythonLiteral $entryLiteral
 if (`$LASTEXITCODE -ne 0) {
-    Write-Host "进程已退出，代码: `$LASTEXITCODE" -ForegroundColor Red
+    Write-Host "Process exited with code: `$LASTEXITCODE" -ForegroundColor Red
 }
 "@
 }
@@ -116,14 +116,14 @@ elseif ($ClientOnly) {
     $launches = @($launches | Where-Object { $_.Title -eq 'CapsWriter Client' })
 }
 
-Write-Host "项目目录: $projectRoot"
+Write-Host "Project directory: $projectRoot"
 Write-Host "Python: $pythonPath"
 
 foreach ($launch in $launches) {
     $title = $launch.Title
     $entryPath = $launch.Entry
     if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf)) {
-        throw "找不到启动脚本: $entryPath"
+        throw "Cannot find entry script: $entryPath"
     }
 
     $childCommand = New-ChildCommand `
@@ -141,14 +141,14 @@ foreach ($launch in $launches) {
         [ref]$parseErrors
     )
     if ($parseErrors.Count -gt 0) {
-        throw "生成的子终端命令存在语法错误: $($parseErrors[0].Message)"
+        throw "Generated terminal command has a syntax error: $($parseErrors[0].Message)"
     }
 
     $encodedCommand = [Convert]::ToBase64String(
         [Text.Encoding]::Unicode.GetBytes($childCommand)
     )
 
-    if ($PSCmdlet.ShouldProcess($title, "在新终端中运行 $entryPath")) {
+    if ($PSCmdlet.ShouldProcess($title, "Run in a new terminal: $entryPath")) {
         Start-Process `
             -FilePath $terminalPath `
             -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand', $encodedCommand) `

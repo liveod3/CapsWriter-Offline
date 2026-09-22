@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-听写状态指示浮窗
+Dictation status overlay.
 
-在屏幕底部中央显示极简的录音状态提示。
-样式：深色背景，脉冲红点，无边框，不抢焦点。
+Display recording status at the bottom center of the screen.
+Use a dark, borderless window with a pulsing red dot without taking focus.
 """
 
 from core.i18n import tr
@@ -16,21 +16,21 @@ from . import logger
 
 
 # ============================================================
-# 多显示器支持：获取光标所在显示器工作区
+# Use the work area of the monitor containing the pointer.
 # ============================================================
 
 def _get_active_monitor_workarea() -> Tuple[int, int, int, int]:
-    """返回当前光标所在显示器工作区 (left, top, width, height)。
-    失败时回退到主显示器。"""
+    """Return the pointer monitor's work area as (left, top, width, height).
+    Fall back to the primary monitor on failure."""
     try:
-        # 获取光标位置
+        # Get pointer coordinates.
         pt = ctypes.wintypes.POINT()
         ctypes.windll.user32.GetCursorPos(ctypes.byref(pt))
 
-        # 从光标位置获取显示器句柄（MONITOR_DEFAULTTONEAREST）
+        # Find the nearest monitor with MONITOR_DEFAULTTONEAREST.
         hmon = ctypes.windll.user32.MonitorFromPoint(pt, 2)
 
-        # 获取显示器信息
+        # Read monitor information.
         class MONITORINFO(ctypes.Structure):
             _fields_ = [
                 ('cbSize',    ctypes.c_uint32),
@@ -45,7 +45,7 @@ def _get_active_monitor_workarea() -> Tuple[int, int, int, int]:
         r = mi.rcWork
         return r.left, r.top, r.right - r.left, r.bottom - r.top
     except Exception:
-        # 回退：tkinter 主显示器
+        # Fall back to Tk's primary screen dimensions.
         try:
             import tkinter as _tk
             _r = _tk.Tk()
@@ -59,7 +59,7 @@ def _get_active_monitor_workarea() -> Tuple[int, int, int, int]:
 
 
 # ============================================================
-# 脉冲动画（红色呼吸效果）
+# Pulse the red indicator.
 # ============================================================
 
 _PULSE_COLORS = [
@@ -71,7 +71,7 @@ _PULSE_INTERVAL_MS = 100
 
 
 class _RecordingIndicator:
-    """底部中央录音状态浮窗（不抢焦点）"""
+    """Show a bottom-center recording overlay without taking focus."""
 
     def __init__(self, root: tk.Tk) -> None:
         self._root = root
@@ -83,14 +83,14 @@ class _RecordingIndicator:
         self._hint_job = None
         self._processing_text = ''
 
-    # ── Tk 线程内部实现 ───────────────────────────────────────
+    # Tk-thread implementation.
 
     def _show_impl(self) -> None:
         if self._win and self._win.winfo_exists():
             return
 
         win = tk.Toplevel(self._root)
-        win.overrideredirect(True)          # 无边框/标题栏
+        win.overrideredirect(True)          # Remove borders and title bar.
         win.attributes('-topmost', True)
         win.attributes('-alpha', 0.88)
         win.configure(bg='#1C1C1E')
@@ -115,13 +115,13 @@ class _RecordingIndicator:
             bg='#1C1C1E',
         ).pack(side='left')
 
-        # 定位：光标所在显示器的工作区底部中央
+        # Place at the bottom center of the pointer monitor's work area.
         win.update_idletasks()
         ww = win.winfo_reqwidth()
         wh = win.winfo_reqheight()
         mx, my, mw, mh = _get_active_monitor_workarea()
         x = mx + (mw - ww) // 2
-        y = my + mh - wh - 80   # 工作区底部上方 80px
+        y = my + mh - wh - 80   # Leave 80 px above the work-area bottom.
         win.geometry(f'+{x}+{y}')
 
         self._win = win
@@ -129,7 +129,7 @@ class _RecordingIndicator:
         self._pulse_idx = 0
         self._start_pulse()
 
-        # 若状态提示已显示，录音浮窗出现后将提示重新布局到其上方，避免重叠。
+        # Reposition existing status above the recording overlay to prevent overlap.
         self._relayout_hint_if_needed()
 
     def _hide_impl(self) -> None:
@@ -143,7 +143,7 @@ class _RecordingIndicator:
             self._dot = None
 
     def _show_hint_impl(self, text: str, duration_ms: int, dot_color: str) -> None:
-        # 覆盖旧提示，保证屏幕上最多只有一个状态提示
+        # Replace the previous notification so only one status notification is visible.
         if self._hint_job:
             try:
                 self._root.after_cancel(self._hint_job)
@@ -193,7 +193,7 @@ class _RecordingIndicator:
         x = mx + (mw - ww) // 2
         y = my + mh - wh - 120
 
-        # 如果录音浮窗正在显示，将提示放到录音浮窗上方，保证视觉不重叠。
+        # Keep the status notification above an active recording overlay.
         if self._win and self._win.winfo_exists():
             try:
                 self._win.update_idletasks()
@@ -202,7 +202,7 @@ class _RecordingIndicator:
             except tk.TclError:
                 pass
 
-        # 给顶部留出最小边距，避免在小屏幕/高缩放下顶到屏幕边缘。
+        # Leave a top margin on small screens or at high display scaling.
         y = max(my + 16, y)
         win.geometry(f'+{x}+{y}')
 
@@ -228,12 +228,12 @@ class _RecordingIndicator:
 
     def _set_processing_impl(self, text: str) -> None:
         self._processing_text = text
-        # 短通知结束后恢复仍在进行的任务；清理任务不撤掉别的错误通知。
+        # Restore ongoing task status after short notices; task cleanup must not dismiss other errors.
         if self._hint_job is None:
             self._hide_hint_impl()
 
     def _relayout_hint_if_needed(self) -> None:
-        """录音浮窗显示后，必要时将提示浮窗重新排到上方。"""
+        """Move the status notification above the recording overlay when needed."""
         if not (self._hint_win and self._hint_win.winfo_exists() and self._win and self._win.winfo_exists()):
             return
 
@@ -276,14 +276,14 @@ class _RecordingIndicator:
 
 
 # ============================================================
-# 全局单例
+# Shared singleton.
 # ============================================================
 
 _indicator: Optional[_RecordingIndicator] = None
 
 
 def _post_indicator(action) -> None:
-    """投递到现有 Tk 队列，不在快捷键或 asyncio 线程等待 root。"""
+    """Enqueue Tk work without blocking shortcut or asyncio threads on root readiness."""
     from .toast_manager import ToastMessageManager
 
     def apply(root):
@@ -296,25 +296,25 @@ def _post_indicator(action) -> None:
 
 
 def show_recording_indicator() -> None:
-    """显示录音指示浮窗（线程安全，可从任意线程调用）"""
+    """Enqueue showing the recording overlay from any thread."""
     _post_indicator(lambda ind: ind._show_impl())
 
 
 def hide_recording_indicator() -> None:
-    """隐藏录音指示浮窗（线程安全，可从任意线程调用）"""
+    """Enqueue hiding the recording overlay from any thread."""
     _post_indicator(lambda ind: ind._hide_impl())
 
 
 def show_status_hint(text: str, duration_ms: int = 1600, dot_color: str = '#7DD3FC') -> None:
-    """显示短暂状态提示浮窗（线程安全）。"""
+    """Enqueue a brief status notification."""
     _post_indicator(lambda ind: ind._show_hint_impl(text, duration_ms, dot_color))
 
 
 def hide_status_hint() -> None:
-    """隐藏当前状态提示浮窗（线程安全）。"""
+    """Enqueue hiding the current status notification."""
     _post_indicator(lambda ind: ind._hide_hint_impl())
 
 
 def set_processing_status(text: str) -> None:
-    """持续显示当前处理阶段；空字符串结束，短通知消失后自动恢复。"""
+    """Keep task status visible; empty text clears it, and short notices temporarily cover it."""
     _post_indicator(lambda ind: ind._set_processing_impl(text))

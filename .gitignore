@@ -1,12 +1,12 @@
-# 字节码文件 / 预编译 / DLL 文件
+# Bytecode and compiled files
 __pycache__/
 *.py[cod]
 *$py.class
 
-# C 扩展
+# C extensions
 *.so
 
-# 发布 / 打包
+# Build and distribution output
 .Python
 build/
 develop-eggs/
@@ -26,17 +26,17 @@ share/python-wheels/
 *.egg
 MANIFEST
 
-# PyInstaller 打包配置
-# 通常这些文件由脚本生成，可能包含本地路径
+# PyInstaller metadata
+# Generated files can contain local paths
 *.manifest
 *.spec
 *.zip
 
-# 安装日志
+# Installer logs
 pip-log.txt
 pip-delete-this-directory.txt
 
-# 单元测试 / 覆盖率报告
+# Tests and coverage reports
 htmlcov/
 .tox/
 .nox/
@@ -51,60 +51,60 @@ coverage.xml
 .pytest_cache/
 pytestdebug.log
 
-# 翻译文件
+# Translation binaries
 *.mo
 *.pot
 
-# Django 框架相关
+# Django
 *.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
 
-# Flask 框架相关
+# Flask
 instance/
 .webassets-cache
 
-# Scrapy 爬虫相关
+# Scrapy
 .scrapy
 
-# Sphinx 文档
+# Sphinx output
 docs/_build/
 
-# PyBuilder 相关
+# PyBuilder
 .pybuilder/
 target/
 
-# Jupyter Notebook 相关
+# Jupyter checkpoints
 .ipynb_checkpoints
 
-# IPython 相关
+# IPython
 profile_default/
 ipython_config.py
 
-# pyenv 配置
+# pyenv
 # .python-version
 
-# pipenv 配置
+# Pipenv
 #Pipfile.lock
 
-# poetry 配置
+# Poetry
 #poetry.lock
 
-# pdm 配置
+# PDM
 #pdm.lock
 
-# PEP 582 代码隔离相关
+# PEP 582 packages
 __pypackages__/
 
-# Celery 异步任务相关
+# Celery task state
 celerybeat-schedule
 celerybeat.pid
 
-# SageMath 脚本
+# SageMath
 *.sage.py
 
-# 虚拟环境
+# Virtual environments
 .env
 .venv
 env/
@@ -113,63 +113,63 @@ ENV/
 env.bak/
 venv.bak/
 
-# Spyder 项目设置
+# Spyder
 .spyderproject
 .spyproject
 
-# Rope 重构设置
+# Rope
 .ropeproject
 
-# mkdocs 静态站点
+# MkDocs output
 /site
 
-# Mypy 类型检查缓存
+# mypy cache
 .mypy_cache/
 .dmypy.json
 dmypy.json
 
-# Pyre 类型检查缓存
+# Pyre cache
 .pyre/
 
-# pytype 静态分析缓存
+# pytype cache
 .pytype/
 
-# Cython 调试符号
+# Cython debugging
 cython_debug/
 
-# PyCharm 设置
+# PyCharm
 .idea/
 
-# VS Code 设置
+# VS Code
 .vscode/
 
-# --- 本项目特定忽略 ---
+# Project-specific exclusions
 
-# 模型文件（体积巨大，只保留下载链接）
+# Large models; keep download pointers
 models/*/*/
 models/*.py
 
-# 日志与按年归档的文件夹（如 2026/01/...）
+# Year-based user archives
 20*/
 
-# 日志文件夹（包含 server_*.log 和 client_*.log）
+# Diagnostic and content logs
 logs/
 
 # Optional portable recording storage
 /audio-data/
 
-# 音频文件
+# Audio files
 *.mp3
 *.wav
 *.m4a
 
-# 运行生成的临时文件 / 二进制
+# Generated executables and runtime files
 *.exe
 *.log
 
 
 
-# 本地配置文件
+# Local configuration
 /config_client.py
 /config_server.py
 /LLM/providers.toml

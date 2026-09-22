@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-基于时间戳对齐的 Token 拼接算法
+Timestamp-aware token merging.
 
-使用 SequenceMatcher 进行精确的字级对齐，适用于字幕生成等对时间戳要求高的场景。
+Use SequenceMatcher for character alignment when generating timed subtitles.
 """
 
 from __future__ import annotations
@@ -24,26 +24,26 @@ def merge_tokens_by_sequence_matcher(
     is_first_segment: bool = False
 ) -> Tuple[List[str], List[float]]:
     """
-    使用 SequenceMatcher 进行 token 级别拼接
+    Merge tokens through SequenceMatcher.
 
-    算法：
-    1. 将 prev 尾部和 new 头部的 tokens 拼成文本
-    2. 用 SequenceMatcher 找到所有公共子串，加位置约束选最佳
-    3. 将匹配点映射回 token 索引，执行拼接
+    Algorithm:
+    1. Join previous tail and new head tokens into text.
+    2. Find matching blocks and rank them with position constraints.
+    3. Map character boundaries back to tokens and merge.
 
     Args:
-        prev_tokens: 之前累积的 tokens
-        prev_timestamps: 之前累积的时间戳（全局时间）
-        new_tokens: 新片段的 tokens
-        new_timestamps: 新片段的时间戳（片段内相对时间）
-        offset: 当前片段的全局起始偏移
-        overlap: 重叠时间（秒）
-        is_first_segment: 是否为第一个片段
+        prev_tokens: Previously accumulated tokens.
+        prev_timestamps: Previously accumulated global timestamps.
+        new_tokens: Tokens from the new segment.
+        new_timestamps: Segment-relative timestamps.
+        offset: Global start time of the current segment.
+        overlap: Overlap duration in seconds.
+        is_first_segment: Whether this is the first segment.
 
     Returns:
-        (合并后的 tokens, 合并后的时间戳)
+        Tuple of merged tokens and timestamps.
     """
-    # 转换新片段时间戳为全局时间
+    # Convert segment timestamps to global time.
     new_global_timestamps = [t + offset for t in new_timestamps]
 
     if is_first_segment or not prev_tokens:
@@ -51,8 +51,8 @@ def merge_tokens_by_sequence_matcher(
     if not new_tokens:
         return prev_tokens, prev_timestamps
 
-    # 1. 提取 prev 尾部和 new 头部的文本（基于 overlap 动态确定范围）
-    #    重叠区域的字符数估计：overlap 秒 × 约 5 字/秒
+    # 1. Extract overlap-dependent tail/head windows.
+    # Estimate overlap text as duration times roughly five characters per second.
     overlap_char_estimate = max(int(overlap * 5), 20)
     prev_tail_len = min(len(prev_tokens), overlap_char_estimate * 3)
     new_head_len = min(len(new_tokens), overlap_char_estimate * 3)
@@ -60,7 +60,7 @@ def merge_tokens_by_sequence_matcher(
     prev_tail_text = "".join(prev_tokens[-prev_tail_len:])
     new_head_text = "".join(new_tokens[:new_head_len])
 
-    # 2. 寻找最佳对齐
+    # 2. Find the best alignment.
     best = _find_best_token_overlap(prev_tail_text, new_head_text)
 
     if best is None:
@@ -69,17 +69,17 @@ def merge_tokens_by_sequence_matcher(
 
     match_pos_prev, match_pos_new, match_len = best
 
-    # 3. 将字符位置映射回 token 索引
+    # 3. Map character boundaries back to token indexes.
     prev_cut = _char_pos_to_token_idx(
         prev_tokens, len(prev_tokens) - prev_tail_len,
-        match_pos_prev + match_len  # prev 保留到匹配终点
+        match_pos_prev + match_len  # Keep previous tokens through the match end.
     )
     new_start = _char_pos_to_token_idx(
         new_tokens, 0,
-        match_pos_new + match_len  # new 从匹配终点之后开始
+        match_pos_new + match_len  # Start new tokens after the match end.
     )
 
-    # 4. 执行拼接
+    # 4. Merge.
     result_tokens = prev_tokens[:prev_cut] + new_tokens[new_start:]
     result_timestamps = prev_timestamps[:prev_cut] + new_global_timestamps[new_start:]
 
@@ -87,15 +87,15 @@ def merge_tokens_by_sequence_matcher(
         Notice('diagnostic.token_merger.token_merge_match_previous_end_token_new_start', value0=match_len, value1=prev_cut, value2=new_start)
     )
 
-    # 5. 后处理：清理连续重复标点
+    # 5. Remove repeated adjacent punctuation.
     return _clean_repeated_punct(result_tokens, result_timestamps)
 
 
 def _find_best_token_overlap(prev_tail: str, new_head: str) -> tuple[int, int, int] | None:
     """
-    在 prev_tail 和 new_head 之间找最佳对齐（与 text_merger 相同策略）。
+    Align the previous tail and new head using the text_merger strategy.
 
-    位置约束：匹配终点在 prev_tail 后半段，匹配起点在 new_head 前半段。
+    Require the match to end in the tail's final quarter and start in the head's first quarter.
     """
     min_match = 2
 
@@ -121,9 +121,9 @@ def _find_best_token_overlap(prev_tail: str, new_head: str) -> tuple[int, int, i
 
 def _char_pos_to_token_idx(tokens: List[str], base_offset: int, char_pos: int) -> int:
     """
-    将字符位置映射回 token 索引（全局）。
+    Map a character position to a global token index.
 
-    从 base_offset 开始累计字符数，找到 >= char_pos 的 token 边界。
+    Count characters from base_offset to the first token boundary at or after char_pos.
     """
     char_count = 0
     for i in range(base_offset, len(tokens)):
@@ -136,7 +136,7 @@ def _char_pos_to_token_idx(tokens: List[str], base_offset: int, char_pos: int) -
 def _fallback_merge(
     prev_tokens, prev_timestamps, new_tokens, new_global_timestamps, offset
 ) -> Tuple[List[str], List[float]]:
-    """兜底：基于时间戳硬拼接"""
+    """Fall back to a timestamp-based join."""
     last_time = prev_timestamps[-1] if prev_timestamps else offset
     new_start_idx = 0
     for i, t in enumerate(new_global_timestamps):
@@ -156,7 +156,7 @@ def _fallback_merge(
 def _clean_repeated_punct(
     tokens: List[str], timestamps: List[float]
 ) -> Tuple[List[str], List[float]]:
-    """清理连续重复标点"""
+    """Remove repeated adjacent punctuation."""
     puncs = set(Punctuation.ALL + " ")
     clean_tokens: List[str] = []
     clean_timestamps: List[float] = []

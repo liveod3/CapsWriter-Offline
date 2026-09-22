@@ -1,40 +1,40 @@
-"""UI 工具模块
+"""Shared UI utilities.
 
-提供 Toast 浮动消息通知和系统托盘功能。
-该模块设计为 Client 和 Server 共用，日志记录器通过注入方式加载。
+Provide floating Toast notifications and system tray support.
+Share components between client and server with an injected logger.
 """
 import logging
 from typing import Any
 
 # ============================================================
-# Logger 代理机制
+# Logger proxy.
 # ============================================================
 
 class _LoggerProxy:
     """
-    日志代理类（利用 __getattr__ 动态转发）
-    允许先导入 logger 对象，稍后再注入真正的实现。
+    Forward logger attributes dynamically through __getattr__.
+    Allow imports before the actual logger is injected.
     """
     def __init__(self):
-        self._target = logging.getLogger('core.ui')  # 默认 logger
+        self._target = logging.getLogger('core.ui')  # Default logger.
 
     def set_target(self, logger):
-        """注入真正的 logger 实现"""
+        """Inject the actual logger."""
         self._target = logger
 
     def __getattr__(self, name):
-        """将所有属性访问转发给真正的 logger"""
+        """Forward attribute access to the actual logger."""
         return getattr(self._target, name)
 
-# 1. 创建代理实例
+# Create the proxy.
 logger = _LoggerProxy()
 
 def set_ui_logger(real_logger):
-    """设置 UI 模块使用的日志记录器"""
+    """Set the logger used by shared UI components."""
     logger.set_target(real_logger)
 
 # ============================================================
-# 导出组件
+# Export components.
 # ============================================================
 
 from .toast import toast, toast_stream, ToastMessage, ToastMessageManager

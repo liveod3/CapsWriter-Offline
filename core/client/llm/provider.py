@@ -1,4 +1,4 @@
-"""无会话异步传输；一次调用只有一组消息，取消会关闭当前请求。"""
+"""Send one stateless asynchronous request; cancellation closes the request."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from .errors import LLMResponseError, api_error, generation_error
 
 
 class MissingAPIKeyError(ValueError):
-    """仅使用固定提示，允许界面和日志安全展示，不携带配置内容。"""
+    """Expose fixed, safe messages without including configuration content."""
 
     def __init__(self, *, from_environment: bool):
         source = "environment variable" if from_environment else "local configuration"
@@ -63,7 +63,7 @@ class HTTPTextProvider:
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-        # 不重试认证/配置错误，不允许重定向携带认证与文本到另一个地址。
+        # Do not retry auth/configuration failures or redirect credentials and text elsewhere.
         async with httpx.AsyncClient(
             timeout=provider.timeout, follow_redirects=False, trust_env=False
         ) as client:
@@ -90,7 +90,7 @@ class HTTPTextProvider:
         feedback = result.get("promptFeedback", {})
         if isinstance(feedback, dict) and feedback.get("blockReason"):
             raise generation_error(feedback["blockReason"], "block_reason")
-        # 兼容端点/代理若透传原生 Gemini 失败字段，也保留结束原因；不将其误报为 KeyError。
+        # Preserve native Gemini failure reasons passed through compatible proxies.
         candidates = result.get("candidates")
         if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
             reason = candidates[0].get("finishReason")

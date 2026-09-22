@@ -1,10 +1,10 @@
 # coding: utf-8
 """
-CapsWriter Offline 服务端主程序门面类 (Facade)
+CapsWriter server facade.
 
-采用外观模式统一管理进程管理器 (ProcessManager) 和网络管理器 (SocketManager)。
-该类是整个服务端应用的中心指挥部，负责初始化生命周期、托盘图标、
-并协调子进程与 WebSocket 服务的启动与退出。
+Coordinate ProcessManager and SocketManager.
+Initialize application lifecycle and tray integration,
+and coordinate subprocess and WebSocket startup and shutdown.
 """
 
 from core.i18n import Notice, tr
@@ -24,15 +24,15 @@ from . import logger
 
 class CapsWriterServer:
     """
-    CapsWriter 服务端外观类
+    CapsWriter server facade.
     
-    管理的外部接口极其简洁：start()。
+    Expose start() as the main entry point.
     """
     def __init__(self):
         from core.i18n import set_language
         from core.i18n.preference import client_language_reloader
         import config_client
-        # 确保正确的工作目录
+        # Set the working directory.
         self.base_dir = Path(__file__).parents[2]
         os.chdir(self.base_dir)
         self.client_language_reload = client_language_reloader(
@@ -41,14 +41,14 @@ class CapsWriterServer:
         set_language(getattr(self.client_language_reload.target, 'ui_language',
                              getattr(Config, 'ui_language', 'auto')))
 
-        # 初始化事件循环
+        # Initialize the event loop.
         self.loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self.loop)
 
-        # 初始化状态容器
+        # Initialize shared state.
         self.state = ServerState(app=self)
 
-        # 基本配置与组件实例化
+        # Initialize settings and components.
         self.process_manager = ProcessManager(self)
         self.socket_manager = SocketManager(self)
         self.tray_manager = TrayManager(self)
@@ -92,7 +92,7 @@ class CapsWriterServer:
 
 
     def _print_banner(self):
-        """打印启动信息"""
+        """Display startup information."""
         console.line(2)
         console.rule(tr('server.banner')); console.line()
         console.print(tr('server.version', value0=self.version), end='\n\n')
@@ -144,17 +144,17 @@ class CapsWriterServer:
 
     def start(self):
         """
-        同步启动服务端 (主入口)
+        Start the server synchronously.
         
-        注册信号处理、拉起子进程并进入网络服务监听循环。
+        Register signal handlers, start subprocesses, and enter the network loop.
         """
-        # 防连续触发
+        # Ignore repeated activation.
         if self.is_alive: return
         self._owner_thread = threading.get_ident()
         self._stop_requested = threading.Event()
         self._cleaned_up = False
 
-        # 安全配置必须在启动托盘和模型子进程前通过校验
+        # Validate security settings before starting tray or model subprocesses.
         try:
             self.socket_manager.prepare()
         except ValueError as exc:
@@ -164,7 +164,7 @@ class CapsWriterServer:
 
         self.is_alive = True
 
-        # 注册退出信号处理
+        # Register shutdown signal handlers.
         register_signal(self.stop)
 
         try:

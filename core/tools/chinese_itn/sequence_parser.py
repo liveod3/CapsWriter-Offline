@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-Tokenizer+Parser 架构的中文数字序列解析器 (统一 Lexer 版)
+Parse Chinese numeric sequences with a shared lexer and parser.
 """
 
 import re
@@ -8,19 +8,19 @@ from dataclasses import dataclass
 from .mappings import value_mapper as _CHAR_VALUE_MAP
 
 # ============================================================
-# Token 定义
+# Token definitions.
 # ============================================================
 
 @dataclass
 class Token:
     type: str     # 'DIGIT' | 'TEN' | 'HUNDRED' | ...
-    value: int    # 对应的数值
-    char: str     # 原始字符
-    pos: int      # 在源文本中的起始位置
+    value: int    # Numeric value.
+    char: str     # Original character.
+    pos: int      # Start offset in the source text.
 
 
 # ============================================================
-# 通用词法分析器 (Lexer)
+# Shared lexer.
 # ============================================================
 
 _TOKEN_RULES = [
@@ -31,7 +31,7 @@ _TOKEN_RULES = [
     ('YEAR_SUF',       r'年'),
     ('MONTH_SUF',      r'月'),
     ('DAY_SUF',        r'日|号'),
-    ('MINUTE_SUF',     r'分(?=[零幺一二三四五六七八九十]|秒|$)'), # 防冲突前瞻
+    ('MINUTE_SUF',     r'分(?=[零幺一二三四五六七八九十]|秒|$)'), # Lookahead prevents conflicting token matches.
     ('SECOND_SUF',     r'秒'),
     ('ZERO',           r'零'),
     ('DIGIT',          r'[一二两三四五六七八九幺]'),
@@ -47,14 +47,14 @@ _TOKEN_RULES = [
 _lex_regex = re.compile('|'.join(f'(?P<{name}>{pattern})' for name, pattern in _TOKEN_RULES))
 
 def tokenize(text):
-    """通用词法分析，生成 Token 序列。"""
+    """Tokenize input into a shared token sequence."""
     tokens = []
     for match in _lex_regex.finditer(text):
         token_type = match.lastgroup
         token_char = match.group()
         token_pos = match.start()
         
-        # 忽略空白 Token
+        # Ignore whitespace tokens.
         if token_type == 'WHITESPACE':
             continue
             
@@ -64,24 +64,24 @@ def tokenize(text):
 
 
 # ============================================================
-# 语法分析器 (Parser)
+# Parser.
 # ============================================================
 
-# 基础数字 Token 集合
+# Basic numeric token types.
 _BASIC_NUMERIC_TYPES = {
     'DIGIT', 'TEN', 'HUNDRED', 'THOUSAND', 'TEN_THOUSAND', 'HUNDRED_MILLION', 'ZERO', 'DOT'
 }
 
-# 单位 Token 类型（十百千万），用于省略尾随单位推断
+# Magnitude units used to infer omitted trailing units.
 _UNIT_TYPES = frozenset({'HUNDRED', 'THOUSAND', 'TEN_THOUSAND'})
-# 注：不含 TEN（十），因为十是最小量级单位，不存在"省略更低单位"的语义
+# Exclude TEN, the smallest magnitude, because it has no lower implied unit.
 
 def _infer_omitted_unit_scale(tokens, i, j):
-    """推断省略尾随单位的数字应乘的量级。
+    """Infer the multiplier for an omitted trailing unit.
 
-    例如"一千八"中的"八"省略了"百"，应乘以 10；
-    "一万二千五"中的"五"省略了"百"，应乘以 100。
-    返回量级系数，或 None 表示无法推断。
+    A digit after thousands can imply hundreds, as in the value 1800.
+    The final digit in a 12500-style expression can likewise imply hundreds.
+    Return the multiplier, or None when it cannot be inferred.
     """
     prev = tokens[j - 1] if j > i else None
     if prev and prev.type in _UNIT_TYPES and (j + 1 >= len(tokens) or tokens[j + 1].type == 'DOT'):
@@ -90,30 +90,30 @@ def _infer_omitted_unit_scale(tokens, i, j):
 
 
 def _parse_atomic(tokens, i):
-    """从位置 i 解析一个原子数值，返回 (值, 消耗_token数) 或 None"""
+    """Parse an atomic value at i; return (value, tokens_consumed) or None."""
     n = len(tokens)
     if i >= n:
         return None
 
     t = tokens[i]
 
-    # === DIGIT 开头 ===
+    # Starts with DIGIT.
     if t.type == 'DIGIT':
         d = t.value
 
-        # DIGIT + 亿 → d * 10^8
+        # DIGIT followed by a hundred-million unit: d * 10**8.
         if i + 1 < n and tokens[i+1].type == 'HUNDRED_MILLION':
             return (d * 100000000, 2)
 
-        # DIGIT + 万 → d * 10000
+        # DIGIT followed by a ten-thousand unit: d * 10000.
         if i + 1 < n and tokens[i+1].type == 'TEN_THOUSAND':
             return (d * 10000, 2)
 
-        # DIGIT + 千
+        # DIGIT followed by a thousand unit.
         if i + 1 < n and tokens[i+1].type == 'THOUSAND':
             return (d * 1000, 2)
 
-        # DIGIT + 百
+        # DIGIT followed by a hundred unit.
         if i + 1 < n and tokens[i+1].type == 'HUNDRED':
             base = d * 100
             consumed = 2
@@ -141,11 +141,11 @@ def _parse_atomic(tokens, i):
             and tokens[i+1].type == 'TEN'
             and tokens[i+2].type == 'DIGIT'):
             if i + 3 < n and tokens[i+3].type == 'TEN':
-                pass  # 后跟 TEN → 倾向拆开
+                pass  # Prefer splitting before a following TEN token.
             else:
                 return (10 * d + tokens[i+2].value, 3)
 
-        # DIGIT + TEN → d*10（前方是 DIGIT run 时不组合）
+        # DIGIT + TEN becomes d * 10 unless preceded by a DIGIT run.
         if i + 1 < n and tokens[i+1].type == 'TEN':
             if i > 0 and tokens[i-1].type == 'DIGIT':
                 pass
@@ -154,7 +154,7 @@ def _parse_atomic(tokens, i):
 
         return (d, 1)
 
-    # === TEN 开头 ===
+    # Starts with TEN.
     if t.type == 'TEN':
         if (i + 2 < n
             and tokens[i+1].type == 'DIGIT'
@@ -170,7 +170,7 @@ def _parse_atomic(tokens, i):
     if t.type == 'ZERO':
         return (0, 1)
 
-    # 百千万亿 单独
+    # Standalone magnitude units.
     if t.type in ('HUNDRED', 'THOUSAND', 'TEN_THOUSAND', 'HUNDRED_MILLION'):
         return (t.value, 1)
 
@@ -178,7 +178,7 @@ def _parse_atomic(tokens, i):
 
 
 def _build_number(tokens, i):
-    """从位置 i 尝试解析一个完整数值，返回 (值, 消耗_token数) 或 None。"""
+    """Parse a complete value at i; return (value, tokens_consumed) or None."""
     result = _parse_atomic(tokens, i)
     if result is None:
         return None
@@ -186,7 +186,7 @@ def _build_number(tokens, i):
     n = len(tokens)
     j = i + consumed
 
-    # 值后跟 万/亿 → 倍增
+    # Multiply values followed by ten-thousand or hundred-million units.
     if j < n:
         nxt = tokens[j]
         if nxt.type == 'TEN_THOUSAND' and isinstance(value, int) and 0 < value < 10000:
@@ -198,7 +198,7 @@ def _build_number(tokens, i):
             consumed += 1
             j += 1
 
-    # 万/亿/千 后累加低位
+    # Add lower places after large magnitude units.
     if value >= 10000:
         limit = 10000
     elif value >= 1000:
@@ -219,7 +219,7 @@ def _build_number(tokens, i):
             if chunk_val >= limit:
                 break
 
-            # 省略尾随单位推断（如 一千八 → 1800，一万二千五 → 12500）
+            # Infer omitted trailing units in expressions such as 1800 or 12500.
             scale = _infer_omitted_unit_scale(tokens, i, j)
             if scale is not None:
                 chunk_val = chunk_val * scale
@@ -228,7 +228,7 @@ def _build_number(tokens, i):
             consumed += chunk_con
             j += chunk_con
 
-    # 累加后再倍增
+    # Apply multipliers after accumulation.
     if j < n:
         nxt = tokens[j]
         if nxt.type == 'TEN_THOUSAND' and isinstance(value, int) and 0 < value < 10000:
@@ -243,13 +243,13 @@ def _build_number(tokens, i):
 
 def parse_tokens(tokens):
     """
-    规约 Token 序列，解析为阿拉伯数字列表。
-    防卫：若序列中包含任何非基本数字 Token，则安全退回并返回 None。
+    Reduce tokens to a list of Arabic numeral strings.
+    Return None if any token is outside the basic numeric set.
     """
     if not tokens:
         return None
         
-    # 执行基本数字 Token 防卫
+    # Validate basic numeric tokens.
     if not all(t.type in _BASIC_NUMERIC_TYPES for t in tokens):
         return None
 
@@ -263,7 +263,7 @@ def parse_tokens(tokens):
             return None
         value, consumed = result
 
-        # 小数点规约
+        # Reduce decimal points.
         if i + consumed < n and tokens[i + consumed].type == 'DOT':
             dot_idx = i + consumed
             k = dot_idx + 1
@@ -285,18 +285,18 @@ def parse_tokens(tokens):
 
 
 # ============================================================
-# 对外接口
+# Public interface.
 # ============================================================
 
 def parse_sequence(text):
     """
-    统一编译接口：尝试用大数 Parser 解析文本，成功返回 ' ' 分隔的数字串，失败返回 None。
-    自动剥离末尾单位字符（含映射），解析后还原。
+    Parse a numeric sequence into space-separated values, or None on failure.
+    Strip a trailing unit, apply its mapping, and restore it after parsing.
     """
     from .utils import strip_unit
     stripped, unit = strip_unit(text)
 
-    # 排除 万/亿 作为物理单位剥离（它们是数值乘数）
+    # Do not strip magnitude multipliers as physical units.
     if unit in ('万', '亿'):
         stripped = text
         unit = ''
@@ -308,15 +308,15 @@ def parse_sequence(text):
     if not tokens:
         return None
 
-    # tokenize 不识别的字符作为 OTHER 处理。如果末尾被切分成 OTHER Token，
-    # 尝试递归缩减，从末尾剥离 OTHER 以支持不合法的未知单位。
-    # 这与以前在 tokenize 返回 None 时从尾部缩短的逻辑对齐。
+    # Unknown characters become OTHER tokens. Strip trailing OTHER tokens
+    # recursively to support unknown unit suffixes.
+    # This preserves the previous parser's trailing-truncation fallback.
     if tokens[-1].type == 'OTHER':
         end_idx = len(tokens)
         while end_idx > 0 and tokens[end_idx - 1].type == 'OTHER':
             end_idx -= 1
         
-        # 剥离出 OTHER 作为后缀单位
+        # Save trailing OTHER tokens as the unit suffix.
         other_tokens = tokens[end_idx:]
         unit_from_other = "".join(t.char for t in other_tokens)
         tokens = tokens[:end_idx]
@@ -325,7 +325,7 @@ def parse_sequence(text):
     if not tokens:
         return None
 
-    # 如果 token 序列末尾是 万/亿，且显示模式判定它们作为物理显示后缀
+    # Preserve a trailing large-magnitude unit when display mode treats it as a suffix.
     if tokens and tokens[-1].type in ('TEN_THOUSAND', 'HUNDRED_MILLION'):
         display_unit = tokens[-1].char
         numbers = parse_tokens(tokens[:-1])

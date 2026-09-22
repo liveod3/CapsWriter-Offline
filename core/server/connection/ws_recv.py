@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-WebSocket 接收处理模块
+WebSocket input handling.
 
-处理客户端发送的音频数据，进行分段和缓冲，提交到识别队列。
+Buffer and segment incoming audio, then enqueue recognition tasks.
 """
 
 from core.i18n import Notice, tr
@@ -24,12 +24,12 @@ from core.tools.my_status import Status
 from .. import logger
 
 
-# 麦克风接收状态指示器
+# Microphone receive indicator.
 status_mic = Status(message_id='server.receiving_mic', spinner='point')
 
 
 class ClientLimitError(Exception):
-    """客户端输入超过策略或资源边界。"""
+    """Client input exceeds policy or resource limits."""
 
     def __init__(self, reason: str, close_code: int = 1008):
         super().__init__(reason)
@@ -38,14 +38,14 @@ class ClientLimitError(Exception):
 
 
 class ServerBusyError(ClientLimitError):
-    """推理队列已满，请客户端稍后重试。"""
+    """The inference queue has no capacity for another task."""
 
     def __init__(self):
         super().__init__(Notice('validation.ws_recv.server_busy_please_retry_later'), close_code=1013)
 
 
 def _positive_limit(name: str, default, cast=int):
-    """读取正数配置；旧配置缺少字段时使用安全默认值。"""
+    """Read a positive setting with a safe fallback for legacy configurations."""
     try:
         value = cast(getattr(Config, name, default))
     except (TypeError, ValueError):
@@ -55,14 +55,14 @@ def _positive_limit(name: str, default, cast=int):
 
 class AudioCache:
     """
-    音频缓冲区
+    Audio buffer.
 
-    用于缓存接收到的音频数据，直到达到分段阈值后提交处理。
+    Buffer incoming audio until enough samples are available for a segment.
     """
     def __init__(self, msg: AudioMessage):
-        self.chunks = bytearray()   # 音频数据缓冲，避免 bytes += 重复复制
-        self.offset: float = 0.0    # 当前偏移时间（秒）
-        self.byte_count: int = 0    # 累计接收字节数
+        self.chunks = bytearray()   # Avoid repeated bytes concatenation and copying.
+        self.offset: float = 0.0    # Current offset in seconds.
+        self.byte_count: int = 0    # Total received bytes.
         self.created_at: float = time.monotonic()
         self.last_activity = self.created_at
         self.source = msg.source
@@ -76,22 +76,22 @@ class AudioCache:
 
     @property
     def duration(self) -> float:
-        """缓冲区音频时长（秒）"""
+        """Return buffered duration in seconds."""
         return AudioFormat.bytes_to_seconds(len(self.chunks))
 
     @property
     def total_duration(self) -> float:
-        """累计接收的音频总时长（秒）"""
+        """Return total received audio duration in seconds."""
         return AudioFormat.bytes_to_seconds(self.byte_count)
 
     def reset(self) -> None:
-        """重置缓冲区"""
+        """Reset the buffer."""
         self.chunks.clear()
         self.offset = 0.0
         self.byte_count = 0
 
     def validate_metadata(self, msg: AudioMessage) -> None:
-        """同一 task 的分段与识别参数在生命周期内不得漂移。"""
+        """Keep segmentation and recognition parameters fixed for the task's lifetime."""
         current = (
             msg.source,
             msg.seg_duration,
@@ -112,7 +112,7 @@ class AudioCache:
             raise ProtocolValidationError(Notice('validation.ws_recv.metadata_for_the_same_task_id_must_not'))
 
     def append(self, data: bytes, max_task_audio_bytes: int) -> None:
-        """在累计上限内追加音频。"""
+        """Append audio within cumulative limits."""
         if self.byte_count + len(data) > max_task_audio_bytes:
             raise ClientLimitError(Notice('validation.ws_recv.total_task_audio_exceeds_server_limit'), close_code=1009)
         self.chunks.extend(data)
@@ -121,7 +121,7 @@ class AudioCache:
 
 
 def _put_task(queue_in, task: Task) -> None:
-    """事件循环中只做非阻塞入队，满载时向客户端施加背压。"""
+    """Enqueue without blocking the event loop; apply backpressure at capacity."""
     try:
         queue_in.put_nowait(task)
     except queue.Full as exc:
@@ -132,9 +132,9 @@ def _put_task(queue_in, task: Task) -> None:
 
 async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) -> None:
     """
-    处理客户端发送的音频消息
+    Handle an incoming audio message.
 
-    根据消息中的分段参数，将音频数据分段后提交到识别队列。
+    Split audio using the message's segmentation settings and enqueue recognition work.
     """
     queue_in = app.state.queue_in
 
@@ -147,7 +147,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     if time.monotonic() - cache.created_at > max_task_duration:
         raise ClientLimitError(Notice('validation.ws_recv.task_exceeded_maximum_allowed_duration'))
 
-    # 麦克风首次消息 → GPU 加速
+    # Request optional GPU boost on the first microphone message.
     if is_start and msg.source == 'mic' and Config.gpu_boost_enabled:
         try:
             _put_task(queue_in, Task(
@@ -159,10 +159,10 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 command='gpu_boost'
             ))
         except ServerBusyError:
-            # 加速只是可选优化，不能挤占音频任务容量。
+            # Boost requests must not consume capacity reserved for audio tasks.
             logger.debug(Notice('diagnostic.ws_recv.inference_queue_full_gpu_boost_command_skipped'))
 
-    # 从消息中获取分段参数
+    # Read segmentation settings from the message.
     seg_threshold = msg.seg_duration + msg.seg_overlap * 2
 
     try:
@@ -173,14 +173,14 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
         )
 
         if not msg.is_final:
-            # 打印状态消息
+            # Display status.
             if msg.source == 'mic':
                 status_mic.start()
             if msg.source == 'file' and is_start:
                 console.print(tr('server.receiving'))
                 logger.info(Notice('diagnostic.ws_recv.receiving_audio_file_task', value0=msg.task_id))
 
-            # 若缓冲已达到分段阈值，将片段作为任务提交
+            # Enqueue a segment when the buffer reaches the duration threshold.
             segment_bytes = AudioFormat.seconds_to_bytes(msg.seg_duration + msg.seg_overlap)
             stride_bytes = AudioFormat.seconds_to_bytes(msg.seg_duration)
 
@@ -210,14 +210,14 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 )
 
         else:  # is_final
-            # 打印状态消息
+            # Display status.
             if msg.source == 'mic':
                 status_mic.stop()
             elif msg.source == 'file':
                 print(tr('terminal.ws_recv.audio_file_received_duration_s', value0=cache.total_duration))
                 logger.info(Notice('diagnostic.ws_recv.audio_file_received_task_duration_s', value0=msg.task_id, value1=cache.total_duration))
 
-            # 提交最终片段
+            # Submit the final segment.
             task = Task(
                 type=msg.source,
                 data=bytes(cache.chunks),
@@ -246,13 +246,13 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
 
 async def ws_recv(websocket, app) -> None:
     """
-    WebSocket 接收主函数
+    Receive WebSocket messages.
 
-    处理单个客户端连接，接收音频数据并分发处理。
+    Read and dispatch audio for one client connection.
     """
     global status_mic
 
-    # 登记 socket 到连接池
+    # Register the socket in the connection pool.
     state = app.state
     sockets = state.sockets
     sockets_id = state.sockets_id
@@ -265,7 +265,7 @@ async def ws_recv(websocket, app) -> None:
     console.print(tr('server.connected', value0=remote[0], value1=remote[1]))
     logger.info(Notice('diagnostic.ws_recv.new_client_connected_id', value0=websocket, value1=socket_id))
 
-    # 每个 task_id 独立缓存；数量也受限，避免交错任务混音和无限建 task。
+    # Bound independent task buffers to avoid mixed audio and unlimited task creation.
     caches = {}
     state.audio_caches[socket_id] = caches
     max_tasks = _positive_limit('max_tasks_per_connection', 4)
@@ -274,7 +274,7 @@ async def ws_recv(websocket, app) -> None:
     max_context_length = _positive_limit('max_context_length', 4096)
     task_timeout = positive_timeout(Config, 'worker_stall_timeout', 600.0)
 
-    # 接收并处理消息
+    # Receive and process messages.
     try:
         while True:
             if any(time.monotonic() - cache.last_activity >= task_timeout
@@ -357,7 +357,7 @@ async def ws_recv(websocket, app) -> None:
         logger.error(Notice('diagnostic.ws_recv.websocket_receive_failed_socket_error'),
                      socket_id[:8], type(e).__name__)
     finally:
-        # 清理资源
+        # Release resources.
         status_mic.stop()
         status_mic.on = False
         sockets.pop(socket_id, None)
@@ -370,6 +370,6 @@ async def ws_recv(websocket, app) -> None:
 
         console.print(tr('server.disconnected', value0=remote[0], value1=remote[1]))
 
-        # 注意：session 清理由 TaskHandler 在子进程中定期执行
-        # （通过检查 sockets_id 判断客户端是否已断开）
+        # TaskHandler periodically cleans subprocess sessions
+        # by checking connected socket IDs.
         logger.debug(Notice('diagnostic.ws_recv.client_resources_cleaned_up', value0=socket_id))

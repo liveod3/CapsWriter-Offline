@@ -1,4 +1,4 @@
-"""静态 Provider 与文本预设配置；不会导入或执行旧角色文件。"""
+"""Load static providers and text presets without executing legacy role files."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class Catalog:
     presets: dict[str, Preset]
 
     def select(self, text: str, default: str | None) -> tuple[Preset | None, str]:
-        # 优先匹配最长口令；显示名称不参与路由。
+        # Prefer the longest trigger; display names do not participate in routing.
         candidates = sorted(
             ((trigger, preset) for preset in self.presets.values() for trigger in preset.triggers),
             key=lambda item: len(item[0]),
@@ -145,7 +145,7 @@ def load_catalog(directory: Path) -> Catalog:
 
 
 def ensure_provider_file(directory: Path) -> Path:
-    """仅首次编辑时创建本机副本；绝不覆盖已有的配置或凭据。"""
+    """Create a local copy on first edit without replacing existing credentials."""
     path = directory / "providers.toml"
     if path.exists():
         return path

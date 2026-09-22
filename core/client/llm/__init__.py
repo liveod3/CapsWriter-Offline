@@ -1,4 +1,4 @@
-"""无会话文本处理接口。"""
+"""Stateless text processing interface."""
 
 from .service import TextActionService, TextResult
 

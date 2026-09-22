@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-服务端数据类模块
+Server dataclasses.
 
-定义服务端使用的数据类，包括任务（Task）和结果（Result）。
-使用 dataclass 提供类型安全和清晰的数据结构。
+Define Task and Result records used by the server.
+Use dataclasses for explicit fields and type annotations.
 """
 
 from dataclasses import dataclass, field
@@ -17,21 +17,21 @@ TaskKey = tuple[str, str]
 @dataclass
 class Task:
     """
-    语音识别任务
+    Recognition task.
 
-    封装发送到识别进程的任务数据，包含音频数据和元信息。
+    Carry audio and metadata to the recognition process.
 
     Attributes:
-        type: 任务类型 ('mic' 麦克风, 'file' 文件, 'cmd' 命令)
-        data: 原始音频数据 (float32, 16kHz, mono)
-        offset: 当前片段在整段音频中的时间偏移（秒）
-        overlap: 片段重叠时间（秒），用于去重
-        task_id: 任务唯一标识
-        socket_id: WebSocket 连接标识
-        is_final: 是否为音频流的最后一个片段
-        time_start: 录音/音频开始时间戳
-        time_submit: 任务提交时间戳
-        samplerate: 采样率，默认 16000 Hz
+        type: Task type ('mic', 'file', or 'cmd').
+        data: Raw audio bytes (float32, 16 kHz, mono).
+        offset: Segment offset within the complete audio, in seconds.
+        overlap: Segment overlap in seconds for deduplication.
+        task_id: Task identifier.
+        socket_id: WebSocket connection identifier.
+        is_final: Whether this is the final segment.
+        time_start: Recording or audio start timestamp.
+        time_submit: Task submission timestamp.
+        samplerate: Sample rate in Hz; default 16000.
     """
     type: str
     data: bytes
@@ -45,7 +45,7 @@ class Task:
     context: str = ''
     language: str = 'auto'
     samplerate: int = 16000
-    command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
+    command: str = ''           # Special command, such as 'gpu_boost' or 'gpu_unboost'.
     supports_task_errors: bool = False
     # Internal, pickle-safe snapshot set by the server at task admission.
     formatting: Optional[tuple[bool, bool]] = None
@@ -59,25 +59,25 @@ class Task:
 @dataclass
 class Result:
     """
-    语音识别结果
+    Recognition result.
     
-    封装识别进程返回的结果数据。
+    Carry results from the recognition process.
     
     Attributes:
-        task_id: 任务唯一标识
-        socket_id: WebSocket 连接标识
-        source: 音频来源 ('mic' 或 'file')
-        duration: 已处理的音频总时长（秒）
-        time_start: 录音/音频开始时间戳
-        time_submit: 片段提交时间戳
-        time_complete: 识别完成时间戳
+        task_id: Task identifier.
+        socket_id: WebSocket connection identifier.
+        source: Audio source ('mic' or 'file').
+        duration: Total processed audio duration in seconds.
+        time_start: Recording or audio start timestamp.
+        time_submit: Segment submission timestamp.
+        time_complete: Recognition completion timestamp.
         
-        text: 主要输出 - 简单文本拼接（不依赖时间戳，用于语音输入）
-        text_accu: 精确输出 - 时间戳去重拼接（用于字幕生成）
-        tokens: 字级 token 列表（与 timestamps 对应）
-        timestamps: 字级时间戳列表（秒）
+        text: Timestamp-independent merged text for dictation.
+        text_accu: Timestamp-deduplicated text for subtitles.
+        tokens: Word/character tokens corresponding to timestamps.
+        timestamps: Token timestamps in seconds.
         
-        is_final: 是否已完成所有片段识别
+        is_final: Whether all segments have completed.
     """
     task_id: str
     socket_id: str
@@ -88,10 +88,10 @@ class Result:
     time_submit: float = 0.0
     time_complete: float = 0.0
     
-    # 主要输出（简单文本拼接）
+    # Main output from text merging.
     text: str = ''
     
-    # 精确输出（时间戳拼接）
+    # Timestamp-based merged output.
     text_accu: str = ''
     tokens: List[str] = field(default_factory=list)
     timestamps: List[float] = field(default_factory=list)
@@ -106,12 +106,12 @@ class RecognitionSession:
     """Intermediate recognition state for one (socket_id, task_id) pair."""
     task_id: str
     result: Result
-    # 未来可在此扩展会话级状态，如 N-best 假设、中间特征缓存等
+    # Session-level extensions can hold hypotheses or intermediate feature caches.
 
 
 @dataclass
 class AlignmentItem:
-    """跨进程传输的中性对齐条目，避免 ASR 进程导入 Aligner 实现模块。"""
+    """Neutral alignment record that avoids importing aligner code into ASR."""
     text: str
     start_time: float
     end_time: float
@@ -119,13 +119,13 @@ class AlignmentItem:
 
 @dataclass
 class AlignmentResult:
-    """跨进程对齐结果。"""
+    """Cross-process alignment result."""
     items: List[AlignmentItem] = field(default_factory=list)
 
 
 @dataclass
 class AlignRequest:
-    """ASR 进程发往独立 Aligner 进程的请求。"""
+    """Request from ASR to the independent aligner process."""
     request_id: str
     task_id: str
     audio: Any
@@ -136,7 +136,7 @@ class AlignRequest:
 
 @dataclass
 class AlignResponse:
-    """独立 Aligner 进程返回给 ASR 进程的响应。"""
+    """Response from the independent aligner process to ASR."""
     request_id: str
     task_id: str
     result: Optional[AlignmentResult] = None

@@ -7,7 +7,7 @@ from config_client import ClientConfig as Config
 
 def broadcast_output_udp(text: str):
     """
-    将识别结果通过 UDP 广播到配置的地址
+    Broadcast recognition results to configured UDP destinations.
     """
     if not Config.udp_broadcast or not Config.udp_broadcast_targets:
         return

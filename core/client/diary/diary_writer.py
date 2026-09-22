@@ -1,4 +1,4 @@
-"""独立的文字与文本动作归档，不依赖音频保存开关。"""
+"""Archive transcripts and text actions independently of audio saving."""
 
 from __future__ import annotations
 from datetime import datetime

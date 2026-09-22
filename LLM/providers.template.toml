@@ -1,14 +1,14 @@
-# 受 Git 跟踪的默认模板。真实 Key 只能填写在本机 providers.toml 中。
-# 缺少本机文件时程序读取此模板；在托盘编辑 Provider 时自动创建本机副本。
-# 官方模型：https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite
-# 官方接口：https://ai.google.dev/gemini-api/docs/openai
+# Git-tracked defaults. Store real keys only in local providers.toml or the environment.
+# Read this template if the local file is absent; tray editing creates a local copy.
+# Model documentation: https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite
+# API documentation: https://ai.google.dev/gemini-api/docs/openai
 [providers.gemini]
-kind = "openai" # 协议类型；请求发往下列 Google 地址
+kind = "openai" # Protocol type; requests go to the Google endpoint below.
 base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
 model = "gemini-3.5-flash-lite"
-api_key = "" # 仅在 providers.toml 的此处填写 Google AI Studio Key
+api_key = "" # Set the Google AI Studio key only in local providers.toml.
 timeout = 30
-# 可改用环境变量：取消下行注释。显式指定后优先读取环境变量。
+# Uncomment below to prefer an explicit environment variable over api_key.
 # api_key_env = "GEMINI_API_KEY"
 
 [providers.local]

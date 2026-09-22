@@ -13,10 +13,10 @@ from ..delivery import ResultDeliveryError, positive_timeout
 
 class ProcessAlignerProxy(BaseAlignEngine):
     """
-    独立 Aligner 进程的同步代理。
+    Synchronous proxy for the independent aligner process.
 
-    代理本身不导入也不持有 Aligner 模型；模型的加载、卸载和 GPU 后端
-    生命周期全部位于兄弟进程中。
+    The proxy never imports or owns the aligner model; model loading,
+    unloading, and GPU backend lifetime belong to the sibling process.
     """
 
     def __init__(self, queue_in, queue_out, timeout_sec=60, failure_event=None):
@@ -77,7 +77,7 @@ class ProcessAlignerProxy(BaseAlignEngine):
             return response.result
 
     def check_idle(self):
-        """兼容旧调用；闲置生命周期由独立进程管理。"""
+        """Retain the legacy interface; the sibling process owns idle lifecycle."""
 
     def cleanup(self):
         self._pending.clear()

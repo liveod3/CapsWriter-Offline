@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-模型检查模块
+Model validation.
 
-检查配置的语音模型文件是否存在，如果不存在则提供下载链接。
+Check configured model files and provide download links when missing.
 """
 
 from core.i18n import Notice, tr
@@ -19,17 +19,17 @@ from . import logger
 
 def check_model(*, interactive=True) -> None:
     """
-    根据配置的模型类型检查所需的模型文件是否存在
+    Check required files for the configured engine.
     
-    如果模型文件不存在，显示错误信息和下载链接后退出程序。
+    Report missing files and download links, then exit.
     
     Raises:
-        SystemExit: 当模型类型不支持或模型文件缺失时退出
+        SystemExit: Unsupported engine or missing model files.
     """
     model_type = Config.model_type.lower()
     logger.debug(Notice('diagnostic.check_model.checking_model_files_type', value0=model_type))
 
-    # 根据模型类型确定需要检查的文件
+    # Select required files by engine.
     if model_type == 'fun_asr_nano':
         model_dir = ModelPaths.fun_asr_nano_gguf_dir
         required_files = [
@@ -65,14 +65,14 @@ def check_model(*, interactive=True) -> None:
             input(tr('model.exit'))
         sys.exit(1)
 
-    # 检查所有必需的文件
+    # Check all required files.
     missing_files = []
     for file_path in required_files:
         if not file_path.exists():
             missing_files.append(file_path)
             logger.warning(Notice('diagnostic.check_model.model_file_missing_bold_yellow_bold_yellow', value0=file_path))
 
-    # 如果有缺失的文件，显示错误信息并提供下载链接
+    # Report missing files with download information.
     if missing_files:
         logger.error(Notice('diagnostic.check_model.model_file_verification_failed_files_missing', value0=len(missing_files)))
         error_msg = tr('model.missing')
@@ -80,13 +80,13 @@ def check_model(*, interactive=True) -> None:
         for file_path in missing_files:
             error_msg += tr('model.file_missing', value0=file_path.name)
 
-        # 检查是否有文件被错放到上级目录
+        # Check for files placed one directory too high.
         for parent in model_dir.parents:
             if any((parent / fp.name).exists() for fp in missing_files):
                 error_msg += tr('model.parent_folder', value0=model_dir)
                 break
 
-        # 提供统一下载页面链接
+        # Link to the shared model download page.
         error_msg += tr('model.download')
         error_msg += f'[cyan]{ModelDownloadLinks.models_page}[/cyan]\n\n'
 
@@ -100,6 +100,6 @@ def check_model(*, interactive=True) -> None:
             input(tr('model.exit'))
         sys.exit(1)
 
-    # 所有必需文件检查通过
+    # All required files are present.
     logger.info(Notice('diagnostic.check_model.model_files_verified', value0=model_type))
     console.print(tr('model.checked', value0=model_type), end='\n\n')

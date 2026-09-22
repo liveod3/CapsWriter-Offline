@@ -1,5 +1,5 @@
 """
-FunASR-GGUF 通用工具函数
+FunASR GGUF utilities.
 """
 
 import time
@@ -10,8 +10,8 @@ from core.i18n import localize_notice
 
 def timer(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
     """
-    执行函数并返回其结果与耗时（秒）。
-    用法:
+    Run a function and return its result and elapsed seconds.
+    Usage:
         result, elapsed = timer(my_func, arg1, arg2, kwarg=val)
     """
     start = time.perf_counter()
@@ -20,12 +20,12 @@ def timer(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
     return res, elapsed
 
 def vprint(message: str, verbose: bool = True):
-    """条件输出：仅在 verbose=True 时输出到控制台，并始终记录到日志"""
+    """Log each message and display it only when verbose is enabled."""
     if verbose:
         print(localize_notice(message))
-    # 始终记录到日志系统，方便排查问题
+    # Always retain diagnostic messages in the logger.
     logger.info(message)
 
 def format_ms(seconds: float) -> str:
-    """将秒转换为毫秒字符串"""
+    """Format seconds as milliseconds."""
     return f"{seconds * 1000:5.0f}ms"

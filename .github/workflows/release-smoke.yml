@@ -48,6 +48,6 @@ jobs:
           foreach ($entryPoint in $expected) {
             $target = Join-Path $releaseDir $entryPoint
             if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {
-              throw "缺少打包入口：$target"
+              throw "Missing build entry point: $target"
             }
           }

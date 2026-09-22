@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-事件处理器
+Event handler.
 
-处理键盘和鼠标事件的逻辑
+Process keyboard and mouse events.
 """
 
 from core.i18n import Notice
@@ -14,44 +14,44 @@ from . import logger
 
 class ShortcutEventHandler:
     """
-    快捷键事件处理器
+    Shortcut event handler.
 
-    处理按键按下和释放的逻辑，包括录音启动、取消、完成等
+    Handle press/release transitions for starting, canceling, and finishing recording.
     """
 
     def __init__(self, tasks, pool, emulator):
         """
-        初始化事件处理器
+        Initialize the event handler.
 
         Args:
-            tasks: 快捷键任务字典
-            pool: 线程池
-            emulator: 快捷键模拟器
+            tasks: Mapping of shortcut tasks.
+            pool: Thread pool.
+            emulator: Shortcut emulator.
         """
         self.tasks = tasks
         self.pool = pool
         self.emulator = emulator
 
     def handle_keydown(self, key_name, task) -> None:
-        """处理按键按下事件"""
-        # 长按模式
+        """Handle a key press."""
+        # Hold mode.
         if task.shortcut.hold_mode:
             if not task.is_recording:
                 task.launch()
             return
 
-        # 单击模式
+        # Toggle mode.
         if task.released:
             from threading import Event
             task.pressed = True
             task.released = False
-            task.event = Event()  # 创建新事件对象
+            task.event = Event()  # Create a new event.
             self.pool.submit(self._count_down, task)
             self.pool.submit(self._manage_task, task)
 
     def handle_keyup(self, key_name, task) -> None:
-        """处理按键释放事件"""
-        # 单击模式
+        """Handle a key release."""
+        # Toggle mode.
         if not task.shortcut.hold_mode:
             if task.pressed:
                 task.pressed = False
@@ -59,7 +59,7 @@ class ShortcutEventHandler:
                 task.event.set()
             return
 
-        # 长按模式
+        # Hold mode.
         if not task.is_recording:
             return
 
@@ -72,7 +72,7 @@ class ShortcutEventHandler:
             task.finish()
 
     def _handle_short_press(self, key_name, task) -> None:
-        """处理短按情况"""
+        """Handle a short press."""
         cancel_start = time.perf_counter()
         task.cancel()
         cancel_time = (time.perf_counter() - cancel_start) * 1000
@@ -83,12 +83,12 @@ class ShortcutEventHandler:
             self.pool.submit(self.emulator.emulate_key, key_name)
 
     def _count_down(self, task) -> None:
-        """倒计时（单击模式）"""
+        """Count down to activation in toggle mode."""
         time.sleep(task.threshold)
         task.event.set()
 
     def _manage_task(self, task) -> None:
-        """管理录音任务（单击模式）"""
+        """Manage recording in toggle mode."""
         was_recording = task.is_recording
         launched = True
 

@@ -1,12 +1,12 @@
 """
-Toast 常量定义模块
+Toast constants.
 
-集中管理所有 Toast 窗口相关的常量。
+Define shared Toast window constants.
 """
 import tkinter as tk
 
 # ============================================================
-# 字体和样式常量
+# Fonts and styles.
 # ============================================================
 
 DEFAULT_FONT_FAMILY = 'Microsoft YaHei UI'
@@ -14,41 +14,41 @@ DEFAULT_PADDING_X = 20
 DEFAULT_PADDING_Y = 15
 
 # ============================================================
-# 窗口尺寸常量
+# Window dimensions.
 # ============================================================
 
-MIN_WINDOW_HEIGHT = 60  # 最小窗口高度
+MIN_WINDOW_HEIGHT = 60  # Minimum window height.
 
-# Text 组件专用
-STREAMING_TEXT_HEIGHT = 5  # 流式模式预设行数，避免初始窗口过大
-NON_STREAMING_TEXT_HEIGHT = 1  # 非流式模式初始行数
-HEIGHT_PADDING = 40  # Text 窗口高度的额外边距
-TEXT_WRAP_MODE = tk.CHAR  # Text 组件的换行模式（CHAR=按字符换行，WORD=按单词换行）
+# Text widget settings.
+STREAMING_TEXT_HEIGHT = 5  # Start streaming with few lines to avoid an oversized empty window.
+NON_STREAMING_TEXT_HEIGHT = 1  # Initial non-streaming line count.
+HEIGHT_PADDING = 40  # Additional vertical padding for Text windows.
+TEXT_WRAP_MODE = tk.CHAR  # Text wrapping: CHAR wraps characters; WORD wraps words.
 
-# Label 组件专用
-LABEL_HEIGHT_PADDING = 30  # Label 窗口高度的额外边距
+# Label widget settings.
+LABEL_HEIGHT_PADDING = 30  # Additional vertical padding for Label windows.
 
-# Markdown 渲染专用
-MARKDOWN_MIN_HEIGHT = 50  # Markdown 窗口最小高度
-
-# ============================================================
-# 交互行为常量
-# ============================================================
-
-SCROLL_STEP = 60  # 滚轮每次滚动的像素距离
-DESTROY_DELAY_MS = 100  # 拖动时延迟销毁的时间（毫秒）
+# Markdown rendering settings.
+MARKDOWN_MIN_HEIGHT = 50  # Minimum Markdown window height.
 
 # ============================================================
-# 默认配置常量
+# Interaction settings.
 # ============================================================
 
-DEFAULT_DURATION_MS = 2000  # 默认显示时长
-DEFAULT_INITIAL_WIDTH = 0.5  # 默认宽度（屏幕的50%）
+SCROLL_STEP = 60  # Pixels moved per wheel step.
+DESTROY_DELAY_MS = 100  # Destruction delay while dragging, in milliseconds.
 
 # ============================================================
-# 内部使用常量
+# Defaults.
 # ============================================================
 
-QUEUE_POLL_INTERVAL_MS = 100  # 队列轮询间隔（毫秒）
-STREAM_CHAR_DELAY_S = 0.0001  # 流式输出每个字符的延迟（秒）
-TK_SCALING_FACTOR = 2  # Tkinter DPI 缩放因子（用于高 DPI 屏幕）
+DEFAULT_DURATION_MS = 2000  # Default display duration.
+DEFAULT_INITIAL_WIDTH = 0.5  # Default width as half the screen.
+
+# ============================================================
+# Internal settings.
+# ============================================================
+
+QUEUE_POLL_INTERVAL_MS = 100  # Queue polling interval in milliseconds.
+STREAM_CHAR_DELAY_S = 0.0001  # Simulated streaming delay per character, in seconds.
+TK_SCALING_FACTOR = 2  # Tk scaling factor for high-DPI displays.

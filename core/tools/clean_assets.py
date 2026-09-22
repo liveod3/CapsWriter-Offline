@@ -33,7 +33,7 @@ asset_ext = ['jpg', 'jpeg', 'png', 'wav', 'mp3', 'mp4']
 
 
 
-def get_md_files(path):         # 从输入目录递归搜索所有的 Markdown 文件
+def get_md_files(path):         # Find Markdown files recursively beneath the input directory.
     p = Path(path)
     if not p.exists(): return []
     if not p.is_dir(): return []
@@ -45,7 +45,7 @@ def get_md_files(path):         # 从输入目录递归搜索所有的 Markdown 
     return md_files
 
 
-def get_links(text: str):       # 查找文本内的所有链接
+def get_links(text: str):       # Find links in the document.
     links = []
 
     def add_link(token: Token):
@@ -71,7 +71,7 @@ def get_links(text: str):       # 查找文本内的所有链接
     return links
 
 
-def absolutify_links(file, links: List[str]):   # 验证链接是本地文件
+def absolutify_links(file, links: List[str]):   # Check that the link targets a local file.
     if type(file) is not Path: file = Path(file)
     
     temp_links = links.copy(); links.clear()
@@ -84,10 +84,10 @@ def absolutify_links(file, links: List[str]):   # 验证链接是本地文件
 
 
 def main():
-    # 默认清理当前所在文件夹
+    # Default to the current directory.
     root = Path(__file__).parent
 
-    # 若参数提供了其他文件夹，则清理提供的文件夹
+    # Use a supplied directory when present.
     if len(sys.argv) > 1:
         p = Path(sys.argv[1])
         if p.exists() and p.is_dir(): root = p
@@ -95,14 +95,14 @@ def main():
     console.print(tr('terminal.clean_assets.green_cleanup_root', value0=root))
     console.input(tr('terminal.clean_assets.green_press_enter_to_search_for_markdown_files'))
 
-    # 收集到所有的 Markdown 文件
+    # Collect Markdown files.
     md_files = get_md_files(root)
     console.print(tr('terminal.clean_assets.green_markdown_files_found'))
     for f in md_files:console.print(f'    {f}')
     console.line()
     console.input(tr('terminal.clean_assets.green_press_enter_to_search_for_unreferenced_attachments'))
 
-    # 收集到所有被引用的附件
+    # Collect referenced attachments.
     links_used = []
     for md in md_files:
         with open(md, "r", encoding="utf-8") as f: text = f.read()
@@ -110,10 +110,10 @@ def main():
         absolutify_links(md, links)
         links_used.extend(links)
 
-    # 收集所有的附件文件夹
+    # Collect attachment directories.
     folders = set(l.parent for l in links_used)
 
-    # 收集所有附件文件夹中的附件
+    # Collect attachment files.
     links_all = []
     for folder in folders:
         if not folder.is_relative_to(root): continue
@@ -121,7 +121,7 @@ def main():
             links_all.extend(list(folder.glob("**/*." + markdown_ext)))
     links_all = list(set(links_all))
     
-    # 得到没有被使用的附件
+    # Find unreferenced attachments.
     links_unused = set(links_all) - set(links_used)
     console.print(tr('terminal.clean_assets.yellow_unreferenced_attachments_found'))
     for file in sorted(links_unused):
@@ -132,7 +132,7 @@ def main():
         console.print(tr('terminal.clean_assets.red_confirmation_not_received_after_three_attempts_exiting'))
         sys.exit()
     
-    # 执行删除
+    # Delete unreferenced files.
     console.print(tr('terminal.clean_assets.red_deleting_files'))
     for f in links_unused:
         remove(f); console.print(f'    [red]{f}')

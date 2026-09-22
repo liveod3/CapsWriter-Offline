@@ -1,6 +1,6 @@
-"""Windows 原生菜单扩展，隔离 pystray 0.19.x 的后端接口。
+"""Isolate pystray 0.19.x backend integration for Windows native menus.
 
-保持系统菜单绘制和键盘交互；仅添加位图和不抢焦点的跟踪 Tooltip。
+Keep native drawing and keyboard behavior while adding bitmaps and nonactivating tooltips.
 """
 
 from __future__ import annotations
@@ -102,7 +102,7 @@ G.DeleteObject.argtypes = [W.HANDLE]
 
 def make_bitmap(name, size):
     image = menu_icon(name, size)
-    # 32 位 DIB 使用预乘 BGRA，透明边缘不会出现黑边。
+    # Use premultiplied BGRA in 32-bit DIBs to avoid dark transparency fringes.
     pixels = bytearray()
     rgba = image.tobytes()
     for offset in range(0, len(rgba), 4):
@@ -132,18 +132,18 @@ class NativeMenuIcon(Icon):
         super().__init__(*args, **kwargs)
 
     def _attach_menu_window(self):
-        """仅拦截菜单提示消息，其余消息继续走系统窗口过程。"""
+        """Handle menu tooltip messages and forward other messages to the default procedure."""
         if self._menu_wndproc is not None:
             return
 
         @win32.WNDPROC
         def menu_wndproc(hwnd, message, wparam, lparam):
-            # pystray 的托盘 dispatcher 会对未知消息返回 0，不能用于菜单
-            # 所有者：Windows 的默认菜单绘制也依赖该窗口处理系统消息。
+            # pystray returns zero for unknown tray messages; menu owner windows need
+            # the default Windows procedure for native menu drawing and behavior.
             try:
                 if message == 0x11F:  # WM_MENUSELECT
                     self._select(wparam, lparam)
-                elif message == 0x113 and wparam == 71:  # 自己创建的 Tooltip 定时器
+                elif message == 0x113 and wparam == 71:  # Timer owned by this tooltip.
                     self._timer(wparam, lparam)
                     return 0
                 elif message == 0x212:  # WM_EXITMENULOOP
@@ -157,7 +157,7 @@ class NativeMenuIcon(Icon):
         if not previous:
             raise C.WinError(C.get_last_error())
         self._original_menu_wndproc = previous
-        # ctypes 回调必须活到窗口销毁，不能只保留一个临时函数指针。
+        # Keep the ctypes callback alive until window destruction.
         self._menu_wndproc = menu_wndproc
 
     def _create_menu(self, descriptors, callbacks):
@@ -307,7 +307,7 @@ class NativeMenuIcon(Icon):
         try:
             super()._mainloop()
         finally:
-            # 父类已销毁菜单窗口，此时才可以释放窗口过程回调。
+            # Release callbacks only after the parent destroys the menu window.
             self._menu_wndproc = None
             self._original_menu_wndproc = None
             if self._tooltip:

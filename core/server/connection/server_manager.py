@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-WebSocket 管理器 (SocketManager)
+WebSocket manager (SocketManager).
 
-负责维护 ASR 服务器的异步通讯层，包括 WebSocket Server 的生命周期管理、
-心跳监控、数据发送任务的编排。
+Own asynchronous server communication, including server lifecycle,
+liveness monitoring, and result delivery tasks.
 """
 
 from core.i18n import Notice
@@ -28,7 +28,7 @@ MIN_AUTH_TOKEN_LENGTH = 32
 
 
 def _websockets_major_version() -> int:
-    """返回 websockets 主版本号，无法识别时按旧版 API 处理。"""
+    """Return the websockets major version, defaulting to the legacy API if unknown."""
     try:
         return int(websockets.__version__.split('.', 1)[0])
     except (AttributeError, TypeError, ValueError):
@@ -36,7 +36,7 @@ def _websockets_major_version() -> int:
 
 
 def _is_loopback_address(address: str) -> bool:
-    """判断监听地址是否严格限制在本机回环接口。"""
+    """Return whether the bind address is restricted to loopback."""
     if address.lower() == 'localhost':
         return True
     try:
@@ -46,11 +46,11 @@ def _is_loopback_address(address: str) -> bool:
 
 
 def _has_valid_bearer_token(headers, expected_token: str) -> bool:
-    """使用常量时间比较校验 Authorization: Bearer <token>。"""
+    """Validate Authorization: Bearer <token> with constant-time comparison."""
     try:
         authorization = headers.get('Authorization', '')
     except Exception:
-        # 重复或畸形的 Authorization Header 必须按认证失败处理
+        # Reject duplicate or malformed Authorization headers.
         return False
     scheme, separator, supplied_token = authorization.partition(' ')
     if not separator or scheme.lower() != 'bearer' or not supplied_token:
@@ -63,14 +63,14 @@ def _has_valid_bearer_token(headers, expected_token: str) -> bool:
 
 class SocketManager:
     """
-    WebSocket 网络管理器
+    WebSocket network manager.
     
-    负责拉起并维护 WebSocket Server 以及识别结果的异步发送任务。
+    Start and maintain the server and asynchronous result delivery.
     """
     def __init__(self, app):
         self.app = app
         self._is_running = False
-        self._server = None  # websockets.serve 返回的 server 对象
+        self._server = None  # Server object returned by websockets.serve.
         self._network_mode = 'local'
         self._auth_token = ''
         self._ssl_context = None
@@ -82,7 +82,7 @@ class SocketManager:
         self._delivery_failed = False
 
     def prepare(self):
-        """在启动托盘、模型进程和监听器前校验安全配置。"""
+        """Validate security before starting tray, model processes, or listeners."""
         network_mode = str(getattr(Config, 'network_mode', 'local')).lower()
         address = str(getattr(Config, 'addr', '127.0.0.1'))
         auth_token = str(getattr(Config, 'auth_token', '')).strip()
@@ -165,7 +165,7 @@ class SocketManager:
         self._prepared = True
 
     async def _handle_connection(self, websocket):
-        """拒绝超过并发上限的连接，不让其在服务器中排队等待。"""
+        """Reject excess connections instead of queuing them on the server."""
         if self._delivery_failed:
             from .ws_send import _close_failed_connection
             await _close_failed_connection(websocket, 'Recognition channel unavailable')
@@ -182,7 +182,7 @@ class SocketManager:
             self._active_connections -= 1
 
     def _build_auth_process_request(self):
-        """按 websockets 版本生成握手阶段的令牌认证回调。"""
+        """Build a handshake authentication callback for the installed websockets API."""
         if self._network_mode != 'lan':
             return None
 
@@ -209,7 +209,7 @@ class SocketManager:
         return legacy_process_request
 
     def _check_port(self):
-        """检查端口可用性"""
+        """Check port availability."""
         import socket
         family = socket.AF_INET6 if ':' in str(Config.addr) else socket.AF_INET
         with socket.socket(family, socket.SOCK_STREAM) as s:
@@ -222,14 +222,14 @@ class SocketManager:
 
     async def start(self):
         """
-        启动 WebSocket 网络服务
+        Start the WebSocket server.
         """
         if self._is_running: return
 
         if not self._prepared:
             self.prepare()
         
-        # 0. 启动前自检环境
+        # 0. Validate prerequisites.
         if not self._check_port():
             return
 
@@ -237,11 +237,11 @@ class SocketManager:
 
         loop = self.app.loop
         
-        # 1. 优化守护线程执行器 (防止阻塞事件循环)
+        # 1. Configure a daemon executor to keep blocking calls off the event loop.
         from core.tools.daemon_executor import SimpleDaemonExecutor
         loop.set_default_executor(SimpleDaemonExecutor())
 
-        # 3. 启动服务
+        # 3. Start the server.
         scheme = 'wss' if self._ssl_context else 'ws'
         logger.info(
             Notice('diagnostic.server_manager.starting_websocket_service_mode_listening', value0=self._network_mode, value1=scheme, value2=Config.addr, value3=Config.port)
@@ -261,9 +261,9 @@ class SocketManager:
             max_queue=self._max_queue,
             close_timeout=5.0,
         ) as server:
-            self._server = server  # 保存 server 引用，用于外部关闭
+            self._server = server  # Keep the server reference for external shutdown.
 
-            # 4. 进入识别结果发送循环 (作为主阻塞任务)
+            # 4. Run result delivery as the main awaited task.
             logger.info(Notice('diagnostic.server_manager.websocket_sender_ready'))
             try:
                 await ws_send(self.app)
@@ -281,8 +281,8 @@ class SocketManager:
         logger.info(Notice('diagnostic.server_manager.socketmanager_websocket_service_exited'))
 
     def stop(self):
-        """停止 WebSocket 网络服务"""
-        # 主动关闭 WebSocket 服务器，让 ws_send 的 await 尽快返回
+        """Stop the WebSocket server."""
+        # Close the server to unblock result delivery promptly.
         if self._server:
             self._server.close()
         self._is_running = False

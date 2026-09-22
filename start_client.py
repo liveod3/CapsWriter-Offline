@@ -7,7 +7,7 @@ from core.client.cli import parse_client_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    """解析客户端命令后再加载和启动实际应用。"""
+    """Parse client arguments before importing and starting the application."""
     import sys
     arguments = list(sys.argv[1:] if argv is None else argv)
     if arguments[:1] == ['--capture-caret']:
@@ -15,7 +15,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return capture_main(arguments[1:])
     command = parse_client_command(arguments)
 
-    # 保持帮助、版本和参数错误路径轻量，不提前加载音频与 UI 模块。
+    # Keep help, version, and argument errors independent of audio and UI imports.
     from core.client.app import CapsWriterClient
 
     return CapsWriterClient(command).start()

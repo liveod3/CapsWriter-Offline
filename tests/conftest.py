@@ -12,7 +12,7 @@ def isolated_ui_language(monkeypatch):
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    """按目录自动标记非默认测试，避免本地误触硬件或大模型。"""
+    """Mark non-default tests by directory to avoid accidental hardware/model execution."""
     for item in items:
         parts = set(Path(str(item.path)).parts)
         if "integration" in parts:

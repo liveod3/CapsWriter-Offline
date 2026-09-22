@@ -15,11 +15,11 @@ from .lifecycle import (
 )
 
 class MediaTool:
-    """媒体工具类：负责 FFmpeg 相关操作"""
+    """Wrap FFmpeg media operations."""
 
     @staticmethod
     def check_environment() -> bool:
-        """检查 FFmpeg 和 ffprobe 环境"""
+        """Check FFmpeg and ffprobe availability."""
         ffmpeg_path = shutil.which('ffmpeg')
         ffprobe_path = shutil.which('ffprobe')
         
@@ -41,7 +41,7 @@ class MediaTool:
 
     @staticmethod
     async def get_audio_duration(file: Path) -> float:
-        """获取音视频文件时长"""
+        """Probe media duration."""
         cmd = [
             "ffprobe", "-v", "error", "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1", str(file)
@@ -67,7 +67,7 @@ class MediaTool:
 
     @staticmethod
     def build_ffmpeg_cmd(file: Path) -> List[str]:
-        """构建提取音频的 FFmpeg 命令"""
+        """Build the FFmpeg audio extraction command."""
         return [
             "ffmpeg", "-i", str(file),
             "-f", "f32le", "-ac", "1", "-ar", "16000", "-"

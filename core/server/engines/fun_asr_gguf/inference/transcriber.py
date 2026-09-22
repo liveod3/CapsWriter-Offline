@@ -13,7 +13,7 @@ from .utils import timer
 
 
 class AudioTranscriber:
-    """音频转录器：负责长短音频文件的分段、流式处理以及结果合并"""
+    """Segment, transcribe, and merge short or long audio files."""
     def __init__(self, pipeline, sample_rate: int = 16000):
         self.pipeline = pipeline
         self.sample_rate = sample_rate
@@ -103,7 +103,7 @@ class AudioTranscriber:
             stream = RecognitionStream()
             stream.accept_waveform(self.sample_rate, chunk)
             
-            # 单段保持用户传入的 verbose 设定，多段统一在分段内部进行 detailed logging
+            # Preserve verbose for one segment; let individual segments handle detailed multi-segment output.
             d_res = self.pipeline.decode_stream(stream, language, context, verbose if not is_multi else True, reporter,
                                                temperature=temperature, top_p=top_p, top_k=top_k)
             
@@ -117,12 +117,12 @@ class AudioTranscriber:
             # Accumulate timings
             result.timings += d_res.timings
 
-        # 结果收尾与合并
+        # Finalize and merge results.
         if len(segments_info) > 1:
             reporter.set_segment(0, 0)
             reporter.skip_technical = False
         
-        # 统一的单分段与多分段合并逻辑
+        # Share merge logic between single- and multi-segment inputs.
         offsets = [s[0] + base_offset for s in segments_info]
         full_text, full_segs = merge_transcription_results(segment_results, offsets, overlap)
         result.text = full_text
@@ -135,7 +135,7 @@ class AudioTranscriber:
         result.ctc_text = "".join(all_ctc)
 
     def _generate_segments(self, duration: float, segment_size: float, overlap: float):
-        """生成音频切片的起止时间产生器"""
+        """Yield audio segment start/end times."""
         if duration <= segment_size + 2.0:
             yield (0.0, duration)
             return

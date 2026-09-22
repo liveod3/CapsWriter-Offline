@@ -1,17 +1,17 @@
 # coding: utf-8
 """
-底层字符与物理单位剥离等基础辅助工具
+Character and physical-unit helpers.
 """
 
 import re
 from .mappings import unit_mapping, common_units, num_mapper
 
-# 预编译正则（均为模块级常量，不会变化）
+# Precompiled constant patterns.
 _UNIT_PATTERN = re.compile(rf'({common_units})$')
 _LETTER_PATTERN = re.compile(r'[a-zA-Z]+$')
 
 def strip_unit(original):
-    """把数字后面跟着的单位剥离开，并应用单位映射"""
+    """Strip a numeric suffix and apply the unit mapping."""
     match = _UNIT_PATTERN.search(original)
 
     if match:
@@ -33,7 +33,7 @@ def strip_unit(original):
 
 
 def convert_pure_num(original, strict=False):
-    """把中文数字转为对应的阿拉伯数字"""
+    """Map Chinese digit characters to Arabic digits."""
     stripped, unit = strip_unit(original)
     if stripped == '一' and not strict:
         return original

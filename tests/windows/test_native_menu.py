@@ -1,4 +1,4 @@
-"""原生菜单资源检查，不启动麦克风、不显示菜单或读取用户文本。"""
+"""Inspect native menu resources without microphones, visible menus, or user text."""
 
 import ctypes
 from ctypes import wintypes as W
@@ -20,7 +20,7 @@ def test_menu_owner_preserves_default_window_messages_and_tooltip_dispatch():
     icon._menu_hwnd = icon._create_window(icon._atom)
     try:
         text = ctypes.create_unicode_buffer("Menu render probe")
-        # 直接设置原生窗口状态，随后必须仍能通过消息分发读取。
+        # Set native state directly, then verify message dispatch can still read it.
         win32.DefWindowProc(icon._menu_hwnd, 0xC, 0, ctypes.addressof(text))
         assert U.SendMessageW(icon._menu_hwnd, 0xE, 0, 0) == len(text.value)
         icon._attach_menu_window()
@@ -76,7 +76,7 @@ def test_native_menu_has_bitmaps_and_submenu_tooltip_mapping():
         assert U.GetMenuItemInfoW(item.hSubMenu, 0, True, ctypes.byref(child))
         assert child.fState & win32.MFS_CHECKED
         assert not child.fType & win32.MFT_RADIOCHECK
-        # 检查原生菜单确实存有文字，避免只验证句柄存在。
+        # Verify menu text as well as handle existence.
         U.GetMenuStringW.argtypes = [W.HMENU, W.UINT, W.LPWSTR, ctypes.c_int, W.UINT]
         label = ctypes.create_unicode_buffer(100)
         assert U.GetMenuStringW(menu, 0, label, len(label), 0x400) == len("LLM actions")

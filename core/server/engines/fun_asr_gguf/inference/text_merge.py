@@ -1,7 +1,7 @@
 """
-FunASR-GGUF 结果合并模块
+FunASR GGUF result merging.
 
-处理长音频识别时多个片段结果的拼接和去重。
+Join and deduplicate segments from long recordings.
 """
 
 from typing import List, Dict, Any, Tuple
@@ -15,7 +15,7 @@ def merge_transcription_results(
     overlap_s: float
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """
-    高度鲁棒的合并算法，使用 SequenceMatcher 寻找重叠区对齐点
+    Find overlap alignment with SequenceMatcher.
     """
     if not results:
         return "", []
@@ -41,30 +41,30 @@ def merge_transcription_results(
         if not curr_segments:
             continue
 
-        # --- 寻找对齐点 ---
-        # 提取 buffer 末尾和新片段开头
-        # 我们关注全局时间戳在 [offset - 1.0, ...] 之间的部分
+        # Find an alignment.
+        # Extract the previous tail and new head.
+        # Consider previous timestamps starting at offset - 1.0.
         buffer_overlap_segs = [s for s in full_segments if s[1] >= offset - 1.0]
         buffer_overlap_text = "".join([s[0] for s in buffer_overlap_segs])
         
-        # 提取新片段的前部分作为匹配源
+        # Extract the new segment's leading overlap window.
         curr_overlap_limit = overlap_s + 1.0
         curr_overlap_segs = [s for s in curr_segments if s[1] <= curr_overlap_limit]
         curr_overlap_text = "".join([s[0] for s in curr_overlap_segs])
         
-        # 使用 SequenceMatcher 寻找最佳对齐
+        # Find the best alignment through SequenceMatcher.
         sm = difflib.SequenceMatcher(None, buffer_overlap_text, curr_overlap_text)
         match = sm.find_longest_match(0, len(buffer_overlap_text), 0, len(curr_overlap_text))
         
-        if match.size >= 2: # 至少匹配上 2 个字符
-            # match.a 是 buffer_overlap_text 中的对齐点
-            # match.b 是 curr_overlap_text 中的对齐点
+        if match.size >= 2: # Require at least two matching characters.
+            # match.a indexes buffer_overlap_text.
+            # match.b indexes curr_overlap_text.
             
-            # a. 截断 buffer
-            # buffer_overlap_segs[match.a] 对应的全局索引
+            # a. Trim the previous buffer.
+            # Resolve buffer_overlap_segs[match.a] to the global index.
             target_seg = buffer_overlap_segs[match.a]
             
-            # 找到 target_seg 在 full_segments 中的索引 (从后往前找最接近的一个)
+            # Find the nearest matching target_seg from the end of full_segments.
             try:
                 global_idx = -1
                 for idx in range(len(full_segments)-1, -1, -1):
@@ -77,13 +77,13 @@ def merge_transcription_results(
             except:
                 pass
             
-            # b. 添加新片段从 match.b 开始的内容
-            # match.b 是 curr_overlap_text 中的索引，对应 curr_overlap_segs
-            # 我们需要找到它在 curr_segments 中的原始索引
+            # b. Append the new segment from match.b.
+            # match.b indexes curr_overlap_text and corresponds to curr_overlap_segs.
+            # Resolve its original index in curr_segments.
             match_idx_in_curr = -1
             match_seg = curr_overlap_segs[match.b]
             for idx, s in enumerate(curr_segments):
-                if s is match_seg: # 对象级别匹配最准确
+                if s is match_seg: # Match by object identity.
                     match_idx_in_curr = idx
                     break
             
@@ -91,15 +91,15 @@ def merge_transcription_results(
                 to_add = curr_segments[match_idx_in_curr:]
                 full_segments.extend([[s[0], s[1] + offset] for s in to_add])
             else:
-                # 几乎不可能
+                # Fallback for an unmatched object.
                 full_segments.extend([[s[0], s[1] + offset] for s in curr_segments])
         else:
-            # 兜底：基于时间戳硬拼接
+            # Fall back to timestamp-based concatenation.
             last_time = full_segments[-1][1] if full_segments else offset
             to_add = [s for s in curr_segments if s[1] + offset > last_time + 0.1]
             full_segments.extend([[s[0], s[1] + offset] for s in to_add])
 
-    # 后处理：清理标点重复和残留
+    # Remove repeated and residual punctuation.
     clean_segments = []
     for s in full_segments:
         if clean_segments and s[0] in puncs and clean_segments[-1][0] == s[0]:

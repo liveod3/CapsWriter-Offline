@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-文本与 Token 拼接算法子包
+Text and token merging package.
 
-提供不同策略的识别结果合并功能。
+Merge recognition results using text or timestamp strategies.
 """
 
 from .. import logger

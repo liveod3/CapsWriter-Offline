@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-通信协议模块
+Shared communication protocol.
 
-定义客户端与服务端之间的消息协议数据类。
-这些类同时用于服务端和客户端，确保消息格式一致。
+Define message dataclasses for client/server communication.
+Use the same definitions on both sides to keep message formats consistent.
 """
 
 from __future__ import annotations
@@ -27,11 +27,11 @@ MAX_SEG_OVERLAP = 30.0
 
 
 class ProtocolValidationError(ValueError):
-    """收到不符合协议约束的消息。"""
+    """A received message violates the protocol contract."""
 
 
 def _finite_number(data: dict, field_name: str, *, default=None) -> float:
-    """读取有限数值，显式拒绝 bool 和可疑的字符串转换。"""
+    """Read a finite number, rejecting booleans and implicit string conversions."""
     if field_name in data:
         value = data[field_name]
     elif default is not None:
@@ -53,20 +53,20 @@ def _finite_number(data: dict, field_name: str, *, default=None) -> float:
 @dataclass
 class AudioMessage:
     """
-    客户端 -> 服务端：音频数据消息
+    Client-to-server audio message.
     
     Attributes:
-        task_id: 任务唯一标识
-        source: 音频来源 ('mic' 麦克风 或 'file' 文件)
-        data: Base64 编码的音频数据 (float32, 16kHz, mono)
-        is_final: 是否为当前任务的最后一个数据包
-        time_start: 录音/音频开始时间戳
-        seg_duration: 分段时长（秒）
-        seg_overlap: 重叠时长（秒）
+        task_id: Task identifier.
+        source: Audio source ('mic' or 'file').
+        data: Base64 audio bytes (float32, 16 kHz, mono).
+        is_final: Whether this is the task's last packet.
+        time_start: Recording or audio start timestamp.
+        seg_duration: Segment duration in seconds.
+        seg_overlap: Segment overlap in seconds.
     """
     task_id: str
     source: Literal['mic', 'file']
-    data: str                    # base64 编码的音频
+    data: str                    # Base64-encoded audio.
     is_final: bool
     time_start: float
     seg_duration: float = 15.0
@@ -76,7 +76,7 @@ class AudioMessage:
     supports_task_errors: bool = False
 
     def to_json(self) -> str:
-        """序列化为 JSON 字符串"""
+        """Serialize to a JSON string."""
         return json.dumps(asdict(self), ensure_ascii=False)
     
     @classmethod
@@ -87,7 +87,7 @@ class AudioMessage:
         max_audio_bytes: int = MAX_AUDIO_MESSAGE_BYTES,
         max_context_length: int = MAX_CONTEXT_LENGTH,
     ) -> AudioMessage:
-        """从不可信字典创建实例，并执行协议边界校验。"""
+        """Validate an untrusted dictionary and construct a message."""
         if not isinstance(data, dict):
             raise ProtocolValidationError(Notice('validation.protocol.message_must_be_a_json_object'))
         if (
@@ -183,12 +183,12 @@ class AudioMessage:
             language=language,
             supports_task_errors=supports_task_errors,
         )
-        # 避免服务端在校验后再次解码；动态属性不会进入 asdict()/线协议。
+        # Cache decoded audio; dynamic attributes stay outside asdict() and the wire format.
         setattr(message, '_audio_bytes', audio_data)
         return message
 
     def decode_audio(self) -> bytes:
-        """返回严格解码后的音频；from_dict() 创建的消息会复用校验结果。"""
+        """Return strictly decoded audio, reusing validation from from_dict()."""
         cached = getattr(self, '_audio_bytes', None)
         if cached is not None:
             return cached
@@ -223,20 +223,20 @@ class CancelMessage:
 @dataclass
 class RecognitionMessage:
     """
-    服务端 -> 客户端：识别结果消息
+    Server-to-client recognition result.
     
     Attributes:
-        task_id: 任务唯一标识
-        is_final: 是否为最终结果（所有片段识别完成）
-        duration: 已处理的音频总时长（秒）
-        time_start: 录音/音频开始时间戳
-        time_submit: 最后一个片段的提交时间戳
-        time_complete: 识别完成时间戳
+        task_id: Task identifier.
+        is_final: Whether all task segments have completed.
+        duration: Total processed audio duration in seconds.
+        time_start: Recording or audio start timestamp.
+        time_submit: Final segment submission timestamp.
+        time_complete: Recognition completion timestamp.
         
-        text: 主要输出 - 简单文本拼接结果（不依赖时间戳）
-        text_accu: 精确输出 - 基于时间戳去重的拼接结果（用于字幕生成）
-        tokens: 字级 token 列表（与 timestamps 对应）
-        timestamps: 字级时间戳列表（秒）
+        text: Main merged text, independent of timestamps.
+        text_accu: Timestamp-deduplicated text for subtitle generation.
+        tokens: Word/character tokens corresponding to timestamps.
+        timestamps: Token timestamps in seconds.
     """
     task_id: str
     is_final: bool
@@ -245,26 +245,26 @@ class RecognitionMessage:
     time_submit: float
     time_complete: float
     
-    # 主要输出（简单文本拼接）
+    # Main output from text merging.
     text: str
     
-    # 精确输出（时间戳拼接）
+    # Timestamp-based merged output.
     text_accu: str = ''
     tokens: List[str] = field(default_factory=list)
     timestamps: List[float] = field(default_factory=list)
     error_code: str = ''
     
     def to_json(self) -> str:
-        """序列化为 JSON 字符串"""
+        """Serialize to a JSON string."""
         return json.dumps(asdict(self), ensure_ascii=False)
     
     def to_dict(self) -> dict:
-        """转换为字典"""
+        """Convert to a dictionary."""
         return asdict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> RecognitionMessage:
-        """从字典创建实例"""
+        """Construct from a dictionary."""
         if not isinstance(data, dict):
             raise ProtocolValidationError(Notice('validation.protocol.recognition_message_must_be_an_object'))
         error_code = data.get('error_code', '')

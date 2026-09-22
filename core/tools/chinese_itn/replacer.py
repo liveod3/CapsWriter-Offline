@@ -1,6 +1,6 @@
 # coding: utf-8
 """
-主替换逻辑和入口函数
+ITN replacement pipeline.
 """
 
 from .mappings import idioms, fuzzy_regex, value_mapper
@@ -14,16 +14,16 @@ from .ranges import is_range_expression, convert_range_expression
 
 
 # ============================================================
-# 辅助工具
+# Shared helpers.
 # ============================================================
 
 def _all_numeric(tokens):
-    """检查所有 Token 是否为基础数值类型"""
+    """Return whether all tokens represent basic numeric values."""
     return all(t.type in _BASIC_NUMERIC_TYPES for t in tokens)
 
 
 def _reduce_binary_op(tokens, sep_type, fmt):
-    """规约二元分隔表达式（分数、比值共用）"""
+    """Reduce a binary separated expression for fractions or ratios."""
     indices = [i for i, t in enumerate(tokens) if t.type == sep_type]
     if len(indices) != 1:
         return None
@@ -39,11 +39,11 @@ def _reduce_binary_op(tokens, sep_type, fmt):
 
 
 # ============================================================
-# Token 规约子模块 (Grammar Reducers)
+# Grammar reducers.
 # ============================================================
 
 def try_reduce_percent(tokens, original):
-    """规约百分数和千分比：百分之三十 -> 30%"""
+    """Reduce percentages and per-mille expressions."""
     if not tokens or tokens[0].type != 'PERCENT_PREFIX':
         return None
     val_tokens = tokens[1:]
@@ -57,17 +57,17 @@ def try_reduce_percent(tokens, original):
 
 
 def try_reduce_fraction(tokens, original):
-    """规约分数：三分之二 -> 2/3"""
+    """Reduce fractions to numerator/denominator notation."""
     return _reduce_binary_op(tokens, 'FRACTION_SEP', '{right}/{left}')
 
 
 def try_reduce_ratio(tokens, original):
-    """规约比值：一比三 -> 1:3"""
+    """Reduce ratios to colon-separated notation."""
     return _reduce_binary_op(tokens, 'RATIO_SEP', '{left}:{right}')
 
 
 def try_reduce_time(tokens, original):
-    """规约时间：十二点三十分五秒 -> 12:30:05"""
+    """Reduce time expressions to clock notation."""
     dot_indices = [idx for idx, t in enumerate(tokens) if t.type == 'DOT']
     min_indices = [idx for idx, t in enumerate(tokens) if t.type == 'MINUTE_SUF']
     if len(dot_indices) != 1 or len(min_indices) != 1:
@@ -84,7 +84,7 @@ def try_reduce_time(tokens, original):
     if not hour_tokens or not minute_tokens or not _all_numeric(hour_tokens) or not _all_numeric(minute_tokens):
         return None
 
-    # 秒处理
+    # Process seconds.
     has_second = False
     sec_str = ""
     if second_tokens:
@@ -123,7 +123,7 @@ def try_reduce_time(tokens, original):
 
 
 def try_reduce_date(tokens, original):
-    """规约日期：二零二五年十月三日 -> 2025年10月3日"""
+    """Reduce date expressions while preserving date unit characters."""
     year_indices = [idx for idx, t in enumerate(tokens) if t.type == 'YEAR_SUF']
     month_indices = [idx for idx, t in enumerate(tokens) if t.type == 'MONTH_SUF']
     day_indices = [idx for idx, t in enumerate(tokens) if t.type == 'DAY_SUF']
@@ -137,13 +137,13 @@ def try_reduce_date(tokens, original):
     m_idx = month_indices[0] if month_indices else -1
     d_idx = day_indices[0] if day_indices else -1
 
-    # 严格的年月日单位顺序校验
+    # Require year, month, and day units in order.
     indices = [i for i in (y_idx, m_idx, d_idx) if i != -1]
     if indices != sorted(indices):
         return None
 
     def _parse_part(start, end):
-        """解析 [start, end) 区间的 Token 为数值字符串"""
+        """Parse tokens in [start, end) into a numeric string."""
         part = tokens[start:end]
         if not part or not _all_numeric(part):
             return None
@@ -188,7 +188,7 @@ def try_reduce_date(tokens, original):
 
 
 def try_reduce_date_time(tokens, original):
-    """规约日期、时间以及它们的复合体"""
+    """Reduce dates, times, and combined date/time expressions."""
     idxs = [i for i, t in enumerate(tokens) if t.type in ('DAY_SUF', 'MONTH_SUF', 'YEAR_SUF')]
     split_idx = idxs[-1] if idxs else -1
 
@@ -199,10 +199,10 @@ def try_reduce_date_time(tokens, original):
 
 
 def try_reduce_numerical(tokens, original_text):
-    """规约常规数值、数字序列以及纯数字"""
+    """Reduce numeric values and digit sequences."""
     stripped_text, unit = strip_unit(original_text)
 
-    # 万/亿不作为物理后缀剥离
+    # Keep ten-thousand and hundred-million units as numeric multipliers.
     if unit in ('万', '亿'):
         stripped_text = original_text
 
@@ -213,25 +213,25 @@ def try_reduce_numerical(tokens, original_text):
     if not stripped_tokens or not _all_numeric(stripped_tokens):
         return None
 
-    # 纯数字解析 (不含十百千万亿的大数流)
+    # Parse plain digits without magnitude units.
     if all(t.type in ('DIGIT', 'ZERO', 'DOT') for t in stripped_tokens):
         return convert_pure_num(original_text)
 
-    # 通用 parse_sequence 规约
+    # Apply the general sequence reducer.
     return parse_sequence(original_text)
 
 
 def try_reduce_range(tokens, original):
-    """规约范围表达式：十五到二十 -> 15-20"""
+    """Reduce explicit ranges to hyphen-separated notation."""
     return convert_range_expression(original) if is_range_expression(original) else None
 
 
 # ============================================================
-# 主替换入口 (Pipeline Entry)
+# Pipeline entry point.
 # ============================================================
 
 def replace(match):
-    """主替换函数 (AST 规约入口)"""
+    """Apply grammar reducers to one candidate match."""
     string = match.string
     l_pos, r_pos = match.regs[2]
     l_pos = max(l_pos - 2, 0)
@@ -253,7 +253,7 @@ def replace(match):
         final = original
 
     else:
-        # 提取正负号
+        # Extract the sign.
         sign_prefix = ""
         parsed_original = original
         if original and original[0] in ('正', '负'):
@@ -266,12 +266,12 @@ def replace(match):
             tokens = tokenize(parsed_original)
 
             for reducer in [
-                try_reduce_percent,    # 百分比
-                try_reduce_fraction,   # 分数
-                try_reduce_ratio,      # 比值
-                try_reduce_date_time,  # 日期时间
-                try_reduce_range,      # 范围表达式
-                try_reduce_numerical,  # 数值解析
+                try_reduce_percent,    # Percentages.
+                try_reduce_fraction,   # Fractions.
+                try_reduce_ratio,      # Ratios.
+                try_reduce_date_time,  # Dates and times.
+                try_reduce_range,      # Ranges.
+                try_reduce_numerical,  # Numeric values.
             ]:
                 res = reducer(tokens, parsed_original)
                 if res is not None:
@@ -287,5 +287,5 @@ def replace(match):
 
 
 def chinese_to_num(original):
-    """主函数：将中文数字转换为阿拉伯数字"""
+    """Convert Chinese number words to Arabic numerals."""
     return pattern.sub(replace, original)

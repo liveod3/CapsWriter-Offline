@@ -56,7 +56,7 @@ def test_shutdown_while_receiving_exits_without_traceback_or_reconnect():
             await receiving.wait()
             processor.request_exit()
             manager.close_sync()
-            manager.state.websocket = None  # 模拟 app.stop() 的 State.reset()
+            manager.state.websocket = None  # Simulate State.reset() during app.stop().
             await asyncio.wait_for(operation, 1)
             connect.assert_not_awaited()
             output.assert_not_called()

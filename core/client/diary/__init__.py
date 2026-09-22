@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-diary 子模块
+Transcript archive package.
 
-包含日记写入功能。
+Provide transcript archive writing.
 """
 
 from .. import logger

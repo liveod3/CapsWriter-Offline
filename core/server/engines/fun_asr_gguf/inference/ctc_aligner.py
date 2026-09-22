@@ -3,13 +3,13 @@ import re
 from typing import List, Dict, Any
 
 class CTCAligner:
-    """组件：负责将 CTC 时间戳与 LLM 输出文本进行对齐"""
+    """Align CTC timestamps with decoder text."""
 
     @staticmethod
     def _merge_english_words(chars: List[List[Any]]) -> List[List[Any]]:
-        """后处理：将连续的英文字符合并为单词，空格作为独立 token"""
+        """Merge consecutive Latin letters into words, keeping spaces as separate tokens."""
         merged = []
-        buf = []  # 当前累积的英文 token
+        buf = []  # Accumulated Latin token.
         for item in chars:
             ch = item[0]
             if re.match(r'[a-zA-Z]', ch):
@@ -28,22 +28,22 @@ class CTCAligner:
     @staticmethod
     def align(ctc_results, llm_text: str, timestamp_offset: float = 0.0) -> List[List[Any]]:
         """
-        使用 Needleman-Wunsch 算法对齐 CTC 结果和 LLM 文本
-        只使用起始位置进行匹配
-        返回格式: [[token, timestamp], ...]，连续英文字母已合并为单词
+        Align CTC results and decoder text with Needleman-Wunsch.
+        Match start positions only.
+        Return [[token, timestamp], ...], with consecutive Latin letters merged into words.
         """
         if not ctc_results or not llm_text:
             return []
 
-        # 1. 展开 CTC 结果为字符级别（只保留起始位置）
+        # 1. Expand CTC results to characters, retaining start times.
         ctc_chars = []
         for item in ctc_results:
             text = item.text
             timestamp = item.timestamp
 
             if len(text) > 0:
-                # 假设每个字符占用相同时间间隔
-                char_duration = 0.08  # 默认每个字符约 80ms
+                # Assume equal duration per character.
+                char_duration = 0.08  # Default to roughly 80 ms per character.
                 for i, char in enumerate(text):
                     c_timestamp = timestamp + i * char_duration
                     ctc_chars.append({"char": char, "timestamp": c_timestamp})
@@ -98,7 +98,7 @@ class CTCAligner:
                 llm_alignment[j-1] = None
                 j -= 1
 
-        # 插值填充未对齐的字符
+        # Interpolate unmatched characters.
         anchors = []
         for idx, item in enumerate(llm_alignment):
             if item is not None:
@@ -107,7 +107,7 @@ class CTCAligner:
         final_chars = []
 
         def get_interpolated_start(target_idx):
-            """插值计算起始位置"""
+            """Interpolate start positions."""
             prev_a, next_a = None, None
             for a in anchors:
                 if a[0] < target_idx:
@@ -120,7 +120,7 @@ class CTCAligner:
                 p_idx, p_start = prev_a
                 n_idx, n_start = next_a
 
-                # 线性插值
+                # Linear interpolation.
                 total_gap = n_idx - p_idx
                 time_gap = n_start - p_start
                 step = time_gap / total_gap
@@ -128,9 +128,9 @@ class CTCAligner:
                 relative_step = target_idx - p_idx
                 return p_start + relative_step * step
             elif prev_a:
-                return prev_a[1] + 0.05  # 向后推一点
+                return prev_a[1] + 0.05  # Extrapolate later.
             elif next_a:
-                return max(0, next_a[1] - 0.05)  # 向前推一点
+                return max(0, next_a[1] - 0.05)  # Extrapolate earlier.
             else:
                 return 0.0
 
@@ -140,7 +140,7 @@ class CTCAligner:
             else:
                 s = get_interpolated_start(idx)
             
-            # 应用偏移并确保不为负数
+            # Apply the offset and clamp to nonnegative time.
             s = max(s + timestamp_offset, 0.0)
             final_chars.append([char, s])
 

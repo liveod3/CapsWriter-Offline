@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-transcribe 子模块
+Transcription package.
 
-包含文件转录功能。
+Provide file transcription.
 """
 
 from .. import logger

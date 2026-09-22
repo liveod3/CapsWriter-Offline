@@ -7,16 +7,16 @@ import numpy as np
 
 
 class EngineCapabilities(Enum):
-    """引擎能力声明类型"""
-    ASR = auto()            # 基础 ASR 能力
-    PUNC = auto()           # 自带标点
-    TIMESTAMPS = auto()     # 自带时间戳
-    STREAMING = auto()      # 支持真实流式推理
+    """Declare engine capabilities."""
+    ASR = auto()            # Basic speech recognition.
+    PUNC = auto()           # Native punctuation.
+    TIMESTAMPS = auto()     # Native timestamps.
+    STREAMING = auto()      # Native streaming inference.
 
 
 @dataclass
 class RecognitionResult:
-    """标准识别结果结构"""
+    """Standard recognition result."""
     text: str = ""
     tokens: List[str] = field(default_factory=list)
     timestamps: List[float] = field(default_factory=list)
@@ -27,8 +27,8 @@ class RecognitionResult:
 
 class RecognitionStream(ABC):
     """
-    标准识别流接口
-    有些引擎（如 sherpa-onnx）支持流式，而有些（如基于音频分片的同步引擎）则内部模拟。
+    Standard recognition stream interface.
+    Streaming engines can implement this directly; segment-based engines adapt their input.
     """
     def __init__(self, sample_rate: int = 16000):
         self.sample_rate = sample_rate
@@ -36,15 +36,15 @@ class RecognitionStream(ABC):
 
     @abstractmethod
     def accept_waveform(self, sample_rate: int, audio: np.ndarray):
-        """塞入音频片"""
+        """Accept an audio chunk."""
         pass
 
 
 class BaseASREngine(ABC):
     """
-    语音识别引擎基类
+    Speech recognition engine interface.
     
-    所有的 ASR 引擎（SenseVoice, Paraformer, Qwen 等）都必须继承此类并实现其接口。
+    All ASR engines implement this interface, including SenseVoice, Paraformer, and Qwen.
     """
 
     def __init__(self, config: Any):
@@ -53,12 +53,12 @@ class BaseASREngine(ABC):
     @property
     @abstractmethod
     def capabilities(self) -> List[EngineCapabilities]:
-        """声明引擎具备的能力"""
+        """Declare supported capabilities."""
         pass
 
     @abstractmethod
     def create_stream(self) -> RecognitionStream:
-        """创建一个识别流对象"""
+        """Create a recognition stream."""
         pass
 
     @abstractmethod
@@ -68,45 +68,45 @@ class BaseASREngine(ABC):
         context: Optional[str] = None,
         **kwargs
     ):
-        """执行推理并更新 stream.result"""
+        """Run inference and update stream.result."""
         pass
 
 
     @abstractmethod
     def cleanup(self):
-        """释放模型资源"""
+        """Release model resources."""
         pass
 
 
 class BasePuncEngine(ABC):
     """
-    标点引擎基类
+    Punctuation engine interface.
     """
 
     def __init__(self, config: Any):
         self.config = config
 
     def punctuate(self, text: str) -> str:
-        """ 为文本注入或修正标点。默认行为：原样返回。 """
+        """Insert or correct punctuation; the default returns the input unchanged."""
         return text
 
     def cleanup(self):
-        """ 释放资源 """
+        """Release resources."""
         pass
 
 
 class BaseAlignEngine(ABC):
     """
-    强制对齐引擎基类
+    Forced alignment engine interface.
     """
 
     def __init__(self, config: Any):
         self.config = config
 
     def align(self, audio: np.ndarray, text: str, **kwargs) -> Any:
-        """ 对音频和文本进行强制对齐。默认行为：返回 None。 """
+        """Align audio and text; the default returns None."""
         return None
 
     def cleanup(self):
-        """ 释放资源 """
+        """Release resources."""
         pass

@@ -1,4 +1,4 @@
-"""客户端托盘：常用动作、静态配置入口与无会话文本处理。"""
+"""Provide client tray actions, static configuration, and stateless text processing."""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class TrayManager:
 
                 path = ensure_provider_file(path.parent)
             if path.suffix in {".py", ".toml"}:
-                # 不调用 .py 默认关联，避免编辑配置意外执行 Python。
+                # Avoid the .py file association, which could execute the configuration instead of editing it.
                 subprocess.Popen(["notepad.exe", str(path)])
             else:
                 os.startfile(str(path))

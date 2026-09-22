@@ -5,7 +5,7 @@ from ..base import BasePuncEngine
 
 class CTTransformerPuncEngine(BasePuncEngine):
     """
-    基于 CT-Transformer 的标点补全引擎 (使用 sherpa-onnx 实现)
+    Restore punctuation with sherpa-onnx CT-Transformer.
     """
 
     def __init__(self, model_path: str):
@@ -15,7 +15,7 @@ class CTTransformerPuncEngine(BasePuncEngine):
         self._initialize()
 
     def _initialize(self):
-        """延迟初始化内核"""
+        """Initialize the backend lazily."""
         import sherpa_onnx
         punc_cfg = sherpa_onnx.OfflinePunctuationConfig(
             model=sherpa_onnx.OfflinePunctuationModelConfig(
@@ -25,7 +25,7 @@ class CTTransformerPuncEngine(BasePuncEngine):
         self.engine = sherpa_onnx.OfflinePunctuation(punc_cfg)
 
     def punctuate(self, text: str) -> str:
-        """为文本注入标点"""
+        """Insert punctuation into text."""
         if not self.engine or not text:
             return text
         try:
@@ -34,5 +34,5 @@ class CTTransformerPuncEngine(BasePuncEngine):
             return text
 
     def cleanup(self):
-        """释放资源"""
+        """Release resources."""
         self.engine = None

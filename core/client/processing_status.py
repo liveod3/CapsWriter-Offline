@@ -1,4 +1,4 @@
-"""按任务管理录音结束后的持续提示；后台旧任务不能清除新任务的状态。"""
+"""Keep status per task so old tasks cannot clear a newer task's indicator."""
 
 from __future__ import annotations
 
@@ -58,7 +58,7 @@ class ProcessingStatus:
             self._publish()
 
     def _publish(self):
-        # render 只向 UI 队列投递；锁内投递保持多个线程的状态顺序。
+        # render only enqueues UI work; enqueue under the lock to preserve thread ordering.
         text = next(reversed(self._tasks.values()))[0] if self._tasks else ""
         if text != self._displayed:
             self._displayed = text

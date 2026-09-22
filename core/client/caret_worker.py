@@ -1,4 +1,4 @@
-"""仅在隔离子进程中访问 COM/UIA，不使用剪贴板或模拟按键。"""
+"""Access COM/UIA only in an isolated subprocess, without clipboard or key input."""
 
 from __future__ import annotations
 import json
@@ -24,21 +24,21 @@ def read_context(expected: int, before: int, after: int) -> dict[str, str]:
             return {}
         if element.CurrentProcessId == __import__("os").getpid():
             return {}
-        # 只允许可编辑文本控件；不要收集浏览器页面或整个文档的可见文字。
+        # Accept editable controls only; do not capture whole pages or documents.
         if element.CurrentControlType not in (50004, 50030):
             return {}
         pattern = element.GetCurrentPattern(10024).QueryInterface(module.IUIAutomationTextPattern2)
         active, caret = pattern.GetCaretRange()
         if not active:
             return {}
-        # Document 也可能是只读网页；属性不支持时同样不采集。
+        # Document controls can be read-only pages; reject unsupported properties too.
         if caret.GetAttributeValue(module.UIA_IsReadOnlyAttributeId) != False:
             return {}
         text_pattern = element.GetCurrentPattern(10014).QueryInterface(
             module.IUIAutomationTextPattern
         )
         ranges = text_pattern.GetSelection()
-        # 有选区时不猜测替换边界，降级为无上下文。
+        # Omit context for selections instead of guessing replacement boundaries.
         if ranges.Length != 1:
             return {}
         selection = ranges.GetElement(0)

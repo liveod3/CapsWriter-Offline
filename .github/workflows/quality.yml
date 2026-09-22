@@ -44,16 +44,22 @@ jobs:
       - name: Compile Python sources
         run: >-
           python -m compileall -q
-          start_client.py start_server.py config_client.py config_server.py config_templates core LLM
+          start_client.py start_server.py config_client.py config_server.py config_templates core LLM tests scripts
 
       - name: Lint
-        run: python -m ruff check start_client.py start_server.py config_client.py config_server.py config_templates core LLM tests
+        run: python -m ruff check start_client.py start_server.py config_client.py config_server.py config_templates core LLM tests scripts
 
       - name: Type-check critical paths
         run: >-
           python -m mypy core/protocol.py core/server/schema.py
           core/server/merger
           core/tools/format_tools.py
+
+      - name: Check internal language
+        run: python scripts/check_internal_language.py
+
+      - name: Check documentation
+        run: python scripts/check_docs.py
 
       - name: Run unit tests with coverage
         run: >-

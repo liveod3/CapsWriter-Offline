@@ -10,10 +10,10 @@ from ..language import get_language, ENGINE_ALIGNER
 
 class QwenForceAligner(BaseAlignEngine):
     """
-    Qwen-Force-Aligner 适配器
+    Qwen forced aligner adapter.
     
-    负责包装底层的强制对齐逻辑，将识别出的文本与原始音频进行对齐，
-    补全精确的时间戳信息。
+    Align recognized text with original audio through the backend
+    to supply token timestamps.
     """
 
     def __init__(self, config: AlignerConfig):
@@ -29,12 +29,12 @@ class QwenForceAligner(BaseAlignEngine):
         **kwargs
     ) -> ForcedAlignResult:
         """
-        执行强制对齐
+        Run forced alignment.
         """
         if not text:
             return None
 
-        # 语言映射：统一代码 → Aligner 英文明称，默认中文
+        # Map the unified language code to an English aligner name; default to Chinese.
         mapped = get_language(ENGINE_ALIGNER, language) if language else None
 
         return self.engine.align(
@@ -45,7 +45,7 @@ class QwenForceAligner(BaseAlignEngine):
         )
 
     def cleanup(self):
-        """释放资源"""
+        """Release resources."""
         if hasattr(self.engine, 'ctx'):
             del self.engine.ctx
         if hasattr(self.engine, 'model'):

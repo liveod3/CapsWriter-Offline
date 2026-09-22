@@ -10,7 +10,7 @@ from core.client.transcribe.file_transcriber import (
 
 
 class FragmentedReader:
-    """模拟 FFmpeg 管道每次只交付少量可用字节。"""
+    """Simulate an FFmpeg pipe delivering small partial reads."""
 
     def __init__(self, fragments: list[bytes]):
         self.fragments = [bytearray(fragment) for fragment in fragments]

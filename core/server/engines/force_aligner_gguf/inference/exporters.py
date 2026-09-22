@@ -11,8 +11,8 @@ from .chinese_itn import chinese_to_num as itn
 
 def alignment_to_srt(items: Optional[List[ForcedAlignItem]], max_chars: int = 40) -> str:
     """
-    将对齐结果转换为 SRT 格式内容。
-    按逗号、句号、问号、感叹号以及换行符进行分行。
+    Convert alignment results to SRT content.
+    Split at commas, sentence punctuation, and newlines.
     """
     if not items:
         return ""
@@ -21,29 +21,29 @@ def alignment_to_srt(items: Optional[List[ForcedAlignItem]], max_chars: int = 40
     current_texts = []
     start_time = None
     
-    # 匹配分割符号：中文全角标点、英文半角标点、以及可能存在的换行符
-    # 特别注意：在有的 ASR 引擎中，标点后可能跟有空格，也一并匹配
+    # Match Chinese/English punctuation and line breaks.
+    # Include whitespace that some ASR engines emit after punctuation.
     split_pattern = re.compile(r'[，。？！、\n]|[,.?!]\s*')
     
     for item in items:
-        # 记录每一行字幕的开始时间
+        # Track each subtitle line's start time.
         if start_time is None:
             start_time = item.start_time
         
         current_texts.append(item.text)
         
-        # 聚合当前已有的文本
+        # Accumulate text.
         current_content = "".join(current_texts)
         
-        # 触发分割的条件：
-        # 1. 遇到了分割标点符号
-        # 2. 或者当前行字符数超过了 max_chars (防止单行过长)
+        # Split when either condition holds:
+        # 1. A punctuation boundary is reached.
+        # 2. The line exceeds max_chars.
         if split_pattern.search(item.text) or len(current_content) >= max_chars:
             content = current_content.strip()
             if content:
-                # 移除末尾标点
+                # Remove trailing punctuation.
                 content = content.rstrip("，。？！、,.?!")
-                # 应用 ITN 处理
+                # Apply ITN.
                 itn_content = itn(content)
                 subtitles.append(srt.Subtitle(
                     index=len(subtitles) + 1,
@@ -54,13 +54,13 @@ def alignment_to_srt(items: Optional[List[ForcedAlignItem]], max_chars: int = 40
             current_texts = []
             start_time = None
             
-    # 处理末尾残余文本
+    # Process remaining text.
     if current_texts:
         content = "".join(current_texts).strip()
         if content:
-            # 移除末尾标点
+            # Remove trailing punctuation.
             content = content.rstrip("，。？！：、,.?!")
-            # 应用 ITN 处理
+            # Apply ITN.
             itn_content = itn(content)
             end_time = items[-1].end_time
             subtitles.append(srt.Subtitle(
@@ -73,7 +73,7 @@ def alignment_to_srt(items: Optional[List[ForcedAlignItem]], max_chars: int = 40
     return srt.compose(subtitles)
 
 def alignment_to_json(items: Optional[List[ForcedAlignItem]]) -> List[dict]:
-    """将对齐结果转换为可序列化的字典列表"""
+    """Convert alignment results to serializable dictionaries."""
     if not items:
         return []
     return [
@@ -86,7 +86,7 @@ def alignment_to_json(items: Optional[List[ForcedAlignItem]]) -> List[dict]:
     ]
 
 def export_to_srt(path: str, result: TranscribeResult):
-    """将对齐结果保存为 SRT 文件"""
+    """Save alignment results as SRT."""
     if not result.alignment:
         with open(path, "w", encoding="utf-8") as f: f.write("")
         return
@@ -97,7 +97,7 @@ def export_to_srt(path: str, result: TranscribeResult):
     print(tr('terminal.exporters.subtitle_file_generated', value0=path))
 
 def export_to_json(path: str, result: TranscribeResult):
-    """将对齐结果保存为 JSON 文件"""
+    """Save alignment results as JSON."""
     if not result.alignment:
         with open(path, "w", encoding="utf-8") as f: f.write("[]")
         return
@@ -108,12 +108,12 @@ def export_to_json(path: str, result: TranscribeResult):
     print(tr('terminal.exporters.timestamps_exported', value0=path))
 
 def export_to_txt(path: str, result: TranscribeResult):
-    """将转录结果处理后保存为 TXT 文件 (含 ITN 和标点换行)"""
-    # 1. ITN 处理
+    """Save transcription as TXT after ITN and punctuation-based line splitting."""
+    # 1. Apply ITN.
     final_text = itn(result.text)
-    # 2. 按照标点符号换行，保留标点
+    # 2. Split at punctuation while retaining marks.
     formatted_text = re.sub(r'([，。？！：])', r'\1\n', final_text)
-    # 3. 对于英文字母后面的逗号空格、句号空格，也要换行
+    # 3. Also split at comma/period plus space after Latin letters.
     formatted_text = re.sub(r'(?<=[a-zA-Z])([,\.] )', r'\1\n', formatted_text)
     
     with open(path, "w", encoding="utf-8") as f:

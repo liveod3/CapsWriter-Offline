@@ -1,12 +1,12 @@
 # coding: utf-8
 """
-UDP 控制模块
+UDP control module.
 
-通过 UDP 信号控制录音的开始和停止，使外部程序能够触发语音转录。
+Let external applications start and stop recording through UDP commands.
 
-命令协议：
-- START: 开始录音
-- STOP: 停止录音
+Command protocol:
+- START: Start recording.
+- STOP: Stop recording.
 """
 
 from __future__ import annotations
@@ -27,17 +27,17 @@ if TYPE_CHECKING:
 
 class UDPController:
     """
-    UDP 控制器
+    UDP controller.
     
-    在后台线程监听 UDP 端口，接收控制命令来开始/停止录音。
+    Listen for recording commands on a background UDP thread.
     """
     
     def __init__(self, shortcut_manager: ShortcutManager):
         """
-        初始化 UDP 控制器
+        Initialize the UDP controller.
 
         Args:
-            shortcut_manager: 快捷键管理器实例，用于调用录音控制方法
+            shortcut_manager: Shortcut manager used to control recording.
         """
         self.manager = shortcut_manager
         self.running = False
@@ -45,7 +45,7 @@ class UDPController:
         self._sock = None
     
     def start(self) -> None:
-        """启动 UDP 监听"""
+        """Start the UDP listener."""
         if self.running and self._thread and self._thread.is_alive():
             logger.debug(Notice('diagnostic.udp_control.udp_controller_already_running_startup_skipped'))
             return
@@ -56,7 +56,7 @@ class UDPController:
         logger.info(Notice('diagnostic.udp_control.udp_controller_started_on_port', value0=Config.udp_control_port))
     
     def stop(self) -> None:
-        """停止 UDP 监听"""
+        """Stop the UDP listener."""
         if not self.running:
             return
             
@@ -71,7 +71,7 @@ class UDPController:
         logger.info(Notice('diagnostic.udp_control.udp_controller_stopped'))
     
     def _listen(self) -> None:
-        """监听循环"""
+        """Listen for incoming commands."""
         try:
             self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             self._sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -99,11 +99,11 @@ class UDPController:
     
     def _handle_command(self, command: str, addr: tuple) -> None:
         """
-        处理接收到的命令
+        Handle an incoming command.
 
         Args:
-            command: 命令字符串 (START/STOP)
-            addr: 发送方地址
+            command: Command string (START/STOP).
+            addr: Sender address.
         """
         state = self.manager.state
 
@@ -114,7 +114,7 @@ class UDPController:
 
             if not state.recording:
                 logger.info(Notice('diagnostic.udp_control.udp_control_start_recording_from', value0=addr[0], value1=addr[1]))
-                # 使用第一个可用的快捷键任务启动录音
+                # Start recording through the first available shortcut task.
                 if self.manager.tasks:
                     first_task = next(iter(self.manager.tasks.values()))
                     first_task.launch()
@@ -124,7 +124,7 @@ class UDPController:
         elif command == 'STOP':
             if state.recording:
                 logger.info(Notice('diagnostic.udp_control.udp_control_stop_recording_from', value0=addr[0], value1=addr[1]))
-                # 停止所有录音任务
+                # Stop all recording tasks.
                 for task in self.manager.tasks.values():
                     if task.is_recording:
                         task.finish()

@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-识别子进程工作包 (Worker Package)
+Recognition worker package.
 
-包含模型加载、任务处理和 Worker 门面类。
+Load models, process tasks, and expose the worker facade.
 """
 
 from core.i18n import Notice, set_language
@@ -15,7 +15,7 @@ from .worker import RecognizerWorker
 def start_worker(queue_in: Queue, queue_out: Queue, sockets_id: ListProxy,
                  align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int,
                  failure_event=None, progress_clock=None):
-    """识别子进程启动入口"""
+    """Start the recognition subprocess."""
     from config_server import ServerConfig
     set_language(getattr(ServerConfig, 'ui_language', 'auto'))
     try:

@@ -17,7 +17,7 @@ from . import llama
 from . import logger
 
 class AlignerProcessor:
-    """文本预处理与时间戳修正逻辑"""
+    """Preprocess alignment text and repair timestamp sequences."""
     def __init__(self):
         self.assets_dir = Path(__file__).parent / "assets"
         ko_dict_path = self.assets_dir / "korean_dict_jieba.dict"
@@ -73,7 +73,7 @@ class AlignerProcessor:
         return tokens
 
     def tokenize_general(self, text: str) -> List[str]:
-        """通用的分词逻辑：按空格切分，且对 CJK 字符进行逐字拆分（适用于中、英、中英混排及大多数语种）"""
+        """Split on whitespace and separate CJK characters for mixed-language alignment."""
         tokens = []
         for seg in text.split():
             cleaned = self.clean_token(seg)
@@ -88,14 +88,14 @@ class AlignerProcessor:
         return tokens
 
     def tokenize(self, text: str, language: Optional[str] = None) -> List[str]:
-        # 统一转为小写字符串。如果为 None 则视为空字符串，从而安全进入 else 分支。
+        # Normalize to lowercase; treat None as empty input for the fallback branch.
         lang = str(language or "").lower()
         if lang == "japanese": 
             return self.tokenize_japanese(text)
         elif lang == "korean": 
             return self.tokenize_korean(text)
         else: 
-            # 所有的其他语种均使用通用分词逻辑
+            # Use generic tokenization for other languages.
             return self.tokenize_general(text)
 
     def fix_timestamps(self, data: np.ndarray) -> List[int]:
@@ -139,8 +139,8 @@ class AlignerProcessor:
 
     def reconcile(self, original_text: str, items: List[ForcedAlignItem]) -> List[ForcedAlignItem]:
         """
-        根据原始文本和干净的对齐项，重组包含标点的时间戳序列。
-        原则：低耦合、内核输出标准化。
+        Reconstruct punctuation and timing from original text and aligned items.
+        Keep backend results independent of text reconstruction.
         """
         if not items:
             return [ForcedAlignItem(text=original_text, start_time=0.0, end_time=0.0)] if original_text else []
@@ -150,20 +150,20 @@ class AlignerProcessor:
         last_ts = items[0].start_time
 
         for i, item in enumerate(items):
-            # 搜索当前 item.text 在 original_text 中的位置 (跳过非保留字符)
+            # Locate item.text in original_text while skipping excluded characters.
             start_pos, end_pos = self._find_token_indices(original_text, item.text, curr_ptr)
 
             if start_pos != -1:
-                # 1. 处理间隙项 (标点/空格)
+                # 1. Process gaps containing punctuation or spaces.
                 if start_pos > curr_ptr:
                     gap_text = original_text[curr_ptr:start_pos]
                     reconciled.append(ForcedAlignItem(
                         text=gap_text,
                         start_time=last_ts,
-                        end_time=last_ts # 修改处：对齐到左侧字的结束
+                        end_time=last_ts # Align gaps to the preceding word's end.
                     ))
 
-                # 2. 对其后的项使用原始文本中的形态
+                # 2. Restore the aligned item's original spelling.
                 matched_text = original_text[start_pos:end_pos]
                 reconciled.append(ForcedAlignItem(
                     text=matched_text,
@@ -176,11 +176,11 @@ class AlignerProcessor:
             else:
                 logger.warning(Notice('diagnostic.aligner.alignment_fallback_index_token_chars_offset'),
                                i, len(item.text), curr_ptr)
-                # 降级：若无法匹配则保持原样
+                # Keep the item unchanged when matching fails.
                 reconciled.append(item)
                 last_ts = item.end_time
 
-        # 3. 处理末尾残余
+        # 3. Process remaining trailing text.
         if curr_ptr < len(original_text):
             reconciled.append(ForcedAlignItem(
                 text=original_text[curr_ptr:],
@@ -191,7 +191,7 @@ class AlignerProcessor:
         return reconciled
 
     def _find_token_indices(self, text: str, target: str, start_index: int):
-        """寻找包含 target 的最小区间，允许穿插非保留字符"""
+        """Find the smallest span containing target, allowing excluded characters between letters."""
         target_len = len(target)
         if target_len == 0: return -1, -1
         
@@ -209,7 +209,7 @@ class AlignerProcessor:
                     return first_match, i + 1
             elif self.is_kept_char(ch):
                 if first_match != -1:
-                    # 发生了回退
+                    # Matching fell back.
                     i = first_match
                     first_match = -1
                     t_ptr = 0
@@ -218,7 +218,7 @@ class AlignerProcessor:
         return -1, -1
 
 class QwenForcedAligner:
-    """Qwen3 强制对齐器 (GGUF 后端)"""
+    """Qwen3 forced aligner with a GGUF backend."""
     def __init__(self, config: AlignerConfig):
         # Split Model Paths
         fe_path = os.path.join(config.model_dir, config.encoder_frontend_fn)
@@ -227,17 +227,17 @@ class QwenForcedAligner:
         llm_gguf = os.path.join(config.model_dir, config.llm_fn)
         onnx_provider = config.onnx_provider
 
-        # 1. 初始化统一编码器 (内部包含 5s 分片预热)
-        # 使用 Split 模式
+        # 1. Initialize the shared encoder, including five-second warmup chunks.
+        # Use split frontend/backend mode.
         self.encoder = QwenAudioEncoder(
             frontend_path=fe_path,
-            backend_path=be_path, # 传入 backend
+            backend_path=be_path, # Supply the backend.
             onnx_provider=onnx_provider,
             dml_pad_to=config.dml_pad_to,
             verbose=False
         )
 
-        # 2. 加载对齐 LLM
+        # 2. Load the alignment decoder.
         self.model = llama.LlamaModel(llm_gguf, n_gpu_layers=-1, use_gpu=config.llm_use_gpu)
         self.embedding_table = llama.get_token_embeddings_gguf(llm_gguf)
         self.ctx = llama.LlamaContext(self.model, n_ctx=config.n_ctx, n_batch=2048, embeddings=False)
@@ -249,18 +249,18 @@ class QwenForcedAligner:
         self.STEP_MS = 80.0
 
     def align(self, audio: np.ndarray, text: str, language: str = "Chinese", offset_sec: float = 0.0) -> ForcedAlignResult:
-        """执行强制对齐，支持起始偏移量叠加"""
-        # 语言归一化与校验
+        """Align audio and text, adding the requested start offset."""
+        # Normalize and validate the language.
         if language:
             language = normalize_language_name(language)
             validate_language(language)
 
         t_start = time.time()
         
-        # 1. 编码 (Encoder Stage) - 使用统一编码器
+        # 1. Encode with the shared encoder.
         audio_embd, t_enc = self.encoder.encode(audio)
 
-        # 2. 分词与构建 Prompt (必须完整注入音频序列)
+        # 2. Tokenize and build the prompt with the complete audio sequence.
         words = self.processor.tokenize(text, language)
         def tk(t): return self.model.tokenize(t)
         
@@ -268,7 +268,7 @@ class QwenForcedAligner:
         post_ids = [self.ID_AUDIO_END]
         ts_positions = []
         
-        # 官方结构: <audio> + word1 + <TS1> + <TS2> + word2 + <TS3> + <TS4> ...
+        # Model layout: <audio> + word1 + <TS1> + <TS2> + word2 + <TS3> + <TS4> ...
         prefix_len = len(pre_ids) + audio_embd.shape[0] + len(post_ids)
         current_post_len = 0
         for word in words:
@@ -276,39 +276,39 @@ class QwenForcedAligner:
             post_ids.extend(word_tokens)
             current_post_len += len(word_tokens)
             
-            # 记录第一个 TS 坐标 (Start)
+            # Record the first timestamp position (start).
             ts_positions.append(prefix_len + current_post_len) 
             post_ids.append(self.ID_TIMESTAMP)
             current_post_len += 1
             
-            # 记录第二个 TS 坐标 (End)
+            # Record the second timestamp position (end).
             ts_positions.append(prefix_len + current_post_len)
             post_ids.append(self.ID_TIMESTAMP)
             current_post_len += 1
 
-        # 构建最终全量序列
+        # Construct the complete sequence.
         n_total = len(pre_ids) + audio_embd.shape[0] + len(post_ids)
         full_embd = np.zeros((n_total, self.model.n_embd), dtype=np.float32)
         full_embd[:len(pre_ids)] = self.embedding_table[pre_ids]
         full_embd[len(pre_ids):len(pre_ids)+audio_embd.shape[0]] = audio_embd
         full_embd[len(pre_ids)+audio_embd.shape[0]:] = self.embedding_table[post_ids]
 
-        # 3. 推理获取 Logits (Decoder Stage)
+        # 3. Decode logits.
         t_dec_start = time.time()
         pos_base = np.arange(n_total, dtype=np.int32)
         pos_arr = np.concatenate([pos_base, pos_base, pos_base, np.zeros(n_total, dtype=np.int32)])
         batch = llama.LlamaBatch(n_total * 4, embd_dim=1024)
         batch.set_embd(full_embd, pos=pos_arr)
-        for idx in ts_positions: batch.logits[idx] = 1 # 只计算 timestamp 处的 logits 以提速
+        for idx in ts_positions: batch.logits[idx] = 1 # Compute logits only at timestamp positions.
         
         self.ctx.clear_kv_cache()
         self.ctx.decode(batch)
         t_dec = time.time() - t_dec_start
         
-        # 4. 解析结果
+        # 4. Parse results.
         raw_ts = []
         for idx in ts_positions:
-            logits_ptr = self.ctx.get_logits_ith(batch.n_tokens - (n_total - idx)) # 对应 batch 中的索引
+            logits_ptr = self.ctx.get_logits_ith(batch.n_tokens - (n_total - idx)) # Corresponding batch index.
             logits = np.ctypeslib.as_array(logits_ptr, shape=(152064,))
             raw_ts.append(np.argmax(logits[:4000]))
         del batch
@@ -324,7 +324,7 @@ class QwenForcedAligner:
             for i, w in enumerate(words)
         ]
         
-        # 5. [后处理] 将缺失的标点符号和空格找回来，并补全时间戳
+        # 5. Restore punctuation and spaces with timestamps.
         final_items = self.processor.reconcile(text, items)
         
         t_total = time.time() - t_start

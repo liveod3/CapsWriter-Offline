@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-udp 子模块
+UDP package.
 
-包含 UDP 控制相关功能。
+Provide UDP recording control.
 """
 
 from .. import logger

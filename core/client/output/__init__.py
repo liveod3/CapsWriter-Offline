@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-output 子模块
+Output package.
 
-包含识别结果输出相关功能。
+Deliver recognition results to output targets.
 """
 
 from .. import logger

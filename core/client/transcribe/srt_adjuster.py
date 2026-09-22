@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-SRT 调整模块
+SRT rebuilding.
 
-提供 SrtAdjuster 类用于调整 SRT 字幕时间轴。
+Use SrtAdjuster to rebuild subtitle timing.
 """
 
 from __future__ import annotations
@@ -22,14 +22,14 @@ from . import logger
 
 class SrtAdjuster:
     """
-    SRT 字幕调整器
+    SRT adjuster.
     
-    根据文本文件重新生成 SRT 字幕时间轴。
+    Rebuild subtitles from edited text.
     """
     
     @staticmethod
     def _load_words(json_file: Path) -> list[dict]:
-        """读取并严格校验字幕重建需要的 token 时间戳。"""
+        """Read and validate token timestamps required for subtitle rebuilding."""
         with open(json_file, 'r', encoding='utf-8') as stream:
             payload = json.load(stream)
         if not isinstance(payload, dict):
@@ -79,7 +79,7 @@ class SrtAdjuster:
 
     @staticmethod
     def _allocate_output(text_file: Path) -> tuple[Path, int]:
-        """为重建的 SRT 分配不覆盖已有结果的编号。"""
+        """Allocate a rebuilt SRT suffix without replacing existing results."""
         sequence = 1
         while True:
             output = (
@@ -93,11 +93,11 @@ class SrtAdjuster:
 
     def adjust(self, text_file: Path, json_file: Path) -> bool:
         """
-        使用显式指定的 TXT 和 JSON 重建 SRT 字幕。
+        Rebuild SRT from explicitly selected TXT and JSON files.
         
         Args:
-            text_file: 人工校对后的文本文件
-            json_file: 包含 tokens 与 timestamps 的 JSON 文件
+            text_file: Manually corrected text file.
+            json_file: JSON containing tokens and timestamps.
         """
         task_id = str(uuid.uuid1())
         console.print(tr('srt.title'))

@@ -1,4 +1,4 @@
-"""LLM 失败的受控诊断：解析服务端原因，不保存任意响应正文或请求内容。"""
+"""Classify LLM failures without retaining arbitrary response or request content."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ REASONS = {
 
 
 def known_reason(value) -> str:
-    # 枚举也来自网络；未知值不原样记录，避免把伪装成 code 的密钥/文本写入日志。
+    # Network enum values are untrusted; unknown codes may contain keys or user text.
     return value.upper() if isinstance(value, str) and value.upper() in REASONS else ""
 
 
@@ -115,7 +115,7 @@ def api_error(status_code: int, body, retry_after: str = "") -> LLMResponseError
             delay = detail.get("retryDelay")
             if isinstance(delay, str) and re.fullmatch(r"\d{1,6}(?:\.\d{1,3})?s", delay):
                 retry = delay[:-1]
-    # message 可能回显文本、URL 或凭据，只提取明确诊断语义，不保存任意片段。
+    # Messages may echo text, URLs, or credentials; retain only known diagnostic meanings.
     message = error.get("message", "")
     if isinstance(message, str):
         lowered = message[:8192].lower()

@@ -73,7 +73,7 @@ def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch
         (2, True, False), (1, False, False), (2, False, True),
         (1, True, True), (0, False, False),
     ):
-        # 走实际 pystray 参数适配，不能只直接调用业务回调。
+        # Exercise pystray argument adaptation rather than calling callbacks directly.
         modes[index].to_item()(Mock(name="tray_icon"))
         assert config.llm_enabled == (correction or translation)
         assert config.llm_default_preset == "correct_asr"
@@ -120,7 +120,7 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
     from core.client.llm.config import Catalog, Preset, Provider
     from core.client.llm.service import TextActionService
 
-    # 使用内存 Provider 和合成配置，绝不读取本机凭据或发送网络请求。
+    # Use an in-memory provider and synthetic settings without credentials or network requests.
     provider = Provider("fixture", "ollama", "http://127.0.0.1:11434", "fixture")
     catalog = Catalog({"fixture": provider}, {
         "correct_asr": Preset("correct_asr", "Correction", "fixture", "Correct."),
@@ -157,7 +157,7 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
             (2, True, True), (1, False, True), (2, False, False),
         ):
             saved.clear()
-            # 从托盘线程经 pystray 分发到真实客户端事件循环，不替换 _schedule。
+            # Dispatch from the tray thread through pystray to the real event loop; retain _schedule.
             await asyncio.to_thread(Icon._handler(icon, items[index]))
             await asyncio.wait_for(saved.wait(), timeout=3)
             persisted = ast.parse(path.read_text(encoding="utf-8")).body[0]

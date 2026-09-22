@@ -1,25 +1,25 @@
 # coding: utf-8
 """
-客户端模块
+Client package.
 
-提供 CapsWriter 客户端的所有功能模块。
+Provide the CapsWriter client components.
 
-模块架构：
-- state: 客户端状态管理
-- connection/: WebSocket 连接管理
-- audio/: 音频相关（录制、流、文件管理）
-- shortcut/: 快捷键处理（原 input/）
-- output/: 结果处理和输出（原 processing/）
-- udp/: UDP 控制
-- transcribe/: 文件转录
-- diary/: 日记写入
-- ui/: 用户界面
+Package layout:
+- state: Client state.
+- connection/: WebSocket connections.
+- audio/: Recording, streams, and audio files.
+- shortcut/: Recording shortcuts.
+- output/: Result processing and output.
+- udp/: UDP control.
+- transcribe/: File transcription.
+- diary/: Transcript archives.
+- ui/: User interface.
 """
 
 from config_client import ClientConfig as Config
 from core.logger import get_logger, setup_logger
 
-# 直接在这里配置主日志级别
+# Configure the main log level here.
 setup_logger('client', level=Config.log_level)
 logger = get_logger('client')
 
@@ -29,7 +29,7 @@ __all__ = [
 
 
 def __getattr__(name):
-    """延迟加载门面类，使 ``--help`` 无需提前加载客户端硬件模块。"""
+    """Load the facade lazily so --help does not import hardware modules."""
     if name == 'CapsWriterClient':
         from core.client.app import CapsWriterClient
         return CapsWriterClient

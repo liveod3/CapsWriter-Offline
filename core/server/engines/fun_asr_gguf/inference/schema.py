@@ -1,7 +1,7 @@
 """
-FunASR-GGUF 数据类型定义
+FunASR GGUF data types.
 
-包含所有用于 ASR 推理的数据类，使用 dataclass 提供类型安全和清晰的结构。
+Define inference dataclasses with explicit fields and type annotations.
 """
 
 from dataclasses import dataclass, field
@@ -9,17 +9,17 @@ from typing import List, Dict, Optional, Any
 import numpy as np
 
 
-# ==================== 识别结果相关 ====================
+# Recognition results.
 
 @dataclass
 class RecognitionResult:
     """
-    语音识别结果（兼容 sherpa-onnx API）
+    Recognition result compatible with sherpa-onnx.
 
     Attributes:
-        text: 识别文本
-        timestamps: 字符级时间戳（秒）
-        tokens: 字符/词元列表
+        text: Recognized text.
+        timestamps: Character timestamps in seconds.
+        tokens: Character or token list.
     """
     text: str = ""
     timestamps: List[float] = field(default_factory=list)
@@ -29,14 +29,14 @@ class RecognitionResult:
 @dataclass
 class RecognitionStream:
     """
-    识别流对象（兼容 sherpa-onnx API）
+    Recognition stream compatible with sherpa-onnx.
 
-    用于承载音频数据和识别结果
+    Carry audio samples and recognition results.
 
     Attributes:
-        sample_rate: 音频采样率
-        audio_data: 音频数据 (numpy array, float32)
-        _result: 内部识别结果
+        sample_rate: Audio sample rate.
+        audio_data: float32 NumPy audio array.
+        _result: Internal recognition result.
     """
     sample_rate: int = 16000
     audio_data: Optional[np.ndarray] = None
@@ -44,24 +44,24 @@ class RecognitionStream:
 
     def accept_waveform(self, sample_rate: int, audio: np.ndarray):
         """
-        接受音频数据（兼容 sherpa-onnx API）
+        Accept audio through the sherpa-onnx-compatible interface.
 
         Args:
-            sample_rate: 采样率
-            audio: 音频数据 (numpy array, float32)
+            sample_rate: Sample rate.
+            audio: float32 NumPy audio array.
         """
         self.sample_rate = sample_rate
         self.audio_data = audio.astype(np.float32)
 
     @property
     def result(self) -> RecognitionResult:
-        """获取识别结果（兼容 sherpa-onnx API）"""
+        """Return the sherpa-onnx-compatible recognition result."""
         if self._result is None:
             self._result = RecognitionResult()
         return self._result
 
     def set_result(self, text: str, timestamps: List[float] = None, tokens: List[str] = None):
-        """设置识别结果（内部使用）"""
+        """Set the internal recognition result."""
         self._result = RecognitionResult(
             text=text,
             timestamps=timestamps or [],
@@ -72,16 +72,16 @@ class RecognitionStream:
 @dataclass
 class Timings:
     """
-    各阶段耗时统计（秒）
+    Stage timings in seconds.
 
     Attributes:
-        encode: 音频编码耗时
-        ctc: CTC 解码耗时
-        prepare: Prompt 准备耗时
-        inject: LLM embeddings 注入耗时
-        llm_generate: LLM 文本生成耗时
-        align: 时间戳对齐耗时
-        total: 总耗时
+        encode: Audio encoding time.
+        ctc: CTC decoding time.
+        prepare: Prompt preparation time.
+        inject: Embedding injection time.
+        llm_generate: Text generation time.
+        align: Alignment time.
+        total: Total elapsed time.
     """
     encode: float = 0.0
     ctc: float = 0.0
@@ -104,13 +104,13 @@ class Timings:
 @dataclass
 class TranscriptionResult:
     """
-    完整的转录结果
+    Complete transcription result.
 
     Attributes:
-        text: 识别文本
-        segments: 带时间戳的分段列表
-        ctc_text: CTC 识别结果
-        timings: 各阶段耗时统计
+        text: Recognized text.
+        segments: Timed segments.
+        ctc_text: CTC recognition text.
+        timings: Stage timings.
     """
     text: str = ""
     segments: List[Dict[str, Any]] = field(default_factory=list)
@@ -118,27 +118,27 @@ class TranscriptionResult:
     timings: Timings = field(default_factory=Timings)
 
 
-# ==================== 引擎配置相关 ====================
+# Engine settings.
 
 @dataclass
 class ASREngineConfig:
     """
-    ASR 引擎配置参数
+    ASR engine settings.
 
     Attributes:
-        encoder_onnx_path: Encoder ONNX 模型路径
-        ctc_onnx_path: CTC ONNX 模型路径
-        decoder_gguf_path: Decoder GGUF 模型路径
-        tokens_path: Tokens 文件路径
-        enable_ctc: 是否启用 CTC
-        n_predict: 最大生成 token 数
-        n_threads: 线程数（None 表示自动）
-        n_threads_batch: 批处理线程数（None 表示自动）
-        n_ubatch: llama.cpp 内部物理 batch 大小
-        sample_rate: 音频采样率
-        onnx_provider: 推理后端 (CPU, CUDA, DML, TensorRT)
-        dml_pad_to: DML 专用填充长度（秒）
-        verbose: 是否打印详细加载日志
+        encoder_onnx_path: Encoder ONNX path.
+        ctc_onnx_path: CTC ONNX path.
+        decoder_gguf_path: Decoder GGUF path.
+        tokens_path: Vocabulary path.
+        enable_ctc: Enable CTC.
+        n_predict: Maximum generated tokens.
+        n_threads: Thread count; None selects automatically.
+        n_threads_batch: Batch thread count; None selects automatically.
+        n_ubatch: llama.cpp physical batch size.
+        sample_rate: Audio sample rate.
+        onnx_provider: CPU, CUDA, DML, or TensorRT execution provider.
+        dml_pad_to: DirectML padding duration in seconds.
+        verbose: Display detailed loading messages.
     """
     encoder_onnx_path: str
     ctc_onnx_path: str
@@ -157,39 +157,39 @@ class ASREngineConfig:
     verbose: bool = True
 
 
-# ==================== CTC 结果相关 ====================
+# CTC results.
 
 @dataclass
 class CTCResult:
     """
-    CTC 解码结果
+    CTC decoding result.
 
     Attributes:
-        text: 识别的字符/词
-        timestamp: 时间戳（秒）
-        score: 置信度分数
+        text: Recognized character or word.
+        timestamp: Timestamp in seconds.
+        score: Confidence score.
     """
     text: str
     timestamp: float
     score: float = 1.0
 
 
-# ==================== 统计信息相关 ====================
+# Inference statistics.
 
 @dataclass
 class Statistics:
     """
-    推理统计信息
+    Inference statistics.
 
     Attributes:
-        audio_duration: 音频时长（秒）
-        n_input_tokens: 输入 token 数
-        n_prefix_tokens: Prefix token 数
-        n_audio_tokens: Audio embedding token 数
-        n_suffix_tokens: Suffix token 数
-        n_generated_tokens: 生成 token 数
-        tps_in: 输入 tokens/s
-        tps_out: 输出 tokens/s
+        audio_duration: Audio duration in seconds.
+        n_input_tokens: Input token count.
+        n_prefix_tokens: Prefix token count.
+        n_audio_tokens: Audio embedding token count.
+        n_suffix_tokens: Suffix token count.
+        n_generated_tokens: Generated token count.
+        tps_in: Input tokens per second.
+        tps_out: Output tokens per second.
     """
     audio_duration: float = 0.0
     n_input_tokens: int = 0
@@ -201,7 +201,7 @@ class Statistics:
     tps_out: float = 0.0
 
     def __str__(self) -> str:
-        """格式化输出统计信息"""
+        """Format inference statistics."""
         from core.i18n import tr
         return tr(
             'engine.statistics', duration=self.audio_duration,
@@ -215,17 +215,17 @@ class Statistics:
 @dataclass
 class DecodeResult:
     """
-    解码结果（内部使用，用于 decode_stream 返回完整结果）
+    Internal complete result returned by decode_stream.
 
     Attributes:
-        text: 识别文本
-        ctc_results: CTC 解码结果列表
-        aligned: 时间戳对齐结果
-        audio_embd: 音频 embeddings
-        n_prefix: Prefix token 数
-        n_suffix: Suffix token 数
-        n_gen: 生成 token 数
-        timings: 各阶段耗时
+        text: Recognized text.
+        ctc_results: CTC result list.
+        aligned: Timestamp alignment results.
+        audio_embd: Audio embeddings.
+        n_prefix: Prefix token count.
+        n_suffix: Suffix token count.
+        n_gen: Generated token count.
+        timings: Stage timings.
     """
     text: str = ""
     ctc_results: List = field(default_factory=list)
@@ -240,14 +240,14 @@ class DecodeResult:
 @dataclass
 class LLMDecodeResult:
     """
-    LLM 解码结果
+    Decoder generation result.
 
     Attributes:
-        text: 生成的文本
-        n_gen: 生成的 token 数
-        t_inject: 注入耗时
-        t_gen: 生成耗时
-        is_aborted: 是否触发熔断
+        text: Generated text.
+        n_gen: Generated token count.
+        t_inject: Embedding injection time.
+        t_gen: Generation time.
+        is_aborted: Whether a circuit breaker interrupted generation.
     """
     text: str = ""
     n_gen: int = 0
@@ -256,25 +256,25 @@ class LLMDecodeResult:
     is_aborted: bool = False
 
 
-# ==================== 导出列表 ====================
+# Public exports.
 
 __all__ = [
-    # 识别结果
+    # Recognition results.
     'RecognitionResult',
     'RecognitionStream',
     'TranscriptionResult',
     'DecodeResult',
     'LLMDecodeResult',
 
-    # 配置
+    # Settings.
     'ASREngineConfig',
 
-    # 计时
+    # Timings.
     'Timings',
 
     # CTC
     'CTCResult',
 
-    # 统计
+    # Statistics.
     'Statistics',
 ]

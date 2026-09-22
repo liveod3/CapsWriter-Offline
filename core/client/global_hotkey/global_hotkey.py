@@ -1,10 +1,10 @@
 # coding: utf-8
 """
-全局快捷键管理器
+Global hotkey manager.
 
-使用 pynput GlobalHotKeys 实现全局快捷键监听，替代 keyboard 库。
+Use pynput GlobalHotKeys in place of the keyboard library.
 
-使用示例:
+Example:
     from core.client.global_hotkey import GlobalHotkeyManager
 
     manager = GlobalHotkeyManager()
@@ -26,22 +26,22 @@ from . import logger
 
 class GlobalHotkeyManager:
     """
-    全局快捷键管理器
+    Global hotkey manager.
 
-    使用 pynput GlobalHotKeys 实现，支持动态注册/注销快捷键。
+    Support dynamic shortcut registration through pynput GlobalHotKeys.
     
-    对比 keyboard 库的优势：
-    - 与 pynput 的其他功能兼容
-    - 不需要额外的依赖
-    - 更好的跨平台支持
+    Integration properties:
+    - Uses the same library as other input handling.
+    - Requires no additional dependency.
+    - Uses pynput's platform backends.
     """
 
-    # 单例实例
+    # Singleton instance.
     _instance: Optional[GlobalHotkeyManager] = None
     _lock = threading.Lock()
 
     def __new__(cls) -> GlobalHotkeyManager:
-        """单例模式"""
+        """Create the singleton instance."""
         with cls._lock:
             if cls._instance is None:
                 cls._instance = super().__new__(cls)
@@ -60,28 +60,28 @@ class GlobalHotkeyManager:
 
     def register(self, key_str: str, callback: Callable) -> None:
         """
-        注册全局快捷键
+        Register a global shortcut.
 
         Args:
-            key_str: 快捷键字符串，pynput 格式，如 '<esc>', '<ctrl>+<alt>+h'
-            callback: 按下快捷键时的回调函数
+            key_str: pynput shortcut syntax, such as '<esc>' or '<ctrl>+<alt>+h'.
+            callback: Function called when the shortcut is pressed.
         """
         self._hotkeys[key_str] = callback
         logger.debug(Notice('diagnostic.global_hotkey.global_hotkey_registered', value0=key_str))
         
-        # 如果已经在运行，重启监听器以应用新的快捷键
+        # Restart an active listener to apply the updated shortcut set.
         if self._running:
             self._restart_listener()
 
     def unregister(self, key_str: str) -> bool:
         """
-        注销全局快捷键
+        Unregister a global shortcut.
 
         Args:
-            key_str: 快捷键字符串
+            key_str: Shortcut string.
 
         Returns:
-            是否成功注销
+            Whether the shortcut was removed.
         """
         if key_str in self._hotkeys:
             del self._hotkeys[key_str]
@@ -93,7 +93,7 @@ class GlobalHotkeyManager:
         return False
 
     def start(self) -> None:
-        """启动快捷键监听"""
+        """Start listening for global shortcuts."""
         if self._running:
             logger.debug(Notice('diagnostic.global_hotkey.globalhotkeymanager_already_running'))
             return
@@ -107,7 +107,7 @@ class GlobalHotkeyManager:
         logger.info(Notice('diagnostic.global_hotkey.globalhotkeymanager_started_with_hotkeys', value0=len(self._hotkeys)))
 
     def stop(self) -> None:
-        """停止快捷键监听"""
+        """Stop listening for global shortcuts."""
         self._running = False
         if self._listener:
             try:
@@ -118,7 +118,7 @@ class GlobalHotkeyManager:
         logger.info(Notice('diagnostic.global_hotkey.globalhotkeymanager_stopped'))
 
     def _start_listener(self) -> None:
-        """启动监听器"""
+        """Start the listener."""
         if not self._hotkeys:
             return
         
@@ -131,7 +131,7 @@ class GlobalHotkeyManager:
             self._listener = None
 
     def _restart_listener(self) -> None:
-        """重启监听器（用于更新快捷键后）"""
+        """Restart the listener after shortcut changes."""
         if self._listener:
             try:
                 self._listener.stop()
@@ -143,12 +143,12 @@ class GlobalHotkeyManager:
             self._start_listener()
 
 
-# 全局单例实例
+# Global singleton instance.
 _global_hotkey_manager: Optional[GlobalHotkeyManager] = None
 
 
 def get_global_hotkey_manager() -> GlobalHotkeyManager:
-    """获取全局快捷键管理器单例"""
+    """Return the global hotkey manager singleton."""
     global _global_hotkey_manager
     if _global_hotkey_manager is None:
         _global_hotkey_manager = GlobalHotkeyManager()

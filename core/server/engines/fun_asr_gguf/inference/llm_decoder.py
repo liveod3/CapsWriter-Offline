@@ -11,7 +11,7 @@ from .schema import LLMDecodeResult
 from .display import DisplayReporter
 
 class LLMDecoder:
-    """组件：负责 LLM 推理循环与熔断机制"""
+    """Run decoder generation with repetition circuit breakers."""
     def __init__(self, models):
         self.models = models
         self.stop_tokens = [151643, 151645]
@@ -58,13 +58,13 @@ class LLMDecoder:
                 
                 asr_decoder.push(token_id)
                 
-                # 熔断性检查
+                # Check generation circuit breakers.
                 if len(asr_decoder.tokens) >= 30:
-                    # 长期重复熔断
+                    # Stop persistent repetition.
                     if len(set(asr_decoder.tokens[-30:])) <= 3:
                         res.is_aborted = True
                         break
-                    # 30个token无标点熔断
+                    # Stop after 30 tokens without punctuation.
                     if len(asr_decoder.tokens) == 30 and not re.search(r'[，。？！、；：,\.?!;:]', asr_decoder.generated_text):
                         res.is_aborted = True
                         break

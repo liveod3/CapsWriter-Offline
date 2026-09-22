@@ -1,7 +1,7 @@
 """
-SenseVoice ONNX 数据类型定义
+SenseVoice ONNX data types.
 
-包含用于 SenseVoice 推理的数据类，提供类型安全和清晰的结构。
+Define inference dataclasses with explicit fields and type annotations.
 """
 
 from dataclasses import dataclass, field
@@ -10,16 +10,16 @@ import numpy as np
 from pathlib import Path
 
 
-# ==================== 识别结果相关 ====================
+# Recognition results.
 
 @dataclass
 class RecognitionResult:
     """
-    单个识别单元结果 (字符或 Token 块)
+    One recognition unit, either a character or token block.
 
     Attributes:
-        text: 识别文本 (字符或块)
-        start: 起始时间（秒）
+        text: Recognized character or block.
+        start: Start time in seconds.
     """
     text: str
     start: float
@@ -28,23 +28,23 @@ class RecognitionResult:
 @dataclass
 class RecognitionStream:
     """
-    识别流对象
+    Recognition stream.
 
-    用于承载音频数据和识别结果 (兼容风格设计)
+    Carry audio and results through a compatible stream interface.
 
     Attributes:
-        sample_rate: 音频采样率
-        audio_data: 音频数据 (numpy array, float32)
-        results: 识别结果列表
+        sample_rate: Audio sample rate.
+        audio_data: float32 NumPy audio array.
+        results: Recognition results.
     """
     sample_rate: int = 16000
     audio_data: Optional[np.ndarray] = None
     results: List[RecognitionResult] = field(default_factory=list)
 
     def accept_waveform(self, sample_rate: int, audio: np.ndarray):
-        """接受音频数据"""
+        """Accept audio samples."""
         self.sample_rate = sample_rate
-        # 统一转为 float32
+        # Normalize samples to float32.
         if audio.dtype != np.float32:
             if audio.dtype == np.int16:
                 audio = audio.astype(np.float32) / 32768.0
@@ -54,20 +54,20 @@ class RecognitionStream:
 
     @property
     def text(self) -> str:
-        """获取合并后的完整文本"""
+        """Return the complete merged text."""
         return "".join([r.text for r in self.results])
 
 
 @dataclass
 class Timings:
     """
-    各阶段耗时统计（秒）
+    Stage timings in seconds.
 
     Attributes:
-        frontend: 特征提取耗时
-        encoder: 编码器推理耗时
-        decoder: 解码器 (CTC) 推理耗时
-        total: 总耗时
+        frontend: Feature extraction time.
+        encoder: Encoder inference time.
+        decoder: CTC inference time.
+        total: Total elapsed time.
     """
     frontend: float = 0.0
     encoder: float = 0.0
@@ -78,32 +78,32 @@ class Timings:
 @dataclass
 class TranscriptionResult:
     """
-    完整的转录结果包装
+    Complete transcription result wrapper.
 
     Attributes:
-        text: 最终识别文本
-        results: 详细的 RecognitionResult 列表
-        timings: 耗时统计
+        text: Final recognized text.
+        results: Detailed RecognitionResult entries.
+        timings: Timing statistics.
     """
     text: str = ""
     results: List[RecognitionResult] = field(default_factory=list)
     timings: Timings = field(default_factory=Timings)
 
 
-# ==================== 引擎配置相关 ====================
+# Engine settings.
 
 @dataclass
 class ASREngineConfig:
     """
-    ASR 引擎配置参数
+    ASR engine settings.
 
     Attributes:
-        encoder_path: 编码器模型路径 (.onnx)
-        decoder_path: 解码器模型路径 (.onnx)
-        tokenizer_path: 分词器模型路径 (.model)
-        onnx_provider: 推理后端 (CPU, CUDA, DML, TensorRT)
-        itn: 是否启用反向文本规范化
-        dml_pad_to: DML 填充时长 (秒)
+        encoder_path: Encoder ONNX path.
+        decoder_path: Decoder ONNX path.
+        tokenizer_path: Tokenizer model path.
+        onnx_provider: CPU, CUDA, DML, or TensorRT execution provider.
+        itn: Enable inverse text normalization.
+        dml_pad_to: DirectML padding duration in seconds.
     """
     encoder_path: str
     decoder_path: str
@@ -113,7 +113,7 @@ class ASREngineConfig:
     dml_pad_to: int = 30
 
 
-# ==================== 导出列表 ====================
+# Public exports.
 
 __all__ = [
     'RecognitionResult',

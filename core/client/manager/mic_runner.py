@@ -9,7 +9,7 @@ from config_client import ClientConfig as Config, __version__
 
 class MicRunner:
     """
-    麦克风模式运行器：负责麦克风模式下的资源初始化、识别处理器循环及生命周期监控。
+    Initialize microphone resources, consume recognition results, and monitor lifecycle.
     """
     def __init__(self, app):
         self.app = app
@@ -28,44 +28,44 @@ class MicRunner:
         return self.app.tray
 
     async def start_resources(self):
-        """初始化麦克风模式特有资源 (音频硬件、快捷键、UI 托盘)"""
+        """Initialize microphone hardware, shortcuts, and the tray UI."""
         if self.app._stopping:
             return
-        # 1. 托盘
+        # 1. Tray.
         self.tray_manager.start()
 
-        # 2. UI 提示
+        # 2. UI feedback.
         TipsDisplay.show_mic_tips()
 
-        # 3. 开启运行组件 (音频流、快捷键监听)
+        # 3. Audio stream and shortcut listeners.
         await asyncio.to_thread(self.app.stream.start)
         if self.app._stopping:
             return
         self.app.shortcut.start()
         
-        # 4. 开启 UDP 控制 (如果启用)
+        # 4. Optional UDP control.
         if Config.udp_control:
             self.app.udp.start()
 
-        # 5. 开启文本动作的取消快捷键
+        # 5. Text-action cancellation shortcut.
         self.app.llm.start()
 
-        # 6. 开启闲置自动挂起监控
+        # 6. Idle suspension monitor.
         self.app.start_idle_suspend_monitor()
 
     async def run(self):
-        """麦克风模式主入口"""
+        """Run microphone mode."""
         
         logger.info("=" * 50)
         logger.info(Notice('diagnostic.mic_runner.capswriter_offline_client_microphone_mode', value0=__version__))
         logger.info(Notice('diagnostic.mic_runner.log_level', value0=Config.log_level))
         
-        # 1. 资源启动
+        # 1. Start resources.
         await self.start_resources()
         if self.app._stopping:
             return
         
-        # 2. 启动核心处理器 (内部处理连接与循环)
+        # 2. Start the processor, which owns the connection and processing loop.
         
         from ..output import ResultProcessor
         self.processor = ResultProcessor(self.app)

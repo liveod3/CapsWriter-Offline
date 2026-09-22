@@ -1,8 +1,8 @@
 # coding: utf-8
 """
-快捷键任务模块
+Shortcut tasks.
 
-管理单个快捷键的录音任务状态
+Track recording state for one shortcut.
 """
 
 from __future__ import annotations
@@ -38,9 +38,9 @@ if TYPE_CHECKING:
 
 class ShortcutTask:
     """
-    单个快捷键的录音任务
+    Recording task owned by one shortcut.
 
-    跟踪每个快捷键独立的录音状态，防止互相干扰。
+    Keep each shortcut's recording state independent.
     """
 
     AUDIO_READY_TIMEOUT = 5.0
@@ -48,18 +48,18 @@ class ShortcutTask:
 
     def __init__(self, app: CapsWriterClient, shortcut: Shortcut, recorder_class=None):
         """
-        初始化快捷键任务
+        Initialize a shortcut task.
 
         Args:
-            app: 客户端 App 实例
-            shortcut: 快捷键配置
-            recorder_class: AudioRecorder 类（可选，用于延迟导入）
+            app: Client App instance.
+            shortcut: Shortcut configuration.
+            recorder_class: Optional AudioRecorder class for lazy loading.
         """
         self.app = app
         self.shortcut = shortcut
         self._recorder_class = recorder_class
 
-        # 任务状态
+        # Task state.
         self.task: Optional[Future] = None
         self.recording_start_time: float = 0.0
         self.is_recording: bool = False
@@ -69,24 +69,24 @@ class ShortcutTask:
         self._pending_recorders = set()
         self._ready_cancel = Event()
 
-        # hold_mode 状态跟踪
+        # Track hold-mode state.
         self.pressed: bool = False
         self.released: bool = True
         self.event: Event = Event()
 
-        # 线程池（用于 countdown）
+        # Countdown thread pool.
         self.pool = None
 
-        # 录音状态动画
+        # Recording animation.
         self._status = Status(message_id='mic.recording', spinner='point')
 
     @property
     def state(self) -> ClientState:
-        """快捷访问状态单例"""
+        """Access shared client state."""
         return self.app.state
 
     def _get_recorder(self) -> AudioRecorder:
-        """获取 AudioRecorder 实例"""
+        """Return the AudioRecorder instance."""
         if self._recorder_class is None:
             from core.client.audio.recorder import AudioRecorder
             self._recorder_class = AudioRecorder
@@ -186,7 +186,7 @@ class ShortcutTask:
 
         if not self.is_recording:
             return False
-        # stream.start() 后硬件可能仍在唤醒；只在首个音频块到达后提示可以说话。
+        # Hardware may still wake after start(); report readiness only after the first audio block.
         ready_event = self.app.stream.get_ready_event()
         if self.app.stream.is_ready(ready_event):
             self._show_recording_ready(generation, clear_preparing_hint=False)
@@ -297,15 +297,15 @@ class ShortcutTask:
             self._capture.finish()
             self._release_capture_locked()
 
-        # 执行 restore（可恢复按键 + 非阻塞模式）
-        # 阻塞模式下按键不会发送到系统，状态不会改变，不需要恢复
+        # Restore unsuppressed lock keys.
+        # Suppressed keys never reach the system, so their lock state does not need restoration.
         if self.shortcut.is_toggle_key() and not self.shortcut.suppress:
             self._restore_key()
 
     def _restore_key(self) -> None:
-        """恢复按键状态（防自捕获逻辑由 ShortcutManager 处理）"""
-        # 通知管理器执行 restore
-        # 防自捕获：管理器会设置 flag 再发送按键
+        """Restore key state; ShortcutManager filters the resulting synthetic events."""
+        # Ask the manager to restore the key.
+        # The manager sets the flag before generating input to prevent recapture.
         manager = self._manager_ref()
         if manager:
             logger.debug(Notice('diagnostic.task.restoring_key_state_suppress', value0=self.shortcut.key, value1=self.shortcut.suppress))

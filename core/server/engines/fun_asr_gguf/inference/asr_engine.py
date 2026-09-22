@@ -8,26 +8,26 @@ from .pipeline import InferencePipeline
 from .transcriber import AudioTranscriber
 
 class FunASREngine:
-    """FunASR 推理引擎外观类 (Facade)"""
+    """FunASR inference facade."""
 
     def __init__(self, config: ASREngineConfig):
-        # 封装配置
+        # Collect configuration.
         self.config = config
 
-        # 初始化底层组件
+        # Initialize backend components.
         self.models = Models(self.config)
 
-        # 直接委派核心方法
+        # Delegate core methods directly.
         self.pipeline = InferencePipeline(self.models)
         self.create_stream = self.pipeline.create_stream
         self.decode_stream = self.pipeline.decode_stream
         
-        # 实例化负责文件转录的业务类
+        # Create the file transcription helper.
         self.transcriber = AudioTranscriber(self.pipeline, self.config.sample_rate)
         self.transcribe = self.transcriber.transcribe
 
 
 
     def cleanup(self):
-        """释放资源"""
+        """Release resources."""
         self.models.cleanup()

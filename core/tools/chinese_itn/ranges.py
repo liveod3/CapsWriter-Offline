@@ -1,18 +1,18 @@
 """
-范围表达式处理
+Range expressions.
 
-将 "三五百→300~500", "十五六→15~16", "三四→3~4" 等范围表达转为波浪线格式。
+Convert adjacent-number range expressions to forms such as 300~500 or 15~16.
 """
 
 from .mappings import value_mapper, unit_mapping, _sorted_units
 from .sequence_parser import tokenize, parse_tokens, _BASIC_NUMERIC_TYPES
 
-# 范围表达式允许的 Token 类型：基础数字类型（排除小数点，因为范围不含小数）
+# Ranges accept basic numeric tokens without decimal points.
 _ALLOWED_RANGE_TYPES = _BASIC_NUMERIC_TYPES - {'DOT'}
 
 
 def _strip_physical_unit(text):
-    """剥离物理单位 (如人, 米, 克等)"""
+    """Strip a trailing physical unit, such as a person count, meters, or grams."""
     stripped_text = text
     mapped_unit = ''
 
@@ -28,29 +28,29 @@ def _strip_physical_unit(text):
 
 def parse_range(text):
     """
-    解析范围表达式的核心函数。
-    如果解析成功，返回转换后的波浪线字符串 (如 300~500, 15~16)；
-    如果解析失败，返回 None。
+    Parse a range expression.
+    Return a tilde-separated numeric range, such as 300~500 or 15~16,
+    or None when parsing fails.
     """
-    # 范围表达式中不应该包含小数点
+    # Ranges must not contain decimal points.
     if '点' in text:
         return None
 
-    # 1. 剥离尾部物理单位
+    # 1. Strip the trailing physical unit.
     stripped_text, mapped_unit = _strip_physical_unit(text)
     if not stripped_text:
         return None
 
-    # 2. 词法分析与安全防卫
+    # 2. Tokenize and validate.
     tokens = tokenize(stripped_text)
     if not tokens:
         return None
     
-    # 剥离单位后的核心文本必须纯净，只能含有基础数字 Token，绝不能掺杂百分之、分之、比或其它 OTHER 字符
+    # Accept only basic numeric tokens; reject fraction, percentage, ratio, and OTHER tokens.
     if not all(t.type in _ALLOWED_RANGE_TYPES for t in tokens):
         return None
 
-    # 3. 寻找所有的 DIGIT 连续片段
+    # 3. Find consecutive DIGIT runs.
     runs = []
     current_run = []
     start_idx = -1
@@ -66,42 +66,42 @@ def parse_range(text):
     if current_run:
         runs.append((start_idx, len(tokens), current_run))
 
-    # 4. 范围核心的强约束过滤
-    #    - 必须有且仅有一个长度为 2 的 DIGIT run (即范围核心 d1, d2)
-    #    - 不能有长度大于 2 的 DIGIT run (防止把 五六七八九 误判)
+    # 4. Validate the range core.
+    # Require exactly one DIGIT run of length two (d1, d2).
+    # Reject longer DIGIT runs, which represent digit sequences rather than ranges.
     len2_runs = [run for run in runs if len(run[2]) == 2]
     large_runs = [run for run in runs if len(run[2]) > 2]
     
     if len(len2_runs) != 1 or len(large_runs) > 0:
         return None
 
-    # 提取范围核心
+    # Extract the range core.
     core_start_idx, core_end_idx, core_tokens = len2_runs[0]
     d1, d2 = core_tokens[0], core_tokens[1]
     v1, v2 = d1.value, d2.value
 
-    # 验证核心的递增和差值关系 (v1 < v2 且 差值为 1，或 v1=3, v2=5)
+    # Require v1 < v2 with a difference of one, or the special pair 3 and 5.
     if not (v1 < v2 and (v2 - v1 == 1 or (v1 == 3 and v2 == 5))):
         return None
 
-    # 切分 Token 序列为 Base, Core, Suffix
+    # Split tokens into base, core, and suffix.
     base_tokens = tokens[:core_start_idx]
     suffix_tokens = tokens[core_end_idx:]
 
-    # 5. 执行具体的转换分支
+    # 5. Select the conversion branch.
     if not base_tokens:
-        # Case A: 基数为空 (Pattern 1 & Pattern 3)
+        # Case A: no base value (patterns 1 and 3).
         if not suffix_tokens:
-            # Pattern 3: 三四 -> 3~4
+            # Pattern 3: adjacent digits become a range, such as 3~4.
             return f"{v1}~{v2}{mapped_unit}"
         else:
-            # Pattern 1: 三五百 -> 300~500, 三四十万 -> 30~40万
-            # 第一个后缀必须是单位
+            # Pattern 1: apply the suffix magnitude to both range endpoints.
+            # The first suffix must be a magnitude unit.
             unit_token = suffix_tokens[0]
             if unit_token.type not in ('TEN', 'HUNDRED', 'THOUSAND', 'TEN_THOUSAND', 'HUNDRED_MILLION'):
                 return None
             
-            # 后续后缀必须是 万 或 亿
+            # Remaining suffixes must be ten-thousand or hundred-million units.
             suffix_unit_tokens = suffix_tokens[1:]
             if not all(t.type in ('TEN_THOUSAND', 'HUNDRED_MILLION') for t in suffix_unit_tokens):
                 return None
@@ -119,10 +119,10 @@ def parse_range(text):
                 mult = unit_token.value
                 return f"{v1 * mult}~{v2 * mult}{suffix_unit}{mapped_unit}"
     else:
-        # Case B: 基数不为空 (Pattern 2: 十五六 -> 15~16, 一百二三十 -> 120~130)
+        # Case B: add a nonempty base to both endpoints, such as 15~16 or 120~130.
         base_str = "".join(t.char for t in base_tokens)
         
-        # 尝试使用 parse_tokens 解析 base_tokens 得到 base_value
+        # Parse base_tokens into base_value.
         try:
             base_vals = parse_tokens(base_tokens)
             if not base_vals or len(base_vals) != 1:
@@ -131,10 +131,10 @@ def parse_range(text):
         except Exception:
             return None
 
-        # 后缀解析
+        # Parse the suffix.
         if suffix_tokens and suffix_tokens[0].type == 'TEN':
-            # 类似 一百二三十 -> suffix_tokens 是 [十]
-            # 或者是 一百二三十万 -> suffix_tokens 是 [十, 万]
+            # A 120~130 expression has a tens suffix.
+            # A larger expression can add a ten-thousand suffix after tens.
             suffix_unit_tokens = suffix_tokens[1:]
             if not all(t.type in ('TEN_THOUSAND', 'HUNDRED_MILLION') for t in suffix_unit_tokens):
                 return None
@@ -142,8 +142,8 @@ def parse_range(text):
             multiplier = 10
             suffix_str = "".join(t.char for t in suffix_unit_tokens)
         else:
-            # 类似 十五六 -> suffix_tokens 是 []
-            # 或者是 四十五六万 -> suffix_tokens 是 [万]
+            # A 15~16 expression has no suffix.
+            # A 450000~460000 expression has a ten-thousand suffix.
             if not all(t.type in ('TEN_THOUSAND', 'HUNDRED_MILLION') for t in suffix_tokens):
                 return None
             
@@ -159,11 +159,11 @@ def parse_range(text):
 
 
 def is_range_expression(text):
-    """判断是否为范围表达式"""
+    """Return whether the input is a range expression."""
     return parse_range(text) is not None
 
 
 def convert_range_expression(text):
-    """转换范围表达式"""
+    """Convert a range expression."""
     res = parse_range(text)
     return res if res is not None else text

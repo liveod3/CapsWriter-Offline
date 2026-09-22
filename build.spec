@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 """
-现代化 PyInstaller 打包配置
-适配 PyInstaller 6.0+ 版本
+PyInstaller configuration.
+Targets PyInstaller 6.0 and later.
 """
 
 from PyInstaller.utils.hooks import collect_all, collect_data_files, collect_submodules
@@ -10,42 +10,42 @@ from os.path import join, basename, dirname, exists
 from os import walk, makedirs
 from shutil import copyfile, rmtree
 
-# ==================== 打包配置选项 ====================
+# Packaging options.
 
-# 是否收集 CUDA provider
-# - True: 包含 onnxruntime_providers_cuda.dll，支持 GPU 加速（需要在用户机器安装 CUDA 和 CUDNN）
-# - False: 不包含 CUDA provider，只使用 CPU 模式（打包体积更小，兼容性更好）
+# Include the CUDA provider.
+# True: bundle onnxruntime_providers_cuda.dll; requires CUDA and cuDNN at runtime.
+# False: omit the CUDA provider for a smaller CPU-only package.
 INCLUDE_CUDA_PROVIDER = False
 
 # ====================================================
 
 
-# 初始化空列表
+# Initialize collection lists.
 binaries = []
 hiddenimports = []
 datas = []
 
-# 收集 sherpa_onnx 相关文件
+# Collect sherpa_onnx files.
 try:
     sherpa_datas = collect_data_files('sherpa_onnx', include_py_files=False)
 
-    # 根据 INCLUDE_CUDA_PROVIDER 决定是否收集 CUDA provider
+    # Apply INCLUDE_CUDA_PROVIDER to collected files.
     if not INCLUDE_CUDA_PROVIDER:
-        # 过滤掉 CUDA provider 文件
+        # Filter out CUDA provider files.
         filtered_datas = []
         for src, dest in sherpa_datas:
-            # 检查是否是 CUDA provider 相关文件
+            # Identify CUDA provider files.
             if 'providers_cuda' not in basename(src).lower():
                 filtered_datas.append((src, dest))
             else:
-                print(f"[INFO] 排除 CUDA provider: {basename(src)}")
+                print(f"[INFO] Exclude CUDA provider: {basename(src)}")
         sherpa_datas = filtered_datas
 
     datas += sherpa_datas
 except:
     pass
 
-# 收集 Pillow 相关文件（用于托盘图标）
+# Collect Pillow files for tray icons.
 try:
     pillow_datas = collect_data_files('PIL', include_py_files=False)
     datas += pillow_datas
@@ -54,7 +54,7 @@ try:
 except:
     pass
 
-# 隐藏导入 - 确保所有需要的模块都被包含
+# Include modules that static import analysis cannot discover.
 hiddenimports += [
     'websockets',
     'websockets.client',
@@ -70,15 +70,15 @@ hiddenimports += [
     'typer',
     'srt',
     'sherpa_onnx',
-    'PIL',           # Pillow 用于托盘图标
+    'PIL',           # Pillow supplies tray images.
     'PIL.Image',
     'comtypes.client',
     'comtypes.tools.codegenerator',
     'pystray._win32',
-    'pystray',       # 托盘图标库
+    'pystray',       # Tray icon library.
 ]
 
-# # 对所有模块用 .py 源码而非 .pyc（猴子补丁 _get_module_collection_mode）
+# # Use .py sources for all modules by patching _get_module_collection_mode.
 # import PyInstaller.building.build_main as _bm
 # _bm._get_module_collection_mode = lambda md, n, na=False: _bm._ModuleCollectionMode.PY
 
@@ -99,9 +99,9 @@ a_1 = Analysis(
     noarchive=True,
 )
 
-# 过滤掉从二进制依赖分析中收集的 DLL
-# 这些 DLL 是 PyInstaller 在分析 DLL 依赖时自动收集的
-# 我们排除从系统 CUDA 安装目录收集的 DLL（它们应该运行时从系统加载）
+# Filter DLLs collected by binary dependency analysis.
+# PyInstaller discovers these through DLL dependencies.
+# Load system CUDA DLLs at runtime instead of bundling them.
 filtered_binaries = []
 for name, src, type in a_1.binaries:
     src_lower = src.lower() if isinstance(src, str) else ''
@@ -117,8 +117,8 @@ for name, src, type in a_1.binaries:
     if not is_system_cuda_dll and not is_unwanted_onnx_dll:
         filtered_binaries.append((name, src, type))
     else:
-        reason = "环境 CUDA DLL" if is_system_cuda_dll else "冗余 ONNX DLL"
-        print(f"[INFO] 排除 {reason}: {name} (从 {src} 收集)")
+        reason = "system CUDA DLL" if is_system_cuda_dll else "redundant ONNX DLL"
+        print(f"[INFO] Exclude {reason}: {name} (collected from {src})")
 a_1.binaries = filtered_binaries
 
 a_2 = Analysis(
@@ -137,7 +137,7 @@ a_2 = Analysis(
     noarchive=True,
 )
 
-# 客户端也过滤从系统 CUDA 目录收集的 DLL（保持一致性）
+# Apply the same system CUDA exclusions to the client.
 filtered_binaries = []
 for name, src, type in a_2.binaries:
     src_lower = src.lower() if isinstance(src, str) else ''
@@ -154,12 +154,12 @@ for name, src, type in a_2.binaries:
     if not is_system_cuda_dll and not is_unwanted_onnx_dll:
         filtered_binaries.append((name, src, type))
     else:
-        reason = "环境 CUDA DLL" if is_system_cuda_dll else "冗余 ONNX DLL"
-        print(f"[INFO] 排除 {reason}: {name} (从 {src} 收集)")
+        reason = "system CUDA DLL" if is_system_cuda_dll else "redundant ONNX DLL"
+        print(f"[INFO] Exclude {reason}: {name} (collected from {src})")
 a_2.binaries = filtered_binaries
 
 
-# 排除不要打包的模块（这些将作为源文件复制）
+# Exclude modules copied separately as source files.
 private_module = ['core', 'config_client', 'config_server', 'LLM', ]
 
 for which in (a_1, a_2):
@@ -169,7 +169,7 @@ for which in (a_1, a_2):
             filtered.append((name, src, type))
     which.pure = filtered
 
-# noarchive 会将私有模块也编译成 .pyc 放进 datas，排除掉以保持源码运行
+# noarchive puts private .pyc modules in datas; exclude them to run source copies.
 for which in (a_1, a_2):
     filtered = []
     for name, src, type in which.datas:
@@ -203,7 +203,7 @@ exe_1 = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\\\server-icon.ico'],
-    # 所有第三方依赖放入 internal 目录
+    # Put third-party dependencies in internal.
     contents_directory='internal',
 )
 exe_2 = EXE(
@@ -223,7 +223,7 @@ exe_2 = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=['assets\\\\client-icon.ico'],
-    # 所有第三方依赖放入 internal 目录
+    # Put third-party dependencies in internal.
     contents_directory='internal',
 )
 
@@ -243,7 +243,7 @@ coll = COLLECT(
 )
 
 
-# 复制额外所需的文件（只复制用户自己写的文件）
+# Copy additional project-owned files.
 my_files = [
     ('config_templates/config_client_template.py', 'config_client.py'),
     ('config_templates/config_server_template.py', 'config_server.py'),
@@ -252,13 +252,13 @@ my_files = [
     ('readme.md', 'readme.md'),
     ('LICENSE', 'LICENSE'),
 ]
-my_folders = []     # 这里是要复制的文件夹
+my_folders = []     # Directories to copy.
 dest_root = join('dist', basename(coll.name))
 
 from build_llm import copy_llm_configuration
 copy_llm_configuration('.', dest_root)
 
-# 复制文件夹中的文件
+# Copy files from the directory.
 for folder in my_folders:
     if not exists(folder):
         continue
@@ -268,11 +268,11 @@ for folder in my_folders:
             if exists(src_file):
                 my_files.append((src_file, src_file))
 
-# 执行文件复制到根目录（不是 internal）
+# Place executables in the package root, outside internal.
 for src_file, rel_path in my_files:
     if not exists(src_file):
         continue
-    # 保持相对路径结构
+    # Preserve relative paths.
     rel_path = rel_path.replace('\\', '/')
     dest_file = join(dest_root, rel_path)
     dest_folder = dirname(dest_file)
@@ -280,7 +280,7 @@ for src_file, rel_path in my_files:
     copyfile(src_file, dest_file)
 
 
-# 为 models 文件夹建立链接，免去复制大文件
+# Link models to avoid copying large files.
 from platform import system
 from subprocess import run
 
@@ -292,9 +292,9 @@ if system() == 'Windows':
         dest_folder = join(dest_root, folder)
         if exists(dest_folder):
             rmtree(dest_folder)
-        # 使用管理员权限运行的命令提示符来创建目录连接符
+        # Create the directory junction through Command Prompt.
         cmd = ['mklink', '/j', dest_folder, folder]
         try:
             run(cmd, shell=True, check=True)
         except:
-            print(f'警告：无法创建目录连接符 {dest_folder}，请手动创建或复制文件夹')
+            print(f'Warning: cannot create junction {dest_folder}; create it or copy the directory manually')

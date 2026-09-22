@@ -1,9 +1,9 @@
 # coding: utf-8
 """
-音频文件管理模块
+Audio file management.
 
-提供 AudioFileManager 类用于管理音频文件的创建、写入、完成和重命名。
-支持 MP3（需要 FFmpeg）和 WAV 两种格式。
+Manage creation, writing, completion, and renaming through AudioFileManager.
+Support MP3 through FFmpeg and WAV as a fallback.
 """
 
 from __future__ import annotations
@@ -29,19 +29,19 @@ from .storage import recording_directory
 from . import logger
 
 
-# 音频文件句柄类型
+# Audio file handle types.
 AudioWriter = Union[Popen, wave.Wave_write]
 
 
 class AudioFileManager:
     """
-    音频文件管理器
+    Manage audio files.
     
-    负责音频文件的完整生命周期管理：
-    - 创建：根据是否安装 FFmpeg 选择 MP3 或 WAV 格式
-    - 写入：将音频数据写入文件
-    - 完成：关闭文件句柄
-    - 重命名：根据识别文本重命名文件
+    Own the audio file lifecycle:
+    - Create: choose MP3 if FFmpeg is available, otherwise WAV.
+    - Write: append audio data.
+    - Finish: close the writer.
+    - Rename: use recognized text in the filename.
     """
     
     SAMPLE_RATE = 48000
@@ -49,7 +49,7 @@ class AudioFileManager:
     KILL_TIMEOUT = 2.0
     
     def __init__(self, *, base_dir=None):
-        """初始化音频文件管理器"""
+        """Initialize audio file management."""
         self.file_path: Optional[Path] = None
         self.storage_root = recording_directory(Config, Path(base_dir or BASE_DIR))
         self.file_handle: Optional[AudioWriter] = None
@@ -66,20 +66,20 @@ class AudioFileManager:
     
     def create(self, channels: int, time_start: float) -> Tuple[Path, AudioWriter]:
         """
-        创建音频文件
+        Create an audio file.
         
         Args:
-            channels: 音频声道数
-            time_start: 录音开始时间戳
+            channels: Number of audio channels.
+            time_start: Recording start timestamp.
             
         Returns:
-            (文件路径, 文件写入句柄) 元组
+            Tuple of file path and writer handle.
         """
         if self._aborted.is_set():
             raise RuntimeError('AudioWriterAborted')
         self.channels = channels
         
-        # 构建目录和文件名
+        # Build the directory and filename.
         local_time = time.localtime(time_start)
         time_year = time.strftime('%Y', local_time)
         time_month = time.strftime('%m', local_time)
@@ -88,7 +88,7 @@ class AudioFileManager:
         folder_path = self.storage_root / time_year / time_month
         makedirs(folder_path, exist_ok=True)
         
-        # 创建临时文件名
+        # Create a temporary filename.
         suffix = '.mp3' if self._ffmpeg_path else '.wav'
         fd, reserved_path = tempfile.mkstemp(
             prefix=f'({time_ymdhms})', suffix=suffix, dir=folder_path)
@@ -96,7 +96,7 @@ class AudioFileManager:
         file_path = Path(reserved_path)
         
         if self._ffmpeg_path:
-            # 使用 FFmpeg 输出 MP3
+            # Encode MP3 with FFmpeg.
             file_path = file_path.with_suffix('.mp3')
             ffmpeg_command = [
                 self._ffmpeg_path, '-y',
@@ -128,7 +128,7 @@ class AudioFileManager:
                 file_path = Path(reserved_path)
 
         if not self._ffmpeg_path:
-            # 使用 wave 模块输出 WAV
+            # Write WAV with the wave module.
             file_path = file_path.with_suffix('.wav')
             file_handle = wave.open(str(file_path), 'w')
             try:
@@ -153,10 +153,10 @@ class AudioFileManager:
     
     def write(self, data: np.ndarray) -> None:
         """
-        写入音频数据
+        Write audio data.
         
         Args:
-            data: 音频数据数组（float32 格式）
+            data: Audio samples as a float32 array.
         """
         if self.file_handle is None:
             logger.warning(Notice('diagnostic.file_manager.cannot_write_audio_file_is_not_open'))
@@ -165,7 +165,7 @@ class AudioFileManager:
             raise RuntimeError('AudioWriterAborted')
         
         if isinstance(self.file_handle, Popen):
-            # FFmpeg 进程
+            # FFmpeg subprocess.
             # Unbuffered pipes may accept only part of a block.
             payload = memoryview(data.tobytes())
             while payload:
@@ -176,16 +176,16 @@ class AudioFileManager:
                     raise BrokenPipeError('AudioEncoderPipeClosed')
                 payload = payload[written:]
         elif isinstance(self.file_handle, wave.Wave_write):
-            # WAV 文件：转换 float32 -> int16
+            # Convert float32 samples to int16 for WAV.
             int_data = (data * (2**15 - 1)).astype(np.int16).tobytes()
             self.file_handle.writeframes(int_data)
     
     def finish(self) -> Optional[Path]:
         """
-        完成音频文件写入
+        Finish writing the audio file.
         
         Returns:
-            音频文件路径
+            Audio file path.
         """
         if self.file_handle is None:
             return self.file_path
@@ -229,23 +229,23 @@ class AudioFileManager:
     
     def rename(self, text: str, time_start: float) -> Optional[Path]:
         """
-        根据识别文本重命名音频文件
+        Rename the audio file using recognized text.
         
         Args:
-            text: 识别出的文本
-            time_start: 录音开始时间戳
+            text: Recognized text.
+            time_start: Recording start timestamp.
             
         Returns:
-            重命名后的文件路径，如果失败返回 None
+            Renamed file path, or None on failure.
         """
         if self.file_path is None or not self.file_path.exists():
             logger.warning(Notice('diagnostic.file_manager.audio_rename_skipped_file_unavailable'))
             return None
         
-        # 构建新文件名
+        # Build the new filename.
         time_ymdhms = time.strftime("%Y%m%d-%H%M%S", time.localtime(time_start))
         
-        # 截取文本并清理非法字符
+        # Truncate text and remove invalid filename characters.
         text_clean = text[:Config.audio_name_len]
         text_clean = re.sub(r'[\\/:\"*?<>|]', ' ', text_clean)
         
