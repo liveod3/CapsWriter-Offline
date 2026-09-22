@@ -255,6 +255,10 @@ class FileRunner:
         logger.info('File batch started: files=%d formats=%s', total, sorted(self.output_formats))
         try:
             for index, file in enumerate(self.files, start=1):
+                if hasattr(self.app, 'config_reload'):
+                    self.app._file_active = False
+                    self.app.apply_config_reload()
+                    self.app._file_active = True
 
                 console.print()
                 console.print(

@@ -22,7 +22,8 @@ from typing import Optional, Tuple, Union
 
 import numpy as np
 
-from config_client import ClientConfig as Config
+from config_client import BASE_DIR, ClientConfig as Config
+from .storage import recording_directory
 from . import logger
 
 
@@ -45,9 +46,10 @@ class AudioFileManager:
     FINISH_TIMEOUT = 5.0
     KILL_TIMEOUT = 2.0
     
-    def __init__(self):
+    def __init__(self, *, base_dir=None):
         """初始化音频文件管理器"""
         self.file_path: Optional[Path] = None
+        self.storage_root = recording_directory(Config, Path(base_dir or BASE_DIR))
         self.file_handle: Optional[AudioWriter] = None
         self.channels: int = 1
         self._aborted = Event()
@@ -81,7 +83,7 @@ class AudioFileManager:
         time_month = time.strftime('%m', local_time)
         time_ymdhms = time.strftime("%Y%m%d-%H%M%S", local_time)
         
-        folder_path = Path() / time_year / time_month / 'assets'
+        folder_path = self.storage_root / time_year / time_month
         makedirs(folder_path, exist_ok=True)
         
         # 创建临时文件名
@@ -111,9 +113,9 @@ class AudioFileManager:
                     stderr=DEVNULL,
                     bufsize=0,
                 )
-                logger.debug(f"创建 MP3 文件: {file_path}")
+                logger.debug('MP3 recording file created')
             except OSError as exc:
-                logger.warning(f"FFmpeg 启动失败，将降级为 WAV 格式: {exc}")
+                logger.warning('FFmpeg startup failed; using WAV: %s', type(exc).__name__)
                 self._ffmpeg_path = None
                 self._has_ffmpeg = False
                 # Only remove the empty file reserved by this failed create.
@@ -134,7 +136,7 @@ class AudioFileManager:
             except Exception:
                 file_handle.close()
                 raise
-            logger.debug(f"创建 WAV 文件: {file_path}")
+            logger.debug('WAV recording file created')
         
         self.file_path = file_path
         with self._process_lock:

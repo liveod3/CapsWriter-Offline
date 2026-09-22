@@ -70,6 +70,7 @@ class AudioCache:
         self.context = msg.context
         self.language = msg.language
         self.supports_task_errors = msg.supports_task_errors
+        self.formatting = (Config.format_num, Config.format_spell)
 
     @property
     def duration(self) -> float:
@@ -198,6 +199,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                     context=msg.context,
                     language=msg.language,
                     supports_task_errors=msg.supports_task_errors,
+                    formatting=cache.formatting,
                 )
                 cache.offset += msg.seg_duration
                 _put_task(queue_in, task)
@@ -228,6 +230,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 context=msg.context,
                 language=msg.language,
                 supports_task_errors=msg.supports_task_errors,
+                formatting=cache.formatting,
             )
             _put_task(queue_in, task)
             logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")

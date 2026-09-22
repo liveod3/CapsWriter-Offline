@@ -30,7 +30,11 @@ class DiaryWriter:
         if file_audio is not None:
             import os
 
-            relative = os.path.relpath(file_audio.resolve(), folder.resolve()).replace("\\", "/")
+            try:
+                relative = os.path.relpath(file_audio.resolve(), folder.resolve()).replace("\\", "/")
+            except ValueError:
+                # Windows relpath cannot cross volumes; file URIs remain clickable.
+                relative = file_audio.resolve().as_uri()
             entry += f"[Audio](<{relative}>)\n\n"
         with self._lock:
             folder.mkdir(parents=True, exist_ok=True)

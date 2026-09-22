@@ -1,5 +1,11 @@
 # 更新日志
 
+## 2026-09-22 — Unreleased, recording storage and configuration reload accepted
+
+- Add configurable recording storage with a per-user Windows default, portable relative paths and absolute paths. Preserve legacy recordings and links, support cross-drive transcript links, expose the recording folder in the tray and continue dictation when archive creation fails.
+- Detect and validate complete client/server configuration candidates without executing edited Python. Apply supported client settings after pending work settles and snapshot server formatting at task admission. Retain valid settings on rejected edits, report restart-only resource changes and coordinate tray LLM toggles with the same task boundary. Seed spawned ASR/aligner processes from retained startup configuration so replacement workers do not import partially edited files.
+- Validation: `capswriter`, Python 3.11.15; **472 passed, 2 deselected**, configured coverage **85.13%**. Ruff, selected mypy targets, compileall and diff checks pass. The user accepted both features and authorized commit on 2026-09-22 after reporting no material issues. See the [configuration guide](configuration-reload.md) and [acceptance scope and limits](validation/P1-recording-storage-config-reload.md). Local settings and the pre-existing unrelated TODO change remain outside the commit.
+
 ## 2026-09-22 — Unreleased, diagnostic privacy accepted
 
 - Remove recognition text, formatted text, token fragments, content-bearing exceptions and transcript-derived filenames at the application logging sources. Keep task IDs, timings, lengths and error categories, while preserving intentional client result previews, text output and independently enabled content archives. Native llama callbacks forward diagnostic text directly; remove the blanket message-to-byte-count replacement and its helper module.

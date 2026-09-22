@@ -155,6 +155,9 @@ models/*.py
 # 日志文件夹（包含 server_*.log 和 client_*.log）
 logs/
 
+# Optional portable recording storage
+/audio-data/
+
 # 音频文件
 *.mp3
 *.wav

@@ -75,6 +75,23 @@ class AudioRecorder:
     def _ws_manager(self) -> WebSocketManager:
         """快捷访问桥接到 app.ws"""
         return self.app.ws
+
+    async def _create_recording_file(self, channels):
+        """An unwritable destination disables this archive, preserving dictation."""
+        try:
+            path, _ = await self._writer.call(
+                self._file_manager.create, channels, self._start_time)
+        except OSError as exc:
+            writer, self._writer = self._writer, None
+            await writer.close(abort=True)
+            logger.warning('Recording storage unavailable: error=%s', type(exc).__name__,
+                           extra={'console_handled': True})
+            console.print('Recording could not be saved. Check audio_dir and folder permissions; dictation continues.', markup=False)
+            from core.ui import show_status_hint
+            show_status_hint('Recording storage unavailable. Dictation continues.', duration_ms=3500)
+            return None
+        self.state.register_audio_file(self.task_id, path)
+        return path
     
     async def _send_message(self, message: AudioMessage) -> None:
         """Bound every upload and retain the connection used for this operation."""
@@ -155,12 +172,7 @@ class AudioRecorder:
                     
                     # 创建音频文件
                     if self._writer and file_path is None:
-                        file_path, _ = await self._writer.call(self._file_manager.create,
-                            task['data'].shape[1],
-                            self._start_time
-                        )
-                        self.state.register_audio_file(self.task_id, file_path)
-                        logger.debug(f"创建音频文件: {file_path}")
+                        file_path = await self._create_recording_file(task['data'].shape[1])
                     
                     # 获取音频数据
                     if self._cache:
@@ -199,12 +211,7 @@ class AudioRecorder:
 
                         # 短录音可能在阈值前就结束，此时需要先创建文件再写入
                         if self._writer and file_path is None:
-                            file_path, _ = await self._writer.call(self._file_manager.create,
-                                data.shape[1],
-                                self._start_time
-                            )
-                            self.state.register_audio_file(self.task_id, file_path)
-                            logger.debug(f"创建音频文件(短录音): {file_path}")
+                            file_path = await self._create_recording_file(data.shape[1])
                         
                         self._duration += len(data) / 48000
                         if self._writer:

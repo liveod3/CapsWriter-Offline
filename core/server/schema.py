@@ -47,6 +47,8 @@ class Task:
     samplerate: int = 16000
     command: str = ''           # 特殊命令，如 'gpu_boost' / 'gpu_unboost'
     supports_task_errors: bool = False
+    # Internal, pickle-safe snapshot set by the server at task admission.
+    formatting: Optional[tuple[bool, bool]] = None
 
     @property
     def key(self) -> TaskKey:

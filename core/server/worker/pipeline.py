@@ -138,8 +138,8 @@ class TaskPipeline:
 
             # 任务结束清理与最终格式化
             raw_text = result.text
-            result.text = self.formatter.format(result.text)
-            result.text_accu = self.formatter.format(result.text_accu)
+            result.text = self.formatter.format(result.text, formatting=task.formatting)
+            result.text_accu = self.formatter.format(result.text_accu, formatting=task.formatting)
             logger.debug('Recognition formatted: task=%s input_chars=%d output_chars=%d',
                          task.task_id[:8], len(raw_text), len(result.text))
 

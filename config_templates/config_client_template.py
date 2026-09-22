@@ -14,6 +14,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # 客户端配置
+# Supported settings reload after active tasks finish. Resource settings require
+# restart; see docs/configuration-reload.md for the exact policy and feedback.
 class ClientConfig:
     addr = '127.0.0.1'          # Server 地址
     port = '6016'               # Server 端口
@@ -69,6 +71,10 @@ class ClientConfig:
     enter_apps   = [('happ.exe', 0.5), ('hexin.exe', 0.5)]  # (应用名, 延迟秒数) 输出完成后自动回车，如同花顺，输入股票名后，需要回车才能切换
 
     save_audio = False           # 是否保存录音文件
+    # Empty: per-user LOCALAPPDATA/CapsWriter-Offline/audio on Windows.
+    # Portable: 'audio-data'; relative paths are based on the application folder.
+    # Absolute paths may use another drive. Existing recordings are never moved.
+    audio_dir = ''
     audio_name_len = 20         # 将录音识别结果的前多少个字存储到录音文件名中，建议不要超过200
     
     language = 'auto'           # 识别语言：'auto', 'chinese', 'english', 'japanese' 等（各引擎支持范围不同）

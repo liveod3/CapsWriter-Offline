@@ -92,6 +92,36 @@ class CapsWriterClient:
         self._shutdown_future = None
         self._runner_task = None
         self._idle_stop = threading.Event()
+        self._file_active = command.mode is not ClientMode.MIC
+        import config_client
+        from config_templates import config_client_template
+        from core.config_reload import ConfigReloader, CLIENT_LIVE
+        self.config_reload = ConfigReloader(
+            self.base_dir / 'config_client.py', config_client, config_client_template,
+            'ClientConfig', CLIENT_LIVE, self._report_config,
+        )
+
+    def _report_config(self, message):
+        logger.info(message, extra={'console_handled': True})
+        console.print(message, markup=False)
+
+    def apply_config_reload(self):
+        """Publish only after capture, upload, LLM, output and archives all settle."""
+        with self.state.recording_lock:
+            if (self._stopping or self._file_active or self.state.recording_owner is not None
+                    or self.state.recording_futures or self.state.recording_tasks
+                    or self.state.dictation_uploads or self.state.task_contexts):
+                return
+            changed = self.config_reload.apply()
+            if 'transcript_dir' in changed:
+                self.diary.base_path = self.base_dir / Config.transcript_dir
+        if changed:
+            if Config.llm_enabled:
+                try:
+                    self.llm.start()
+                except Exception as exc:
+                    self._report_config('LLM cancel key unavailable: ' + type(exc).__name__)
+            self._report_config('Configuration applied: ' + ', '.join(changed))
 
     def mark_user_activity(self) -> None:
         """标记用户活跃时间，用于闲置自动挂起判断。"""
@@ -268,6 +298,8 @@ class CapsWriterClient:
 
     async def _shutdown(self):
         """Keep the event loop alive until recording and hardware cleanup finishes."""
+        if hasattr(self, 'config_reload'):
+            await self.config_reload.close()
         self.progress.close()
         processor = getattr(self._active_runner, 'processor', None)
         if processor is not None:
@@ -340,6 +372,8 @@ class CapsWriterClient:
         self._active_runner = runner
         
         try:
+            self.config_reload.task = self.loop.create_task(
+                self.config_reload.watch(self.apply_config_reload))
             self._runner_task = self.loop.create_task(runner.run())
             succeeded = self.loop.run_until_complete(self._runner_task)
         except asyncio.CancelledError:

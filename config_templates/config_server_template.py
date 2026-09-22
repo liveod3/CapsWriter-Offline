@@ -13,6 +13,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 # 服务端配置
+# format_num/format_spell reload for new tasks; model/network/resource changes
+# require restart. See docs/configuration-reload.md.
 class ServerConfig:
     # 网络模式：'local' 仅允许本机访问；'lan' 允许局域网访问并强制令牌认证
     network_mode = 'local'

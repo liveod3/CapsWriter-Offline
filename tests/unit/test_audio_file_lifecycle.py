@@ -14,6 +14,12 @@ from core.client.audio.file_manager import AudioFileManager
 from core.client.audio.file_writer import AsyncAudioWriter
 
 
+@pytest.fixture(autouse=True)
+def isolated_recordings(monkeypatch, tmp_path):
+    from config_client import ClientConfig
+    monkeypatch.setattr(ClientConfig, 'audio_dir', str(tmp_path), raising=False)
+
+
 class Encoder:
     def __init__(self, *args, **kwargs):
         self.returncode = None

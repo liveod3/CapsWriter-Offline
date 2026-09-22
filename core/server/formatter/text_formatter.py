@@ -26,7 +26,7 @@ class TextFormatter:
         """
         self.punc_model = punc_model
 
-    def format(self, text: str) -> str:
+    def format(self, text: str, *, formatting=None) -> str:
         """
         对输入文本应用一组格式化规则
 
@@ -53,14 +53,15 @@ class TextFormatter:
                 logger.warning('Punctuation failed: error=%s', type(e).__name__)
 
         # 2. 中文数字转阿拉伯数字
-        if Config.format_num:
+        format_num, format_spell = formatting if formatting is not None else (Config.format_num, Config.format_spell)
+        if format_num:
             try:
                 text = chinese_to_num(text)
             except Exception as e:
                 logger.warning('ITN conversion failed: error=%s', type(e).__name__)
         
         # 3. 调整中英文空格（ITN 之后，中英边界清晰，一次调整到位）
-        if Config.format_spell:
+        if format_spell:
             text = adjust_space(text)
 
         return text

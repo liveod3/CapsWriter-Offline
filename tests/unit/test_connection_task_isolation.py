@@ -129,7 +129,7 @@ def test_audio_to_final_delivery_stays_with_its_connection(handler, sources, fir
         capabilities={EngineCapabilities.TIMESTAMPS},
     )
     handler.set_engine(recognizer)
-    handler.pipeline.formatter = SimpleNamespace(format=lambda text: text)
+    handler.pipeline.formatter = SimpleNamespace(format=lambda text, **kwargs: text)
     sockets = {
         socket: SimpleNamespace(id=socket, send=AsyncMock()) for socket in ('a', 'b')
     }

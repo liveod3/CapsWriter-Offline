@@ -17,13 +17,12 @@ from typing import TYPE_CHECKING
 from rich.panel import Panel
 from config_server import ServerConfig as Config
 from ..state import console
-from . import start_worker
-from .aligner_worker import start_aligner_worker
 from .check_model import check_model
 from . import logger
 from ..delivery import ResultDeliveryError, positive_timeout
 from .supervision import progress
 from core.tools.daemon_executor import SimpleDaemonExecutor
+from core.worker_bootstrap import configuration_snapshot, start_configured_worker
 if TYPE_CHECKING:
     from ..app import CapsWriterServer
 
@@ -45,6 +44,10 @@ class ProcessManager:
         self._manager = None
         self.app = app
         self.is_alive = False
+        import config_client
+        import config_server
+        # Includes client-owned logger defaults until logging ownership is split.
+        self._child_config = configuration_snapshot(config_server, config_client)
 
     def start(self):
         """
@@ -77,8 +80,8 @@ class ProcessManager:
 
         # 4. 创建并启动 ASR 进程
         self._process = Process(
-            target=start_worker,
-            args=(state.queue_in,
+            target=start_configured_worker,
+            args=(self._child_config, 'asr', state.queue_in,
                   state.queue_out,
                   state.sockets_id,
                   state.align_queue_in,
@@ -127,8 +130,8 @@ class ProcessManager:
 
             state = self.app.state
             self._align_process = Process(
-                target=start_aligner_worker,
-                args=(state.align_queue_in, state.align_queue_out),
+                target=start_configured_worker,
+                args=(self._child_config, 'aligner', state.align_queue_in, state.align_queue_out),
                 daemon=True,
             )
             self._align_process.start()

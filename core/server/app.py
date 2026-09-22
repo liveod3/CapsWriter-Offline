@@ -48,6 +48,23 @@ class CapsWriterServer:
         self._owner_thread = threading.get_ident()
         self._stop_requested = threading.Event()
         self._cleaned_up = False
+        import config_server
+        from config_templates import config_server_template
+        from core.config_reload import ConfigReloader, SERVER_LIVE
+        self.config_reload = ConfigReloader(
+            self.base_dir / 'config_server.py', config_server, config_server_template,
+            'ServerConfig', SERVER_LIVE, self._report_config,
+        )
+
+    def _report_config(self, message):
+        logger.info(message, extra={'console_handled': True})
+        console.print(message, markup=False)
+
+    def apply_config_reload(self):
+        # AudioCache snapshots these settings on the same event loop at admission.
+        changed = self.config_reload.apply()
+        if changed:
+            self._report_config('Configuration applied to new tasks: ' + ', '.join(changed))
 
 
     def _print_banner(self):
@@ -131,8 +148,13 @@ class CapsWriterServer:
             self._print_banner()
             self.process_manager.start()
             if self.is_alive and not self._stop_requested.is_set():
+                if hasattr(self, 'config_reload'):
+                    self.config_reload.task = self.loop.create_task(
+                        self.config_reload.watch(self.apply_config_reload))
                 self.loop.run_until_complete(self.socket_manager.start())
         finally:
+            if hasattr(self, 'config_reload'):
+                self.loop.run_until_complete(self.config_reload.close())
             # Sender failure ends the listener; release model processes and tray too.
             self._cleanup()
             self.loop.close()

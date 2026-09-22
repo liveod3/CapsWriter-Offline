@@ -23,9 +23,9 @@ class TrayManager:
 
     def _open(self, path):
         path = Path(path)
-        if not path.exists() and not path.suffix:
-            path.mkdir(parents=True, exist_ok=True)
         try:
+            if not path.exists() and not path.suffix:
+                path.mkdir(parents=True, exist_ok=True)
             if path.name == "providers.toml":
                 from core.client.llm.config import ensure_provider_file
 
@@ -97,6 +97,12 @@ class TrayManager:
                 "history",
             ),
             MenuAction(
+                "Open recordings",
+                self._open_recordings,
+                "Open the configured recording folder. Existing recordings stay in their original folders.",
+                "folder",
+            ),
+            MenuAction(
                 "Settings",
                 tooltip="Edit client settings and LLM action configuration.",
                 icon="settings",
@@ -104,7 +110,7 @@ class TrayManager:
                     MenuAction(
                         "Client settings…",
                         lambda: self._open(root / "config_client.py"),
-                        "Edit client settings. Restart the client to apply changes.",
+                        "Supported changes apply when tasks finish. Check the console for restart requirements.",
                         "settings",
                     ),
                     MenuAction(
@@ -161,6 +167,10 @@ class TrayManager:
             exit_callback=self.app.stop,
             more_options=self.menu_actions(),
         )
+
+    def _open_recordings(self):
+        from core.client.audio.storage import recording_directory
+        self._open(recording_directory(Config, self.app.base_dir))
 
     def stop(self):
         if Config.enable_tray:
@@ -239,13 +249,15 @@ class TrayManager:
                 )
                 if getattr(self.app, "_stopping", False):
                     return
-                # 在客户端事件循环中一次更新；保存失败时保留原运行状态。
-                Config.llm_correction_enabled = options["correct_asr"]
-                Config.llm_translation_enabled = options["translate"]
-                Config.llm_enabled = any(options.values())
-                if Config.llm_enabled:
-                    self.app.llm.start()
-                show_status_hint("LLM settings saved.", duration_ms=1600)
+                if hasattr(self.app, 'config_reload'):
+                    show_status_hint("LLM settings saved; apply after current tasks finish.", duration_ms=2500)
+                else:
+                    Config.llm_correction_enabled = options["correct_asr"]
+                    Config.llm_translation_enabled = options["translate"]
+                    Config.llm_enabled = any(options.values())
+                    if Config.llm_enabled:
+                        self.app.llm.start()
+                    show_status_hint("LLM settings saved.", duration_ms=1600)
             except (OSError, ValueError, SyntaxError) as exc:
                 logger.warning("Cannot save LLM options: %s", type(exc).__name__)
                 show_status_hint("Could not save LLM options. Check client settings.", duration_ms=2500)
