@@ -88,7 +88,7 @@ and reports the restart subset explicitly. Restart-required values stay on disk.
 | Recognition | `language`, `mic_seg_duration`, `mic_seg_overlap`, `file_seg_duration`, `file_seg_overlap` |
 | Task deadlines and file window | `mic_io_timeout`, `mic_result_timeout`, `file_io_timeout`, `file_result_timeout`, `file_max_inflight_chunks` |
 | Text output | `paste`, `restore_clip`, `paste_apps`, `enter_apps`, `trash_punc`, `trash_punc_thresh`, `trash_punc_apps`, `traditional_convert`, `traditional_locale` |
-| LLM selection | `llm_enabled`, `llm_correction_enabled`, `llm_translation_enabled`, `llm_default_preset` |
+| LLM selection and accounting | `llm_enabled`, `llm_correction_enabled`, `llm_translation_enabled`, `llm_default_preset`, `llm_cost_tracking`; see [cost accounting](../user/llm-costs.md) |
 | Caret context | `caret_context_enabled`, `caret_context_before_chars`, `caret_context_after_chars` |
 
 Microphone mode publishes only when all capture, upload, pending ASR, LLM, output

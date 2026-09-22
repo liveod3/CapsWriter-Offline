@@ -92,6 +92,7 @@ class ClientConfig:
 
 
     llm_enabled = False          # Master LLM switch; the tray can enable or disable all actions and save the setting.
+    llm_cost_tracking = True     # Content-free monthly accounting; configure LLM/costs.toml.
     llm_correction_enabled = True   # Correction switch, subject to the master switch.
     llm_translation_enabled = True  # Translation switch; explicit translation commands trigger it by default.
 

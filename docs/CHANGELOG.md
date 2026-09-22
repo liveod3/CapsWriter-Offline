@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026-09-22 ? Unreleased, LLM cost accounting accepted
+
+- Record each LLM request in a monthly SQLite ledger with model, usage, outcome, request-time rates, reported charges, estimates, and explicit unknown/incomplete costs. Add offline monthly reporting, currency separation, and persistent budget thresholds. Preserve content and credential privacy.
+- Remove all cost popups at user acceptance; per-request summaries remain in diagnostic logs and budget alerts in console/log output. Existing private settings and records remain intact. Validation: 579 default tests, 85.22% configured coverage, syntax/lint/type and documentation checks; see the [acceptance record](validation/P1-llm-costs.md).
+
 ## 2026-09-22 — Unreleased, internal English and documentation accepted
 
 - Standardize maintained comments/docstrings, developer and Agent guidance, configuration explanations, and development output on English. Preserve runtime data, prompts, fixtures, public IDs, localized product text, copied upstream code, and historical evidence. Translate local configuration prose without changing executable statements or values; keep both default templates tracked.

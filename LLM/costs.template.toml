@@ -1,0 +1,29 @@
+# Copy to costs.toml to customize. Reloaded before each request; no network price lookups.
+# Money is decimal currency units; rates are per 1,000,000 tokens.
+[tracking]
+enabled = true
+directory = "llm-costs" # Relative to application root, or an absolute directory.
+show_summary = true # Write per-request summaries to the diagnostic log; no popup.
+alerts_enabled = true
+
+# Monthly planning totals include estimates and incomplete-request scenarios.
+# Each threshold fires once per month/currency/value, including across restarts.
+[budgets]
+USD = [1, 5, 10]
+
+[[rates]]
+endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+model = "gemini-3.5-flash-lite"
+currency = "USD"
+input = "0.30"
+output = "2.50" # Includes thinking tokens, charged once.
+cached_input = "0.03"
+source = "https://ai.google.dev/gemini-api/docs/pricing#gemini-3.5-flash-lite"
+updated = "2026-09-22"
+assumption = "Standard paid text requests; free-tier allowance is not inferred. No cache storage or tools."
+
+# Local/custom endpoints have UNKNOWN cost unless you add an exact endpoint/model entry.
+# An explicit zero-rate entry may describe no API charge (not electricity/hardware costs).
+# Optional fields: cache_write, reasoning (otherwise output rate), valid_until = "YYYY-MM-DD".
+# Custom response money requires reported_cost_field = "usage.cost" plus currency above.
+# Use only a documented total-charge field, never upstream cost or a token count.

@@ -52,7 +52,7 @@ def test_request_deadline_cancels_transport_and_preserves_input(monkeypatch):
 
 
 def config(**values):
-    return SimpleNamespace(llm_config_dir="LLM", **values)
+    return SimpleNamespace(llm_config_dir="LLM", llm_cost_tracking=False, **values)
 
 
 def test_catalog_separates_connections_and_presets():

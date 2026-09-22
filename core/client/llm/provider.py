@@ -6,10 +6,12 @@ from core.i18n import tr
 
 import os
 import json
+from decimal import Decimal
 from typing import Protocol
 
 from .config import Provider
 from .errors import LLMResponseError, api_error, generation_error
+from core.llm_accounting.usage import observation
 
 
 class MissingAPIKeyError(ValueError):
@@ -67,7 +69,12 @@ class HTTPTextProvider:
         async with httpx.AsyncClient(
             timeout=provider.timeout, follow_redirects=False, trust_env=False
         ) as client:
+            accounting = observation.get()
+            if accounting:
+                accounting[0].sent = True
             async with client.stream("POST", url, json=payload, headers=headers) as response:
+                if accounting:
+                    accounting[0].http_status = response.status_code
                 data = bytearray()
                 limit = 64 * 1024 if response.is_error else 2 * 1024 * 1024
                 async for chunk in response.aiter_bytes():
@@ -77,11 +84,13 @@ class HTTPTextProvider:
                         raise LLMResponseError("response_too_large", "llm.response_too_large")
                     data.extend(chunk)
                 try:
-                    result = json.loads(data)
+                    result = json.loads(data, parse_float=Decimal)
                 except (ValueError, UnicodeError):
                     if not response.is_success:
                         raise api_error(response.status_code, {}) from None
                     raise LLMResponseError("invalid_json", "llm.invalid_json") from None
+                if accounting:
+                    accounting[0].capture(result, provider, accounting[1])
                 if not response.is_success or (isinstance(result, dict) and "error" in result):
                     raise api_error(response.status_code, result, response.headers.get("retry-after", ""))
 

@@ -173,6 +173,8 @@ logs/
 /config_client.py
 /config_server.py
 /LLM/providers.toml
+/LLM/costs.toml
+/llm-costs/
 .claude
 .vscode
 .agent

@@ -16,6 +16,8 @@ from .config import Catalog, load_catalog
 from .settings import llm_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
 from .errors import describe_failure, localized_failure
+from core.llm_accounting.ledger import CostLedger
+from core.llm_accounting.usage import UsageObservation, observation, estimate_tokens
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,7 @@ class TextActionService:
         self.directory = base_dir / getattr(config, "llm_config_dir", "LLM")
         self.transport = transport or HTTPTextProvider()
         self.status_callback = status_callback
+        self.costs = CostLedger(base_dir, self.directory)
         self._active: set[asyncio.Task] = set()
         self._loop = None
         self._stopped = False
@@ -85,8 +88,12 @@ class TextActionService:
         content = text
         selected_id = None
         started = time.monotonic()
-        request_id = uuid.uuid4().hex[:8]
+        request_id = uuid.uuid4().hex
         phase = "configuration"
+        ticket = None
+        observed = UsageObservation()
+        outcome = 'failed'
+        failure_category = None
         from core.client import logger
 
         try:
@@ -128,14 +135,36 @@ class TextActionService:
                 {"role": "system", "content": preset.system_prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ]
+            if getattr(self.config, 'llm_cost_tracking', True):
+                try:
+                    ticket, invalid_config = await asyncio.to_thread(
+                        self.costs.prepare, provider, messages, preset.max_tokens, request_id, preset.id
+                    )
+                    if invalid_config:
+                        logger.warning(Notice('cost.config_fallback'))
+                except Exception:
+                    logger.warning(Notice('cost.write_failed'))
+            if self._stopped or epoch != self._cancel_epoch:
+                outcome = 'not_sent'
+                failure_category = 'cancelled_before_dispatch'
+                return TextResult(content, content, selected_id, cancelled=True)
             phase = "request"
             if progress_callback:
                 progress_callback('status.wait_llm')
             logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
                         request_id, len(content), int((time.monotonic() - started) * 1000))
-            request = asyncio.create_task(
-                self.transport.complete(provider, messages, preset.temperature, preset.max_tokens)
-            )
+            async def complete():
+                token = observation.set((observed, ticket[1]['rate'] if ticket else None))
+                try:
+                    if not isinstance(self.transport, HTTPTextProvider):
+                        observed.sent = True
+                    return await self.transport.complete(
+                        provider, messages, preset.temperature, preset.max_tokens
+                    )
+                finally:
+                    observation.reset(token)
+
+            request = asyncio.create_task(complete())
             self._active.add(request)
             try:
                 # Bound the entire request so a trickling response cannot evade the HTTP read timeout.
@@ -144,17 +173,22 @@ class TextActionService:
             finally:
                 self._active.discard(request)
             if self._stopped or epoch != self._cancel_epoch:
+                outcome = 'cancelled'
                 return TextResult(content, content, selected_id, cancelled=True)
+            outcome = 'completed'
+            observed.output_estimate = estimate_tokens(result)
             logger.info(Notice('diagnostic.service.llm_request_completed_request_elapsed_ms_output_chars'),
                         request_id, int((time.monotonic() - started) * 1000), len(result))
             return TextResult(result, content, selected_id, processed=True)
         except asyncio.CancelledError:
+            outcome = 'cancelled'
             logger.info(Notice('diagnostic.service.llm_request_cancelled_request_phase_elapsed_ms'),
                         request_id, phase, int((time.monotonic() - started) * 1000))
             return TextResult(content, content, selected_id, cancelled=True)
         except Exception as exc:
             category, detail, fields = describe_failure(exc)
             if isinstance(exc, MissingAPIKeyError):
+                outcome = 'not_sent'
                 category, detail = "missing_api_key", tr(exc.message_id, locale="en")
                 user_detail = exc.user_message
             elif phase == "configuration":
@@ -162,6 +196,7 @@ class TextActionService:
                 user_detail = tr("llm.configuration_error")
             else:
                 user_detail = localized_failure(exc)
+            failure_category = category
             logger.warning(
                 Notice('diagnostic.service.llm_action_failed_request_phase_type_category_elapsed'),
                 request_id, phase, type(exc).__name__, category,
@@ -170,3 +205,26 @@ class TextActionService:
             return TextResult(
                 content, content, selected_id, error=type(exc).__name__, error_message=user_detail
             )
+        finally:
+            if ticket:
+                try:
+                    cost, totals, alerts = await asyncio.to_thread(
+                        self.costs.finish, ticket, observed, outcome, failure_category,
+                        int((time.monotonic() - started) * 1000),
+                    )
+                    currency = cost['currency'] or ''
+                    total = totals['currencies'].get(currency, {}).get('planning_total', '0')
+                    if ticket[2]['tracking']['show_summary']:
+                        notice = Notice('cost.request_summary', request=request_id[:8],
+                            status=Notice('cost.status.' + outcome),
+                            source=Notice('cost.source.' + cost['cost_source']),
+                            amount=cost['amount'] if cost['amount'] is not None else Notice('cost.unknown'),
+                            currency=currency, total=total, month=ticket[0].stem,
+                            unknown=totals['unknown_cost_requests'])
+                        logger.info(notice)
+                    for alert in alerts:
+                        notice = Notice('cost.budget_alert', **alert)
+                        logger.warning(notice)
+                except Exception:
+                    # Accounting errors must never discard successful text or cause a retry.
+                    logger.warning(Notice('cost.write_failed'))

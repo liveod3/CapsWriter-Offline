@@ -15,6 +15,7 @@ def copy_llm_configuration(source_root, destination_root):
         destination / "providers.toml",
         destination / "providers.template.toml",
         destination / "presets.toml",
+        destination / "costs.template.toml",
     ):
         try:
             metadata = path.lstat()
@@ -34,3 +35,6 @@ def copy_llm_configuration(source_root, destination_root):
     shutil.copyfile(template, destination / "providers.template.toml")
     shutil.copyfile(template, destination / "providers.toml")
     shutil.copyfile(source / "presets.toml", destination / "presets.toml")
+    costs = source / "costs.template.toml"
+    if costs.exists():
+        shutil.copyfile(costs, destination / costs.name)
