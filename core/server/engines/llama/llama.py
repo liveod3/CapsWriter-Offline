@@ -4,6 +4,7 @@ import ctypes
 import codecs
 import struct
 import time
+import logging
 from collections import deque, Counter
 import numpy as np
 import gguf
@@ -155,21 +156,20 @@ llama_sampler_init_penalties = None
 llama_sampler_accept = None
 
 def logger_callback(level, message, user_data):
-    """
-    llama.cpp 日志回调函数
-    level: 
-        2 = ERROR
-        3 = WARN
-        4 = INFO
-        5 = DEBUG
-    """
-    if not message: return
+    """Forward native diagnostics using the ggml_log_level severity."""
+    if not message:
+        return
     try:
-        msg_str = message.decode('utf-8', errors='replace').strip()
-        if not msg_str or msg_str in ['.', '\n']: return
-        logger.info(f"{msg_str}")
-    except Exception as e:
-        print(f"日志回调出错: {e}")
+        text = message.decode('utf-8', errors='replace').strip()
+        if not text or text == '.':
+            return
+        # ggml/include/ggml.h: DEBUG=1, INFO=2, WARN=3, ERROR=4.
+        # NONE/CONT and unknown values have no standalone severity.
+        severity = {1: logging.DEBUG, 2: logging.INFO,
+                    3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG)
+        logger.log(severity, '%s', text, extra={'markup': False})
+    except Exception as exc:
+        logger.warning('Native log callback failed: error=%s', type(exc).__name__)
 
 def configure_logging(logs=True):
     """配置 llama.cpp 日志回调"""

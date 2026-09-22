@@ -197,7 +197,7 @@ class ClientState:
             file_path: 音频文件路径
         """
         self.audio_files[task_id] = file_path
-        logger.debug(f"注册音频文件: task_id={task_id}, path={file_path}")
+        logger.debug('Audio file registered: task=%s', task_id[:8])
     
     def pop_audio_file(self, task_id: str) -> Optional[Path]:
         """
@@ -211,7 +211,7 @@ class ClientState:
         """
         file_path = self.audio_files.pop(task_id, None)
         if file_path:
-            logger.debug(f"获取音频文件: task_id={task_id}, path={file_path}")
+            logger.debug('Audio file retrieved: task=%s', task_id[:8])
         return file_path
 
     def set_output_text(self, text: str) -> None:

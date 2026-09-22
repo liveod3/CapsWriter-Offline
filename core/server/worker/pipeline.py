@@ -9,7 +9,7 @@
 
 import re
 import time
-from core.server.state import WorkerState, console
+from core.server.state import WorkerState
 from core.server.schema import Task, Result
 from core.server.formatter import TextFormatter
 from config_server import ServerConfig as Config
@@ -54,14 +54,14 @@ class TaskPipeline:
             
             logger.debug(f"简单拼接: +{added_chars} 字符, 片段={len(segment_text)}, 总={len(result.text)}")
         except Exception as e:
-            logger.warning(f"简单文本拼接失败: {e}")
+            logger.warning('Text merge failed: error=%s', type(e).__name__)
 
     def process(self, task: Task) -> Result:
         """
         处理单个音频任务片段并返回识别结果
         """
         try:
-            logger.info(f"任务 {task.task_id[:8]}, 语言={task.language}, 类型={task.type}")
+            logger.info('Recognition started: task=%s source=%s', task.task_id[:8], task.type)
             is_first_segment = task.key not in self.state.sessions
             session = self.state.get_session(task.task_id, task.socket_id, task.type)
             result = session.result
@@ -91,8 +91,7 @@ class TaskPipeline:
 
             # 4. 路径 A: 简单文本拼接 (主要用于实时回显)
             asr_raw_text = stream.result.text
-            logger.info(f'模型输出：{asr_raw_text}')
-            console.print(f'\033[0G  模型输出：[cyan]{asr_raw_text}', soft_wrap=True)
+            logger.info('Recognition decoded: task=%s chars=%d', task.task_id[:8], len(asr_raw_text))
             self._process_simple_merge(result, asr_raw_text)
 
             # 5. 路径 B: 对齐增强 (仅针对文件任务)
@@ -141,10 +140,8 @@ class TaskPipeline:
             raw_text = result.text
             result.text = self.formatter.format(result.text)
             result.text_accu = self.formatter.format(result.text_accu)
-            console.print(f'  片段拼接：[purple]{raw_text}', soft_wrap=True)
-            console.print(f'  格式化后：[green]{result.text}\n', soft_wrap=True)
-
-            logger.debug(f'格式调整：{raw_text} --> {result.text}')
+            logger.debug('Recognition formatted: task=%s input_chars=%d output_chars=%d',
+                         task.task_id[:8], len(raw_text), len(result.text))
 
             # 将格式化引入的标点同步回 token 序列
             if result.tokens and result.text_accu:

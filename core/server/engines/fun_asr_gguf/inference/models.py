@@ -37,10 +37,8 @@ class Models:
             vprint(f"✓ 模型加载完成 (耗时: {elapsed:.2f}s)", verbose)
             self._initialized = True
         except Exception as e:
-            vprint(f"✗ 初始化失败: {e}", verbose)
-            import traceback
-            traceback.print_exc()
-            raise RuntimeError(f"模型初始化失败: {e}")
+            vprint(f'Model initialization failed: error={type(e).__name__}', verbose)
+            raise RuntimeError(f'Model initialization failed: {type(e).__name__}') from None
 
     def _load_models(self, verbose):
         """执行实际的模型加载逻辑"""
@@ -94,4 +92,3 @@ class Models:
         self.ctc_decoder = None
         self._initialized = False
         print("[ASR] 资源已释放")
-

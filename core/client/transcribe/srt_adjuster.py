@@ -102,7 +102,7 @@ class SrtAdjuster:
         console.print(f'[ui.label]文本[/]  [ui.value]{text_file}[/]')
         console.print(f'[ui.label]时间戳[/]  [ui.value]{json_file}[/]')
         
-        logger.info(f"开始重建 SRT: text={text_file}, json={json_file}")
+        logger.info('Subtitle rebuild started')
         
         try:
             words = self._load_words(json_file)
@@ -119,9 +119,9 @@ class SrtAdjuster:
                     f'({sequence})，未覆盖既有文件[/]'
                 )
             console.print(f'[ui.success]✓ 重建完成[/]  [ui.value]{output_file}[/]')
-            logger.info(f"SRT 重建完成: {output_file}")
+            logger.info('Subtitle rebuild completed')
             return True
         except Exception as e:
-            console.print(f'[ui.error]✗ SRT 重建失败[/]  [ui.value]{e}[/]')
-            logger.error(f"SRT 重建失败: {e}", exc_info=True)
+            console.print(f'[ui.error]✗ SRT 重建失败[/]  [ui.value]{type(e).__name__}[/]')
+            logger.error('Subtitle rebuild failed: error=%s', type(e).__name__)
             return False

@@ -1,5 +1,12 @@
 # 更新日志
 
+## 2026-09-22 — Unreleased, diagnostic privacy accepted
+
+- Remove recognition text, formatted text, token fragments, content-bearing exceptions and transcript-derived filenames at the application logging sources. Keep task IDs, timings, lengths and error categories, while preserving intentional client result previews, text output and independently enabled content archives. Native llama callbacks forward diagnostic text directly; remove the blanket message-to-byte-count replacement and its helper module.
+- Sanitize ASR/aligner process exits without changing their nonzero failure signal; prevent model initialization and file-batch errors from printing content-bearing tracebacks. Unexpected batch failures return a failed result. Add 34 synthetic privacy regressions across latest/monthly/per-run/console diagnostic sinks, LLM payloads and errors, record switches, transport errors, clipboard failures and saved-output paths.
+- Correct the native severity mapping after manual startup feedback: GGML INFO is 2 and ERROR is 4. Ordinary startup records no longer flood the warning-level console, while genuine warning/error text remains visible. Render native messages as literal text, preserving brackets and percent signs. Tests for all four callbacks verify text forwarding, severity, UTF-8 replacement, empty-message handling and console thresholds.
+- Validation: `capswriter`, Python 3.11.15; **446 passed, 2 deselected**, configured coverage **84.79%**. Ruff, selected mypy targets, compileall and diff checks pass. The user accepted the complete item and authorized commit on 2026-09-22 after the recorded manual dictation/file runs; [acceptance scope and limits](validation/P0-04-diagnostic-privacy.md). Existing logs and local settings are preserved.
+
 ## 2026-09-22 — Unreleased, terminal-outcomes item accepted
 
 - Complete **Guarantee terminal task outcomes and bounded recovery**, accepted by the user on 2026-09-22 after reporting no material issues; includes the delivery slice recorded below. Add connection/task-scoped cancellation with bounded disconnect fallback; bound model startup, ASR task-loop progress and inactive task state; stop/reap the service on aligner timeout or abnormal exit. Dispatch network shutdown on its owning loop and defer process cleanup until startup/network work returns, including signal races during startup. Keep clean idle aligner replacement; automatic crash restart/replay and a new IPC acknowledgement system are not required.

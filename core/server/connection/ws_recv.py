@@ -235,7 +235,8 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     except (ClientLimitError, ServerBusyError, ProtocolValidationError, ResultDeliveryError):
         raise
     except Exception as e:
-        logger.error(f"音频数据处理错误，任务ID: {msg.task_id}: {e}", exc_info=True)
+        logger.error('Audio message processing failed: task=%s error=%s',
+                     msg.task_id[:8], type(e).__name__)
         raise
 
 
@@ -349,8 +350,8 @@ async def ws_recv(websocket, app) -> None:
         console.print("InvalidState...")
         logger.error(f"WebSocket 状态异常: {socket_id}")
     except Exception as e:
-        console.print("Exception:", e)
-        logger.error(f"WebSocket 接收异常，客户端ID {socket_id}: {e}", exc_info=True)
+        logger.error('WebSocket receive failed: socket=%s error=%s',
+                     socket_id[:8], type(e).__name__)
     finally:
         # 清理资源
         status_mic.stop()

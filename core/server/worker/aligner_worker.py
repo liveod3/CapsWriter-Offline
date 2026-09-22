@@ -93,20 +93,24 @@ def start_aligner_worker(queue_in, queue_out):
                 )
             except Exception as exc:
                 logger.error(
-                    f"Aligner 任务 {request.task_id[:8]} 执行失败: {exc}",
-                    exc_info=True,
+                    'Alignment request failed: task=%s error=%s',
+                    request.task_id[:8], type(exc).__name__,
                 )
                 response = AlignResponse(
                     request_id=request.request_id,
                     task_id=request.task_id,
-                    error=f"{type(exc).__name__}: {exc}",
+                    error=type(exc).__name__,
                 )
 
             last_active = time.monotonic()
             _put_response(queue_out, response)
+    except Exception as exc:
+        logger.error('Aligner worker stopped: error=%s', type(exc).__name__)
+        # multiprocessing prints uncaught exception chains to stderr by default.
+        raise SystemExit(1) from None
     finally:
         if engine is not None:
             try:
                 engine.cleanup()
             except Exception as exc:
-                logger.warning(f"Aligner 进程退出清理失败: {exc}")
+                logger.warning('Aligner cleanup failed: error=%s', type(exc).__name__)

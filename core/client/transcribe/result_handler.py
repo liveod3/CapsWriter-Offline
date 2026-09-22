@@ -119,21 +119,21 @@ class ResultHandler:
             merge_filename = paths['merge']
             with open(merge_filename, 'w', encoding='utf-8') as f:
                 f.write(text_accu)
-            logger.debug(f"保存合并文本: {merge_filename}")
+            logger.debug('Transcription output saved: format=merge')
 
         # 2. 保存 txt
         if 'txt' in output_formats:
             txt_filename = paths['txt']
             with open(txt_filename, 'w', encoding='utf-8') as f:
                 f.write(text_split)
-            logger.debug(f"保存切分文本: {txt_filename}")
+            logger.debug('Transcription output saved: format=txt')
 
         # 3. 保存 json
         if 'json' in output_formats:
             json_filename = paths['json']
             with open(json_filename, 'w', encoding='utf-8') as f:
                 json.dump({'timestamps': timestamps, 'tokens': tokens}, f, ensure_ascii=False)
-            logger.debug(f"保存 JSON 结果: {json_filename}")
+            logger.debug('Transcription output saved: format=json')
         
         # 4. 生成 srt
         if 'srt' in output_formats:

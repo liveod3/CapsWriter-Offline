@@ -17,4 +17,4 @@ def broadcast_output_udp(text: str):
                 sock.sendto(message, (addr, port))
                 logger.debug(f"UDP 发送输出文本到 {addr}:{port}, 长度: {len(text)}")
         except Exception as e:
-            logger.warning(f"UDP 发送输出文本到 {addr}:{port} 失败: {e}")
+            logger.warning('UDP text delivery failed: error=%s', type(e).__name__)

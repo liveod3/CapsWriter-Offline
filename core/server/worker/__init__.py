@@ -14,10 +14,16 @@ def start_worker(queue_in: Queue, queue_out: Queue, sockets_id: ListProxy,
                  align_queue_in: Queue, align_queue_out: Queue, stdin_fn: int,
                  failure_event=None, progress_clock=None):
     """识别子进程启动入口"""
-    worker = RecognizerWorker(
-        queue_in, queue_out, sockets_id,
-        align_queue_in, align_queue_out, stdin_fn, failure_event, progress_clock,
-    )
-    worker.run()
+    try:
+        worker = RecognizerWorker(
+            queue_in, queue_out, sockets_id,
+            align_queue_in, align_queue_out, stdin_fn, failure_event, progress_clock,
+        )
+        worker.run()
+    except Exception as exc:
+        if failure_event is not None:
+            failure_event.set()
+        logger.error('Recognition process exited: error=%s', type(exc).__name__)
+        raise SystemExit(1) from None
 
 __all__ = ['RecognizerWorker', 'start_worker']

@@ -332,7 +332,7 @@ class FileTranscriber:
         # 1. 预先获取时长
         self._audio_duration = await MediaTool.get_audio_duration(self.file)
         
-        logger.info(f"开始转录文件: {self.file}, 任务ID: {self.task_id}")
+        logger.info('File transcription started: task=%s', self.task_id[:8])
         time_start = time.time()
         self._started_at = time.perf_counter()
         self._start_progress()
@@ -529,11 +529,10 @@ class FileTranscriber:
         )
         
         logger.info(
-            f"转录完成: {self.file}, 音频时长: {audio_duration:.2f}s, "
-            f"处理耗时: {elapsed:.2f}s, 速度: {self.summary.speed_ratio:.2f}x, "
-            f"RTF: {self.summary.rtf:.3f}, "
-            f"文本长度: {len(text_display)}, "
-            f"输出编号: {sequence}, 输出文件: {[str(p) for p in output_paths]}"
+            'File transcription completed: task=%s duration=%.2f elapsed=%.2f '
+            'speed=%.2f rtf=%.3f chars=%d sequence=%d outputs=%d',
+            self.task_id[:8], audio_duration, elapsed, self.summary.speed_ratio,
+            self.summary.rtf, len(text_display), sequence, len(output_paths),
         )
         return True
 

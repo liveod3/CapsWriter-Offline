@@ -235,7 +235,7 @@ class AudioFileManager:
             重命名后的文件路径，如果失败返回 None
         """
         if self.file_path is None or not self.file_path.exists():
-            logger.warning(f"文件不存在，无法重命名: {self.file_path}")
+            logger.warning('Audio rename skipped: file unavailable')
             return None
         
         # 构建新文件名
@@ -250,9 +250,9 @@ class AudioFileManager:
         
         try:
             self.file_path.rename(new_path)
-            logger.debug(f"音频文件已重命名: {self.file_path.name} -> {new_path.name}")
+            logger.debug('Audio renamed: name_chars=%d', len(text_clean))
             self.file_path = new_path
             return new_path
         except Exception as e:
-            logger.error(f"重命名音频文件失败: {e}")
+            logger.error('Audio rename failed: error=%s', type(e).__name__)
             return self.file_path

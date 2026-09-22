@@ -70,7 +70,7 @@ class ProcessAlignerProxy(BaseAlignEngine):
                     continue
 
             if response.error:
-                logger.error(f"Aligner 对齐失败，任务 {task_id[:8]}: {response.error}")
+                logger.error('Alignment failed: task=%s', task_id[:8])
                 return None
             return response.result
 

@@ -164,7 +164,7 @@ class ParaformerEngine(BaseASREngine):
         if context:
             logger.debug(f"ParaformerEngine 不支持解码 context，已忽略")
         if language and language != 'auto':
-            logger.debug(f"ParaformerEngine 是中文专用模型，语言设置 '{language}' 已忽略")
+            logger.debug('Paraformer language override ignored')
         
         # 1. 调用内核解码
         self.recognizer.decode_stream(stream.internal_stream)

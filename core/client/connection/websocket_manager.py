@@ -152,7 +152,7 @@ class WebSocketManager:
                 self._connect_fail_logged = True
         except Exception as e:
             if not self._connect_fail_logged:
-                logger.debug(f"连接服务端 {url} 失败: {e}")
+                logger.debug('WebSocket connection failed: error=%s', type(e).__name__)
                 self._connect_fail_logged = True
         
         return False
@@ -177,11 +177,12 @@ class WebSocketManager:
             
         except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as exc:
             self.state.websocket = None
-            detail = exc.reason or f'关闭代码 {exc.code}'
-            raise CommunicationError(f"发送失败：服务端已关闭连接（{detail}）")
+            close_frame = exc.rcvd or exc.sent
+            code = close_frame.code if close_frame else 1006
+            raise CommunicationError(f'Send failed: connection closed (code={code})') from None
             
         except Exception as e:
-            raise CommunicationError(f"发送消息时发生未知错误: {e}")
+            raise CommunicationError(f'Send failed: {type(e).__name__}') from None
     
     async def receive(self) -> Optional[RecognitionMessage]:
         """
@@ -212,14 +213,14 @@ class WebSocketManager:
             if self._shutdown_requested:
                 return None
             close_frame = exc.rcvd or exc.sent
-            detail = (close_frame.reason or f'关闭代码 {close_frame.code}') if close_frame else '连接异常中断'
-            raise CommunicationError(f"接收失败：服务端已关闭连接（{detail}）") from exc
+            code = close_frame.code if close_frame else 1006
+            raise CommunicationError(f'Receive failed: connection closed (code={code})') from None
             
-        except json.JSONDecodeError as e:
-            raise CommunicationError(f"消息解析失败: {e}")
+        except json.JSONDecodeError:
+            raise CommunicationError('Invalid message JSON') from None
             
         except Exception as e:
-            raise CommunicationError(f"接收消息时发生未知错误: {e}")
+            raise CommunicationError(f'Receive failed: {type(e).__name__}') from None
     
     async def close(self) -> None:
         """关闭 WebSocket 连接"""

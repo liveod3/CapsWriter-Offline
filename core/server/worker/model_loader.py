@@ -66,7 +66,7 @@ class ModelLoader:
             logger.info(f"全系统初始化完成，耗时: {time.time() - t1:.2f}s")
             
         except Exception as e:
-            logger.error(f"Loader 加载失败: {str(e)}", exc_info=True)
+            logger.error('Model loading failed: error=%s', type(e).__name__)
             raise e
 
     def _load_punc_model(self):

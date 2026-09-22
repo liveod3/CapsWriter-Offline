@@ -62,6 +62,6 @@ def remove_trailing_punctuation(
         (处理后的 tokens, 处理后的 timestamps)
     """
     if tokens and tokens[-1] in Punctuation.ALL:
-        logger.debug(f"移除末尾标点: '{tokens[-1]}'")
+        logger.debug('Removed trailing punctuation')
         return tokens[:-1], timestamps[:-1] if timestamps else timestamps
     return tokens, timestamps

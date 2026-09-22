@@ -131,15 +131,14 @@ def resolve_input_paths(
                 ),
                 key=lambda candidate: str(candidate).casefold(),
             )
-            mode = '递归扫描' if recursive else '扫描'
-            logger.info(f'{mode}文件夹: {path}, 媒体文件数: {len(matches)}')
+            logger.info('Media directory scanned: recursive=%s files=%d', recursive, len(matches))
         elif path.is_file():
             matches = [path]
         else:
             console.print(
                 f'[ui.warning]▲ 跳过不存在的路径[/]  [ui.value]{path}[/]'
             )
-            logger.warning(f'跳过不存在的输入路径: {path}')
+            logger.warning('Input path skipped: unavailable')
             continue
 
         for candidate in matches:
@@ -253,10 +252,7 @@ class FileRunner:
         summaries = []
         batch_started_at = time.perf_counter()
         log_path = task_log.start()
-        logger.info(
-            f"文件转写任务开始: 文件数={total}, 输出格式={sorted(self.output_formats)}, "
-            f"待处理文件={[str(f) for f in self.files]}"
-        )
+        logger.info('File batch started: files=%d formats=%s', total, sorted(self.output_formats))
         try:
             for index, file in enumerate(self.files, start=1):
 
@@ -266,7 +262,7 @@ class FileRunner:
                     f'[ui.muted]{index}/{total}[/]'
                 )
                 console.print(f'    [ui.label]来源[/]  [ui.value]{file}[/]')
-                logger.info(f"正在处理文件: {file}")
+                logger.info('File processing started: index=%d total=%d', index, total)
                 try:
                     summary = await self._process_file(file)
                 except Exception as exc:
@@ -275,7 +271,6 @@ class FileRunner:
                         self._failure_code = 'timeout' if isinstance(exc, TimeoutError) else 'unexpected'
                     logger.error(
                         'File processing failed: error=%s', type(exc).__name__,
-                        exc_info=True,
                         extra={'console_handled': True},
                     )
 
@@ -294,7 +289,7 @@ class FileRunner:
                     console.print('    [ui.label]输出[/]')
                     for output_path in summary.output_paths:
                         console.print(f'      [ui.accent]•[/] [ui.value]{output_path}[/]')
-                    logger.info(f"文件处理完成: {file}")
+                    logger.info('File processing completed: index=%d total=%d', index, total)
                 else:
                     failed_count += 1
                     print_file_failure(console, file, self._failure_code, has_next=index < total)
@@ -347,7 +342,7 @@ class FileRunner:
             return failed_count == 0 and succeeded_count == total
 
         except Exception as e:
-            logger.error(f"文件模式运行异常: {e}", exc_info=True)
-            raise
+            logger.error('File runner failed: error=%s', type(e).__name__)
+            return False
         finally:
             task_log.close()

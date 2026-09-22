@@ -75,7 +75,7 @@ class EngineFactory:
             return CTTransformerPuncEngine(model_path)
         except Exception as e:
             from . import logger
-            logger.warning(f"⚠️ [警告] 标点模型加载失败 (原因: {e})，系统将以【无标点模式】继续运行...")
+            logger.warning('Punctuation model unavailable; continuing without punctuation: error=%s', type(e).__name__)
             return BasePuncEngine(None)
 
     @staticmethod
@@ -91,7 +91,7 @@ class EngineFactory:
             return QwenForceAligner(config)
         except Exception as e:
             from . import logger
-            msg = f"⚠️ [警告] 对齐模型加载失败，原因: \n\n{e}\n\n系统将以【无精确时间戳模式】继续运行...\n\n"
+            msg = f'Alignment model unavailable; continuing without measured timestamps: error={type(e).__name__}\n'
             # 检查模型文件是否错放到上级目录
             aligner_dir = ModelPaths.force_aligner_gguf_dir
             aligner_files = [
