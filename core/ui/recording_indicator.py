@@ -13,6 +13,7 @@ import tkinter as tk
 from typing import Optional, Tuple
 
 from . import logger
+from . import status_host
 
 
 # ============================================================
@@ -284,15 +285,13 @@ _indicator: Optional[_RecordingIndicator] = None
 
 def _post_indicator(action) -> None:
     """Enqueue Tk work without blocking shortcut or asyncio threads on root readiness."""
-    from .toast_manager import ToastMessageManager
-
     def apply(root):
         global _indicator
         if _indicator is None:
             _indicator = _RecordingIndicator(root)
         action(_indicator)
 
-    ToastMessageManager().post_ui(apply)
+    status_host.StatusUIHost().post_ui(apply)
 
 
 def show_recording_indicator() -> None:

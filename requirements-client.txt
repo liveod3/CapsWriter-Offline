@@ -2,7 +2,6 @@
 rich
 typer
 colorama
-markdown
 
 # system, input, hardware
 keyboard
@@ -23,7 +22,6 @@ rapidfuzz
 # tray and image
 pystray==0.19.5
 Pillow
-tkhtmlview
 
 # build
 pyinstaller

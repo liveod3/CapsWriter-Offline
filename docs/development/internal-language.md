@@ -19,7 +19,7 @@ For product output, use the [localization layer](localization.md): `Notice` pres
 | Locale catalog values and test fixture strings | Preserve translated product text and multilingual assertions; comments/docstrings are still checked |
 | Chinese ITN rules, units, idioms, character ranges, engine language aliases | Semantic recognition data; translating it changes behavior |
 | LLM/model prompts and triggers | Functional input, preserved exactly, including Chinese prompts |
-| Toast and formatting demonstration text | Multilingual rendering/recognition fixtures |
+| Formatting demonstration text | Multilingual recognition fixtures |
 | Existing decoder abort sentinel | Recognition-result compatibility; not a newly introduced diagnostic |
 | Native/third-party diagnostics | Preserve original messages; project wrappers use controlled English records |
 | `core/server/engines/*/export/`, `core/tools/zhconv/` | Copied upstream/derived export and conversion code; retain original text and attribution |

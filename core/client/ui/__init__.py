@@ -19,11 +19,6 @@ from core.client.ui.tips import TipsDisplay
 # 3. Re-export shared UI components.
 # Client modules can import these from core.client.ui.
 from core.ui import (
-    toast,
-    toast_stream,
-    ToastMessage,
-    ToastMessageManager,
-    ToastMessageManager,
     enable_min_to_tray,
     stop_tray,
 )
@@ -33,10 +28,6 @@ from core.ui import (
 __all__ = [
     'logger',
     'TipsDisplay',
-    'toast',
-    'toast_stream',
-    'ToastMessage',
-    'ToastMessageManager',
     'enable_min_to_tray',
     'stop_tray',
 ]

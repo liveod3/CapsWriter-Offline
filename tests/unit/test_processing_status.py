@@ -67,7 +67,7 @@ def test_indicator_calls_are_queued_until_tk_is_ready(monkeypatch):
 
     callbacks = []
     manager = SimpleNamespace(post_ui=callbacks.append, root=None)
-    monkeypatch.setattr("core.ui.toast_manager.ToastMessageManager", lambda: manager)
+    monkeypatch.setattr("core.ui.status_host.StatusUIHost", lambda: manager)
     factory = Mock()
     monkeypatch.setattr(module, "_RecordingIndicator", factory)
     monkeypatch.setattr(module, "_indicator", None)
@@ -114,14 +114,12 @@ def test_persistent_processing_hint_does_not_schedule_auto_hide(monkeypatch):
 
 
 def test_ui_queue_drains_on_owner_thread_and_rejects_updates_after_close():
-    from core.ui.toast_manager import ToastMessageManager
+    from core.ui.status_host import StatusUIHost
 
-    manager = object.__new__(ToastMessageManager)
+    manager = object.__new__(StatusUIHost)
     manager.ui_queue = Queue()
-    manager.message_queue = Queue()
     manager._ui_closed = False
     manager.is_running = True
-    manager.active_windows = []
     manager.root = Mock()
     callback = Mock()
     manager.post_ui(callback)

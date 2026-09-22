@@ -214,8 +214,6 @@ def test_no_hidden_chinese_labels_in_maintained_runtime_sources():
             while owner in parents and not isinstance(owner, ast.Assign):
                 owner = parents[owner]
             names = {target.id for target in owner.targets if isinstance(target, ast.Name)} if isinstance(owner, ast.Assign) else set()
-            if relative == 'core/ui/toast.py' and names & {'plain_text', 'markdown_text'}:
-                continue  # Rendering fixtures deliberately contain Chinese.
             if relative == 'core/tools/format_tools.py' and 'test_cases' in names:
                 continue  # Text transformation fixtures must retain their input.
             if relative == 'core/tools/format_tools.py' and node.value.startswith('(?ix)'):

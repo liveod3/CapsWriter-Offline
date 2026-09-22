@@ -29,3 +29,9 @@ The default Google rate was checked against its official pricing page on 2026-09
 8. Run the monthly query and JSON detail export. Confirm reported, estimated, possible, and unknown costs remain distinguishable. Native account billing may differ due to free tiers, taxes, outside usage, or unreturned costs.
 
 Cross-month, concurrent, expired-rate, disk-failure, and abrupt-interruption paths are covered synthetically; no destructive interruption of a live client is required for acceptance. The user accepted the feature after requesting removal of its popup. Automated checks do not certify every real provider response or desktop/DPI configuration.
+
+## Separate legacy component removal
+
+The user explicitly authorized deleting the legacy notification component in a second commit. Seven Toast modules, their exports, obsolete locale/demo resources and dedicated rendering dependencies were removed. Recording/preparation still use the existing `recording_indicator` renderer; only its shared thread queue moved to `StatusUIHost`. No cost popup remains.
+
+Post-removal validation: 584 default tests passed, 8 deselected; configured coverage 85.22%. Mock tests cover callback queuing before root readiness, bounded batches, callback/startup failures, owner-thread root cleanup, concurrent first use, and imports without `markdown` or `tkhtmlview`. Syntax, Ruff, configured mypy, language/documentation and diff checks passed. Explicit application shutdown/join integration and actual monitor/DPI interaction remain within their existing validation scope; this removal does not claim to fix monitor-following behavior.

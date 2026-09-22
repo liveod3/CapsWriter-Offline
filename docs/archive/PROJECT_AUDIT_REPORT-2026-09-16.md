@@ -78,7 +78,9 @@ The requested logging consolidation is justified by configuration coupling, sink
 
 ### A09 — Tk host shutdown
 
-**Confirmed statically; no interactive shutdown failure was reproduced.** The recording indicator already posts work to the Toast manager's UI queue. The remaining concrete gap is lifecycle ownership: [ToastMessageManager](../../core/ui/toast_manager.py) starts a Tk thread, while application shutdown does not provide a complete stop/destroy/join path for that host. Quitting the main loop alone does not establish safe object destruction and rejection of late work.
+**Confirmed statically; no interactive shutdown failure was reproduced.** The recording indicator already posts work to the Toast manager's UI queue. The remaining concrete gap is lifecycle ownership: `ToastMessageManager` starts a Tk thread, while application shutdown does not provide a complete stop/destroy/join path for that host. Quitting the main loop alone does not establish safe object destruction and rejection of late work.
+
+Maintenance note, 2026-09-22: the audited Toast implementation was removed at user request. Current recording/processing overlays use [StatusUIHost](../../core/ui/status_host.py); explicit application stop/join integration remains a separate task.
 
 A P1 task should close the existing host safely and settle task-owned status on timeout/cancel/exit. The audit found insufficient evidence to require a wholesale replacement of Toast infrastructure or a migration of numerous current notification callers. Separate that architectural preference from the demonstrated lifecycle gap.
 

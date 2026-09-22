@@ -422,13 +422,6 @@
       "e912c1445f6e122bdc297a6077aa415410600bc60ae25908be89142e0f05f9a2"
     ]
   },
-  "core/ui/toast.py": {
-    "reason": "Multilingual rendering demo fixtures.",
-    "tokens": [
-      "53411ad2e83f355fa2ce21012fe11b11658d10b0bc3beb5d23cbbea9e9dcd9f6",
-      "81831740e70bf39690621e633f6f2b49047ef3759862efd2d912b7a385e24bd7"
-    ]
-  },
   "models/Ollama-Polish.py": {
     "reason": "Standalone experiment inputs and model task prompt; not production history.",
     "tokens": [

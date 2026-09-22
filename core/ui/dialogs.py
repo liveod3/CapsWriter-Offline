@@ -12,10 +12,11 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Optional, Callable
 
-from .toast_constants import DEFAULT_FONT_FAMILY
 from . import logger
 
-# Match toast_base.py DPI awareness.
+DEFAULT_FONT_FAMILY = 'Microsoft YaHei UI'
+
+# Use the same process DPI awareness as the status overlay host.
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(1)
 except (OSError, AttributeError):

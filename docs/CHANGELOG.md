@@ -1,6 +1,12 @@
 # Changelog
 
-## 2026-09-22 ? Unreleased, LLM cost accounting accepted
+## 2026-09-22 — Unreleased, legacy notification component removed
+
+- Remove the seven legacy Toast modules, their public exports, obsolete locale/demo resources, and the dedicated `markdown`/`tkhtmlview` dependencies. The user requested complete removal in a separate commit after rejecting the cost popup.
+- Move only the recording/processing overlay queue and hidden Tk root into `StatusUIHost`. Preserve the existing overlay rendering, placement, DPI mode, and scaling. Keep callback execution and root cleanup on the owner thread; discard pending work on host failure/closure. Explicit application shutdown/join integration remains in TODO.
+- Validation: 584 default tests passed, 85.22% configured coverage; five new mock checks cover bounded batches, failed callbacks/startup, owner-thread cleanup, concurrent initialization, and imports without removed rendering dependencies. Syntax, Ruff, configured mypy, language/documentation and diff checks passed. No real desktop, microphone or provider calls were made.
+
+## 2026-09-22 — Unreleased, LLM cost accounting accepted
 
 - Record each LLM request in a monthly SQLite ledger with model, usage, outcome, request-time rates, reported charges, estimates, and explicit unknown/incomplete costs. Add offline monthly reporting, currency separation, and persistent budget thresholds. Preserve content and credential privacy.
 - Remove all cost popups at user acceptance; per-request summaries remain in diagnostic logs and budget alerts in console/log output. Existing private settings and records remain intact. Validation: 579 default tests, 85.22% configured coverage, syntax/lint/type and documentation checks; see the [acceptance record](validation/P1-llm-costs.md).

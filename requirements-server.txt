@@ -12,6 +12,3 @@ websockets
 # tray and image
 pystray==0.19.5
 Pillow
-
-markdown
-tkhtmlview

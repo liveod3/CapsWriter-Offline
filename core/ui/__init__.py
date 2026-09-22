@@ -1,6 +1,6 @@
 """Shared UI utilities.
 
-Provide floating Toast notifications and system tray support.
+Provide recording/processing overlays and system tray support.
 Share components between client and server with an injected logger.
 """
 import logging
@@ -37,17 +37,12 @@ def set_ui_logger(real_logger):
 # Export components.
 # ============================================================
 
-from .toast import toast, toast_stream, ToastMessage, ToastMessageManager
 from .tray import enable_min_to_tray, stop_tray, set_recording_state, set_dictation_paused
 from .recording_indicator import show_recording_indicator, hide_recording_indicator, show_status_hint
 
 __all__ = [
     'logger',
     'set_ui_logger',
-    'toast',
-    'toast_stream',
-    'ToastMessage',
-    'ToastMessageManager',
     'enable_min_to_tray',
     'stop_tray',
     'set_recording_state',
