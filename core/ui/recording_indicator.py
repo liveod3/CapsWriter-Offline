@@ -5,6 +5,8 @@
 在屏幕底部中央显示极简的录音状态提示。
 样式：深色背景，脉冲红点，无边框，不抢焦点。
 """
+
+from core.i18n import tr
 import ctypes
 import ctypes.wintypes
 import tkinter as tk
@@ -107,7 +109,7 @@ class _RecordingIndicator:
 
         tk.Label(
             frame,
-            text='听写中',
+            text=tr('mic.recording'),
             font=('Microsoft YaHei UI', 10),
             fg='#EBEBF5',
             bg='#1C1C1E',
@@ -164,6 +166,7 @@ class _RecordingIndicator:
 
         frame = tk.Frame(win, bg='#1C1C1E', padx=18, pady=9)
         frame.pack()
+        mx, my, mw, mh = _get_active_monitor_workarea()
 
         tk.Label(
             frame,
@@ -176,6 +179,8 @@ class _RecordingIndicator:
         tk.Label(
             frame,
             text=text,
+            wraplength=max(80, min(640, mw - 100)),
+            justify='left',
             font=('Microsoft YaHei UI', 10),
             fg='#EBEBF5',
             bg='#1C1C1E',

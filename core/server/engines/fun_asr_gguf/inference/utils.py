@@ -6,6 +6,7 @@ import time
 from typing import Any, Callable, Tuple
 
 from . import logger
+from core.i18n import localize_notice
 
 def timer(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
     """
@@ -21,7 +22,7 @@ def timer(func: Callable, *args, **kwargs) -> Tuple[Any, float]:
 def vprint(message: str, verbose: bool = True):
     """条件输出：仅在 verbose=True 时输出到控制台，并始终记录到日志"""
     if verbose:
-        print(message)
+        print(localize_notice(message))
     # 始终记录到日志系统，方便排查问题
     logger.info(message)
 

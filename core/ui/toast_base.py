@@ -3,6 +3,8 @@ Toast 窗口基础模块
 
 提供 Toast 窗口的抽象基类和通用工具函数。
 """
+
+from core.i18n import Notice
 import logging
 import tkinter as tk
 from tkinter import font
@@ -290,7 +292,7 @@ class ToastWindowBase(ABC):
 
             return "break"
         except tk.TclError as e:
-            logger.warning(f"滚动事件处理失败: {e}")
+            logger.warning(Notice('diagnostic.toast_base.scroll_event_failed', value0=e))
             return "break"
 
     def _on_copy(self, _event: tk.Event) -> str:
@@ -315,19 +317,19 @@ class ToastWindowBase(ABC):
                     if sel_ranges:
                         # 有选中文本，获取选中内容
                         text_to_copy = self.md_label.get(sel_ranges[0], sel_ranges[1])
-                        logger.info("已复制选中的文本到剪贴板")
+                        logger.info(Notice('diagnostic.toast_base.selected_text_copied_to_clipboard'))
                 except tk.TclError:
                     pass  # 没有选区或其他错误
             
             # 如果没有选中文本，复制全部内容
             if text_to_copy is None:
                 text_to_copy = self.full_text
-                logger.info("已复制 Toast 全部内容到剪贴板")
+                logger.info(Notice('diagnostic.toast_base.all_toast_content_copied_to_clipboard'))
             
             self.window.clipboard_clear()
             self.window.clipboard_append(text_to_copy)
         except Exception as e:
-            logger.error(f"复制到剪贴板失败: {e}")
+            logger.error(Notice('diagnostic.toast_base.clipboard_copy_failed', value0=e))
         return "break"
 
     # --------------------------------------------------------
@@ -352,7 +354,7 @@ class ToastWindowBase(ABC):
                 try:
                     self.stop_callback()
                 except Exception as e:
-                    logger.warning(f"停止回调执行失败: {e}")
+                    logger.warning(Notice('diagnostic.toast_base.stop_callback_failed', value0=e))
 
             if self.pause:
                 # 如果窗口被暂停（拖动），延迟销毁
@@ -483,10 +485,10 @@ class ToastWindowBase(ABC):
             self.window.update()
             self.window.update_idletasks()
 
-            logger.info(f"Markdown 窗口: {final_w}x{final_h} (内容: {content_height}px, 系数: {margin_coefficient:.2f})")
+            logger.info(Notice('diagnostic.toast_base.markdown_window_x_content_px_margin', value0=final_w, value1=final_h, value2=content_height, value3=margin_coefficient))
 
         except Exception as e:
-            logger.error(f"Markdown 转换失败: {e}")
+            logger.error(Notice('diagnostic.toast_base.markdown_conversion_failed', value0=e))
             self._destroy_window()
 
     # --------------------------------------------------------

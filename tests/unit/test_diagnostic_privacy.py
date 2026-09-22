@@ -102,6 +102,8 @@ def test_recognition_and_formatting_preserve_results_without_echoes(
 
 def _load_function(relative_path, name, namespace, class_name=None):
     """Execute the maintained function without importing native DLL/model bindings."""
+    from core.i18n import Notice, tr
+    namespace.update(Notice=Notice, tr=tr)
     path = ROOT / relative_path
     tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     body = tree.body

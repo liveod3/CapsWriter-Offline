@@ -1,3 +1,5 @@
+
+from core.i18n import Notice
 import queue
 import time
 import uuid
@@ -61,7 +63,7 @@ class ProcessAlignerProxy(BaseAlignEngine):
                     self._failed('AlignerResultQueueFailed')
 
                 if not isinstance(response, AlignResponse):
-                    logger.warning(f"忽略未知 Aligner 响应: {type(response).__name__}")
+                    logger.warning(Notice('diagnostic.manager.ignoring_unknown_aligner_response', value0=type(response).__name__))
                     continue
                 if response.request_id != request_id:
                     self._pending[response.request_id] = response
@@ -70,7 +72,7 @@ class ProcessAlignerProxy(BaseAlignEngine):
                     continue
 
             if response.error:
-                logger.error('Alignment failed: task=%s', task_id[:8])
+                logger.error(Notice('diagnostic.manager.alignment_failed_task'), task_id[:8])
                 return None
             return response.result
 

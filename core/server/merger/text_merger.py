@@ -7,6 +7,8 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice
 import difflib
 from core.constants import Punctuation
 from . import logger
@@ -50,7 +52,7 @@ def merge_by_text(
 
     # 最短匹配长度要求
     if best is None:
-        logger.debug("文本拼接: 未找到重叠，直接拼接")
+        logger.debug(Notice('diagnostic.text_merger.text_merge_no_overlap_found_appending_directly'))
         return prev_text + new_text
 
     match_pos_in_tail, match_pos_in_head, match_len = best
@@ -65,9 +67,7 @@ def merge_by_text(
 
     discarded_prev = len(prev_clean) - keep_prev_len - match_len
     logger.debug(
-        f"文本拼接成功: 匹配长度 {match_len}, "
-        f"丢弃 prev 尾部 {discarded_prev} 字, "
-        f"跳过 new 开头 {skip_new_len} 字"
+        Notice('diagnostic.text_merger.text_merged_match_previous_tail_removed_new_prefix', value0=match_len, value1=discarded_prev, value2=skip_new_len)
     )
     return res_prev + res_new
 

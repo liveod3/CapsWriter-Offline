@@ -82,6 +82,7 @@ and reports the restart subset explicitly. Restart-required values stay on disk.
 
 | Group | Fields |
 | --- | --- |
+| Interface | `ui_language` (`auto`, `en`, `zh-CN`); see [interface language](interface-language.md) |
 | Audio archive | `save_audio`, `audio_dir`, `audio_name_len` |
 | Transcripts and action records | `save_transcripts`, `transcript_dir`, `transcript_save_original`, `save_llm_records` |
 | Recognition | `language`, `mic_seg_duration`, `mic_seg_overlap`, `file_seg_duration`, `file_seg_overlap` |
@@ -110,6 +111,14 @@ transcription retained. Python reload does not import legacy `LLM/*.py` or send
 test requests to providers.
 
 ### Server settings supported without restart
+
+The local server follows `ClientConfig.ui_language` at startup and after validated
+edits to `config_client.py`, including the client's language menu. It observes a
+detached configuration snapshot and applies only the language field. The server's
+own `ui_language` remains a fallback for legacy client configurations without that
+field. Other installations and remote clients do not change it over the network.
+Server terminal/tray and worker notices follow the selected language; diagnostic
+file records keep their stable English wording shown above.
 
 `format_num` and `format_spell` update for new tasks. On the first audio message,
 the server copies both settings into the connection-scoped audio cache and every

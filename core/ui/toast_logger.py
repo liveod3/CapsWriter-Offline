@@ -5,6 +5,7 @@ Toast 模块日志配置
 """
 import logging
 import sys
+from core.i18n.logging import LocalizedFormatter
 
 
 def get_toast_logger(name: str) -> logging.Logger:
@@ -38,7 +39,7 @@ def get_toast_logger(name: str) -> logging.Logger:
         # 如果还没有 handlers，添加控制台输出
         if not logger.handlers:
             handler = logging.StreamHandler(sys.stdout)
-            formatter = logging.Formatter(
+            formatter = LocalizedFormatter(
                 '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
                 datefmt='%Y-%m-%d %H:%M:%S'
             )
@@ -65,7 +66,7 @@ def configure_toast_logging(level: int = logging.DEBUG) -> None:
 
     # 配置根 logger
     handler = logging.StreamHandler(sys.stdout)
-    formatter = logging.Formatter(
+    formatter = LocalizedFormatter(
         '%(asctime)s [%(levelname)s] %(name)s: %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
     )

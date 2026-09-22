@@ -5,6 +5,8 @@
 提供对话框的通用工具函数和基类。
 """
 
+from core.i18n import Notice, tr
+
 import ctypes
 import tkinter as tk
 from tkinter import ttk
@@ -63,7 +65,7 @@ def create_modal_dialog(
     # 居中显示
     _center_window(dialog, width, height)
 
-    logger.debug(f"创建模态对话框: {title} ({width}x{height})")
+    logger.debug(Notice('diagnostic.dialogs.creating_modal_dialog_x', value0=title, value1=width, value2=height))
 
     return dialog
 
@@ -91,8 +93,8 @@ def create_label_button_frame(
     label_text: str,
     on_confirm: Callable[[], None],
     on_cancel: Callable[[], None],
-    confirm_text: str = "确定",
-    cancel_text: str = "取消"
+    confirm_text: str | None = None,
+    cancel_text: str | None = None
 ) -> ttk.Frame:
     """
     创建标准按钮区域
@@ -111,8 +113,8 @@ def create_label_button_frame(
     frame = ttk.Frame(parent)
     frame.pack(pady=10)
 
-    ttk.Button(frame, text=confirm_text, command=on_confirm, width=10).pack(side="left", padx=5)
-    ttk.Button(frame, text=cancel_text, command=on_cancel, width=10).pack(side="left", padx=5)
+    ttk.Button(frame, text=confirm_text if confirm_text is not None else tr('dialog.confirm'), command=on_confirm).pack(side="left", padx=5)
+    ttk.Button(frame, text=cancel_text if cancel_text is not None else tr('dialog.cancel'), command=on_cancel).pack(side="left", padx=5)
 
     return frame
 

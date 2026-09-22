@@ -33,7 +33,7 @@ def test_load_words_rejects_decreasing_timestamps(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="非递减"):
+    with pytest.raises(ValueError, match="nondecreasing"):
         SrtAdjuster._load_words(json_file)
 
 

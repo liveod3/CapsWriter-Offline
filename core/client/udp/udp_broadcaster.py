@@ -1,4 +1,6 @@
 # coding: utf-8
+
+from core.i18n import Notice
 import socket
 from . import logger
 from config_client import ClientConfig as Config
@@ -15,6 +17,6 @@ def broadcast_output_udp(text: str):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.sendto(message, (addr, port))
-                logger.debug(f"UDP 发送输出文本到 {addr}:{port}, 长度: {len(text)}")
+                logger.debug(Notice('diagnostic.udp_broadcaster.sending_udp_output_to_chars', value0=addr, value1=port, value2=len(text)))
         except Exception as e:
-            logger.warning('UDP text delivery failed: error=%s', type(e).__name__)
+            logger.warning(Notice('diagnostic.udp_broadcaster.udp_text_delivery_failed_error'), type(e).__name__)

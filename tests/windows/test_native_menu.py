@@ -12,6 +12,7 @@ from pystray import Menu
 from core.ui.menu_model import MenuAction
 from core.ui.tray_native import NativeMenuIcon, G, U, win32
 from unittest.mock import Mock
+from core.i18n import lazy, set_language, tr
 
 
 def test_menu_owner_preserves_default_window_messages_and_tooltip_dispatch():
@@ -82,6 +83,36 @@ def test_native_menu_has_bitmaps_and_submenu_tooltip_mapping():
         assert label.value == "LLM actions"
         assert U.GetMenuStringW(item.hSubMenu, 0, label, len(label), 0x400) == len("Translation: Currently on")
         assert label.value == "Translation: Currently on"
+    finally:
+        if menu:
+            win32.DestroyMenu(menu)
+        for bitmap in icon._bitmaps.values():
+            assert G.DeleteObject(bitmap)
+        icon._bitmaps.clear()
+        icon._unregister_class(icon._atom)
+
+
+@pytest.mark.parametrize('language', ['en', 'zh-CN'])
+@pytest.mark.parametrize('size', [20, 30, 40])
+def test_localized_native_labels_and_tooltips(language, size):
+    """Exercise native resource creation at 100/150/200 percent icon sizes."""
+    action = MenuAction(lazy('tray.settings'), tooltip=lazy('tray.settings.tip'), icon='settings',
+                        children=[MenuAction(lazy('language.title'), lambda: None,
+                                             lazy('language.tip'), 'translate')])
+    set_language(language)
+    icon = NativeMenuIcon('capswriter-localized-native-test')
+    icon._size = size
+    menu = None
+    try:
+        menu = icon._create_menu(Menu(action.to_item()), [])
+        U.GetMenuStringW.argtypes = [W.HMENU, W.UINT, W.LPWSTR, ctypes.c_int, W.UINT]
+        U.GetMenuStringW.restype = ctypes.c_int
+        label = ctypes.create_unicode_buffer(256)
+        assert U.GetMenuStringW(menu, 0, label, len(label), 0x400) > 0
+        assert label.value == tr('tray.settings')
+        assert icon._tips[1] == tr('tray.settings.tip')
+        assert icon._tips[2] == tr('language.tip')
+        assert all(key[1] == size for key in icon._bitmaps)
     finally:
         if menu:
             win32.DestroyMenu(menu)

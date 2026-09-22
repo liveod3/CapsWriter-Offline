@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import Notice, tr
 import os
 from .. import logger
 from .schema import MsgType, StreamingMessage, ASREngineConfig
@@ -34,7 +36,7 @@ def do_align_task(msg, aligner, from_align_q):
             is_last=msg.is_last
         ))
     except Exception as e:
-        print(f"[ASRWorker] 对齐出错: {e}")
+        print(tr('terminal.asr_worker.asrworker_alignment_failed', value0=e))
         from_align_q.put(StreamingMessage(MsgType.MSG_ALIGN, data=None))
 
 def asr_helper_worker_proc(to_worker_q, from_enc_q, from_align_q, config: ASREngineConfig):
@@ -64,7 +66,7 @@ def asr_helper_worker_proc(to_worker_q, from_enc_q, from_align_q, config: ASREng
             
         from_enc_q.put(StreamingMessage(MsgType.MSG_READY))
     except Exception as e:
-        logger.error(f"[ASRWorker] 模型加载出错：\n{e}")
+        logger.error(Notice('diagnostic.asr_worker.asrworker_model_loading_failed', value0=e))
         from_enc_q.put(StreamingMessage(MsgType.MSG_ERROR, data=e))
         return
 

@@ -1,3 +1,5 @@
+
+from core.i18n import tr
 import os
 import time
 from typing import Optional, List, Dict, Any
@@ -37,7 +39,7 @@ class AudioTranscriber:
         try:
             self._print_header(reporter, audio_path)
 
-            reporter.print("\n[1] 加载音频...")
+            reporter.print(tr('terminal.transcriber.loading_audio'))
             audio, result.timings.load_audio = timer(
                 load_audio,
                 audio_path, 
@@ -47,8 +49,8 @@ class AudioTranscriber:
             )
             
             audio_duration = len(audio) / self.sample_rate
-            reporter.print(f"    音频长度: {audio_duration:.2f}s")
-            if start_second: reporter.print(f"    起始偏移: {start_second:.2f}s")
+            reporter.print(tr('terminal.transcriber.audio_duration_s', value0=audio_duration))
+            if start_second: reporter.print(tr('terminal.transcriber.start_offset_s', value0=start_second))
 
             base_offset = start_second if start_second else 0.0
 
@@ -63,17 +65,17 @@ class AudioTranscriber:
             if srt and result.segments:
                 srt_path = os.path.splitext(audio_path)[0] + ".srt"
                 generate_srt_file(result.segments, srt_path)
-                reporter.print(f"✓ 字幕已导出至: {os.path.basename(srt_path)}", force=True)
+                reporter.print(tr('terminal.transcriber.subtitles_exported_to', value0=os.path.basename(srt_path)), force=True)
 
             if result.text:
-                reporter.print("\n" + "-"*30 + " 完整转录文本 " + "-"*30, force=True)
+                reporter.print("\n" + "-"*30 + ' ' + tr('engine.full_text') + ' ' + "-"*30, force=True)
                 reporter.print(result.text, force=True)
                 reporter.print("-" * 74 + "\n", force=True)
 
             return result
 
         except Exception as e:
-            reporter.print(f"\n✗ 转录失败: {e}", force=True)
+            reporter.print(tr('terminal.transcriber.transcription_failed', value0=e), force=True)
             raise
         
         finally:
@@ -87,7 +89,7 @@ class AudioTranscriber:
         is_multi = len(segments_info) > 1
 
         if is_multi:
-            reporter.print(f"    检测到长音频，开启分段识别模式...", force=True)
+            reporter.print(tr('terminal.transcriber.long_audio_detected_enabling_segmented_recognition'), force=True)
             reporter.skip_technical = True
 
         segment_results = []
@@ -95,7 +97,7 @@ class AudioTranscriber:
         for idx, (s_s, e_s) in enumerate(segments_info):
             if is_multi:
                 reporter.set_segment(idx + 1, len(segments_info))
-                reporter.print(f"\n--- 处理分段 [{s_s:.1f}s - {e_s:.1f}s] ---", force=True)
+                reporter.print(tr('terminal.transcriber.processing_segment_s_s', value0=s_s, value1=e_s), force=True)
             
             chunk = audio[int(s_s * self.sample_rate):int(e_s * self.sample_rate)]
             stream = RecognitionStream()
@@ -149,13 +151,13 @@ class AudioTranscriber:
     def _print_header(self, reporter, audio_path):
         line = "=" * 70
         reporter.print(f"\n{line}", force=True)
-        reporter.print(f"处理音频: {os.path.basename(audio_path)}", force=True)
+        reporter.print(tr('terminal.transcriber.processing_audio', value0=os.path.basename(audio_path)), force=True)
         reporter.print(f"{line}", force=True)
 
     def _print_stats(self, reporter, result):
-        reporter.print(f"\n[转录耗时]")
-        reporter.print(f"  - 音频编码： {result.timings.encode*1000:5.0f}ms")
-        reporter.print(f"  - CTC解码：  {result.timings.ctc*1000:5.0f}ms")
-        reporter.print(f"  - LLM读取：  {result.timings.inject*1000:5.0f}ms")
-        reporter.print(f"  - LLM生成：  {result.timings.llm_generate*1000:5.0f}ms")
-        reporter.print(f"  - 总耗时：   {result.timings.total:5.2f}s\n")
+        reporter.print(tr('terminal.transcriber.transcription_timing'))
+        reporter.print(tr('terminal.transcriber.audio_encoding_ms', value0=result.timings.encode * 1000))
+        reporter.print(tr('terminal.transcriber.ctc_decoding_ms', value0=result.timings.ctc * 1000))
+        reporter.print(tr('terminal.transcriber.llm_prefill_ms', value0=result.timings.inject * 1000))
+        reporter.print(tr('terminal.transcriber.llm_generation_ms', value0=result.timings.llm_generate * 1000))
+        reporter.print(tr('terminal.transcriber.total_elapsed_s', value0=result.timings.total))

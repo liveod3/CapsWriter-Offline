@@ -6,6 +6,8 @@ WebSocket 管理器 (SocketManager)
 心跳监控、数据发送任务的编排。
 """
 
+from core.i18n import Notice
+
 import asyncio
 import ipaddress
 import math
@@ -104,56 +106,55 @@ class SocketManager:
             try:
                 value = int(getattr(Config, name, default))
             except (TypeError, ValueError) as exc:
-                raise ValueError(f'ServerConfig.{name} 必须是正整数') from exc
+                raise ValueError(Notice('validation.server_manager.serverconfig_must_be_a_positive_integer', value0=name)) from exc
             if value <= 0:
-                raise ValueError(f'ServerConfig.{name} 必须是正整数')
+                raise ValueError(Notice('validation.server_manager.serverconfig_must_be_a_positive_integer', value0=name))
             parsed_limits[name] = value
 
         try:
             idle_timeout = float(getattr(Config, 'connection_idle_timeout', 300))
             task_duration = float(getattr(Config, 'max_task_duration', 6 * 60 * 60))
         except (TypeError, ValueError) as exc:
-            raise ValueError('连接空闲和任务时限必须是正数') from exc
+            raise ValueError(Notice('validation.server_manager.connection_idle_and_task_timeouts_must_be_positive')) from exc
         if (
             not math.isfinite(idle_timeout)
             or not math.isfinite(task_duration)
             or idle_timeout <= 0
             or task_duration <= 0
         ):
-            raise ValueError('连接空闲和任务时限必须是正数')
+            raise ValueError(Notice('validation.server_manager.connection_idle_and_task_timeouts_must_be_positive'))
 
         encoded_audio_size = (parsed_limits['max_message_audio_bytes'] + 2) // 3 * 4
         if parsed_limits['websocket_max_message_bytes'] < encoded_audio_size + 65536:
             raise ValueError(
-                'websocket_max_message_bytes 太小，必须容纳 Base64 音频消息'
+                Notice('validation.server_manager.websocket_max_message_bytes_must_be_large_enough')
             )
 
         if network_mode not in {'local', 'lan'}:
-            raise ValueError("ServerConfig.network_mode 必须为 'local' 或 'lan'")
+            raise ValueError(Notice('validation.server_manager.serverconfig_network_mode_must_be_local_or_lan'))
 
         if network_mode == 'local' and not _is_loopback_address(address):
             raise ValueError(
-                "local 模式只能监听回环地址；如需局域网访问，请显式设置 "
-                "network_mode = 'lan' 并配置 CAPSWRITER_AUTH_TOKEN"
+                Notice('validation.server_manager.local_mode_requires_a_loopback_address_for_lan')
             )
 
         if network_mode == 'lan' and len(auth_token) < MIN_AUTH_TOKEN_LENGTH:
             raise ValueError(
-                f"lan 模式要求 CAPSWRITER_AUTH_TOKEN 至少 {MIN_AUTH_TOKEN_LENGTH} 个字符"
+                Notice('validation.server_manager.lan_mode_requires_capswriter_auth_token_with_at', value0=MIN_AUTH_TOKEN_LENGTH)
             )
 
         if bool(certfile) != bool(keyfile):
-            raise ValueError('tls_certfile 与 tls_keyfile 必须同时配置')
+            raise ValueError(Notice('validation.server_manager.tls_certfile_and_tls_keyfile_must_both_be'))
 
         ssl_context = None
         if certfile and keyfile:
             if not Path(certfile).is_file() or not Path(keyfile).is_file():
-                raise ValueError('TLS 证书或私钥文件不存在')
+                raise ValueError(Notice('validation.server_manager.tls_certificate_or_private_key_file_does_not'))
             ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             try:
                 ssl_context.load_cert_chain(certfile, keyfile)
             except (OSError, ssl.SSLError) as exc:
-                raise ValueError(f'TLS 证书或私钥加载失败: {exc}') from exc
+                raise ValueError(Notice('validation.server_manager.failed_to_load_tls_certificate_or_private_key', value0=exc)) from exc
 
         self._network_mode = network_mode
         self._auth_token = auth_token
@@ -170,8 +171,8 @@ class SocketManager:
             await _close_failed_connection(websocket, 'Recognition channel unavailable')
             return
         if self._active_connections >= self._max_connections:
-            logger.warning('拒绝超出并发上限的 WebSocket 连接: %s', websocket.remote_address)
-            await websocket.close(code=1013, reason='服务器连接数已达上限')
+            logger.warning(Notice('diagnostic.server_manager.websocket_connection_rejected_concurrent_connection_limit_reached'), websocket.remote_address)
+            await websocket.close(code=1013, reason=str(Notice('server.connection_limit')))
             return
 
         self._active_connections += 1
@@ -189,7 +190,7 @@ class SocketManager:
             def process_request(connection, request):
                 if _has_valid_bearer_token(request.headers, self._auth_token):
                     return None
-                logger.warning('拒绝未经认证的 WebSocket 连接: %s', connection.remote_address)
+                logger.warning(Notice('diagnostic.server_manager.unauthenticated_websocket_connection_rejected_details'), connection.remote_address)
                 return connection.respond(HTTPStatus.UNAUTHORIZED, 'Unauthorized\n')
 
             return process_request
@@ -197,7 +198,7 @@ class SocketManager:
         async def legacy_process_request(path, request_headers):
             if _has_valid_bearer_token(request_headers, self._auth_token):
                 return None
-            logger.warning('拒绝未经认证的 WebSocket 连接')
+            logger.warning(Notice('diagnostic.server_manager.unauthenticated_websocket_connection_rejected'))
             body = b'Unauthorized\n'
             return (
                 HTTPStatus.UNAUTHORIZED,
@@ -216,7 +217,7 @@ class SocketManager:
                 s.bind((Config.addr, int(Config.port)))
                 return True
             except socket.error:
-                logger.error(f"端口冲突：{Config.addr}:{Config.port} 已被占用，请检查是否已有服务端正在运行。")
+                logger.error(Notice('diagnostic.server_manager.port_conflict_is_already_in_use_check_whether', value0=Config.addr, value1=Config.port))
                 return False
 
     async def start(self):
@@ -243,11 +244,10 @@ class SocketManager:
         # 3. 启动服务
         scheme = 'wss' if self._ssl_context else 'ws'
         logger.info(
-            f"正在拉起 WebSocket 服务 (模式: {self._network_mode}, "
-            f"监听: {scheme}://{Config.addr}:{Config.port})"
+            Notice('diagnostic.server_manager.starting_websocket_service_mode_listening', value0=self._network_mode, value1=scheme, value2=Config.addr, value3=Config.port)
         )
         if self._network_mode == 'lan' and not self._ssl_context:
-            logger.warning('LAN 模式当前未启用 TLS，仅应在可信局域网内使用')
+            logger.warning(Notice('diagnostic.server_manager.tls_is_disabled_in_lan_mode_use_only'))
         
         async with websockets.serve(
             self._handle_connection,
@@ -264,12 +264,12 @@ class SocketManager:
             self._server = server  # 保存 server 引用，用于外部关闭
 
             # 4. 进入识别结果发送循环 (作为主阻塞任务)
-            logger.info("WebSocket 发送协程已就绪")
+            logger.info(Notice('diagnostic.server_manager.websocket_sender_ready'))
             try:
                 await ws_send(self.app)
             except ResultDeliveryError as exc:
                 self._delivery_failed = True
-                logger.critical('Recognition channel unavailable; restart required: %s', str(exc))
+                logger.critical(Notice('diagnostic.server_manager.recognition_channel_unavailable_restart_required'), str(exc))
                 server.close()
                 await asyncio.gather(*(
                     _retire_connection(self.app.state, socket, 'Recognition channel unavailable')
@@ -278,7 +278,7 @@ class SocketManager:
             
         self._is_running = False
         self._server = None
-        logger.info("SocketManager: WebSocket 服务已退出")
+        logger.info(Notice('diagnostic.server_manager.socketmanager_websocket_service_exited'))
 
     def stop(self):
         """停止 WebSocket 网络服务"""

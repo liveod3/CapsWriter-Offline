@@ -202,12 +202,13 @@ class Statistics:
 
     def __str__(self) -> str:
         """格式化输出统计信息"""
-        return (
-            f"  音频长度: {self.audio_duration:6.2f}s\n"
-            f"  Decoder输入: {self.tps_in:6.0f} tokens/s "
-            f"(总: {self.n_input_tokens}, prefix:{self.n_prefix_tokens}, "
-            f"audio:{self.n_audio_tokens}, suffix:{self.n_suffix_tokens})\n"
-            f"  Decoder输出: {self.tps_out:6.0f} tokens/s (总: {self.n_generated_tokens})"
+        from core.i18n import tr
+        return tr(
+            'engine.statistics', duration=self.audio_duration,
+            input_speed=self.tps_in, inputs=self.n_input_tokens,
+            prefix=self.n_prefix_tokens, audio=self.n_audio_tokens,
+            suffix=self.n_suffix_tokens, output_speed=self.tps_out,
+            outputs=self.n_generated_tokens,
         )
 
 

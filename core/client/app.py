@@ -6,6 +6,8 @@ CapsWriter Offline 客户端主程序门面类 (Facade)
 识别结果处理 (ResultProcessor) 和快捷键管理 (ShortcutManager)。
 """
 
+from core.i18n import Notice, tr
+
 import os
 import asyncio
 import threading
@@ -47,6 +49,8 @@ class CapsWriterClient:
     管理的外部接口简洁：start()。
     """
     def __init__(self, command: ClientCommand):
+        from core.i18n import set_language
+        set_language(getattr(Config, 'ui_language', 'auto'))
         self.command = command
 
         # 确保正确的工作目录
@@ -102,8 +106,9 @@ class CapsWriterClient:
         )
 
     def _report_config(self, message):
+        from core.i18n import localize_notice
         logger.info(message, extra={'console_handled': True})
-        console.print(message, markup=False)
+        console.print(localize_notice(message), markup=False)
 
     def apply_config_reload(self):
         """Publish only after capture, upload, LLM, output and archives all settle."""
@@ -113,15 +118,22 @@ class CapsWriterClient:
                     or self.state.dictation_uploads or self.state.task_contexts):
                 return
             changed = self.config_reload.apply()
+            if 'ui_language' in changed:
+                from core.i18n import set_language
+                set_language(Config.ui_language)
             if 'transcript_dir' in changed:
                 self.diary.base_path = self.base_dir / Config.transcript_dir
         if changed:
+            if 'ui_language' in changed:
+                from core.ui.tray import refresh_language
+                refresh_language()
             if Config.llm_enabled:
                 try:
                     self.llm.start()
                 except Exception as exc:
                     self._report_config('LLM cancel key unavailable: ' + type(exc).__name__)
-            self._report_config('Configuration applied: ' + ', '.join(changed))
+            from core.i18n import Notice
+            self._report_config(Notice('config.applied', fields=', '.join(changed)))
 
     def mark_user_activity(self) -> None:
         """标记用户活跃时间，用于闲置自动挂起判断。"""
@@ -142,7 +154,7 @@ class CapsWriterClient:
             name='IdleSuspendMonitor'
         )
         self._idle_suspend_thread.start()
-        logger.info(f"闲置自动挂起已启用: {Config.idle_suspend_seconds}s")
+        logger.info(Notice('diagnostic.app.idle_suspension_enabled_s', value0=Config.idle_suspend_seconds))
 
     def stop_idle_suspend_monitor(self) -> None:
         """停止闲置自动挂起监控线程。"""
@@ -173,10 +185,10 @@ class CapsWriterClient:
 
             paused = self.pause_dictation(show_hint=False, manual=False)
             if paused:
-                message = '听写已闲置挂起：麦克风已释放'
-                logger.info(message)
+                message = tr('mic.idle_detail')
+                logger.info(Notice('diagnostic.app.ui_status'), 'mic.idle_detail')
                 console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
-                show_status_hint('听写已闲置挂起', duration_ms=1800, dot_color='#F59E0B')
+                show_status_hint(tr('mic.idle'), duration_ms=1800, dot_color='#F59E0B')
                 self.state.last_activity_time = time.time()
 
     def pause_dictation(self, show_hint: bool = True, *, manual: bool = True) -> bool:
@@ -191,7 +203,7 @@ class CapsWriterClient:
                 return False
             if self.state.recording:
                 if show_hint:
-                    show_status_hint('当前正在录音，稍后再暂停', duration_ms=1600, dot_color='#F59E0B')
+                    show_status_hint(tr('mic.pause_busy'), duration_ms=1600, dot_color='#F59E0B')
                 return False
             if manual:
                 self.state.dictation_manually_paused = True
@@ -201,11 +213,11 @@ class CapsWriterClient:
         # 先发布挂起状态，再释放录音流并保留只读设备监控，避免监控线程误重开麦克风。
         self.stream.stop(keep_monitor=True)
         set_dictation_paused(True)
-        logger.info("听写已暂停：音频流已释放")
+        logger.info(Notice('diagnostic.app.dictation_paused_audio_stream_released'))
 
         if show_hint:
-            console.print('\n[ui.accent]●[/] [ui.value]听写已暂停，麦克风已释放[/]')
-            show_status_hint('听写已暂停', duration_ms=1400, dot_color='#7DD3FC')
+            console.print(tr('mic.pause_console'))
+            show_status_hint(tr('mic.paused'), duration_ms=1400, dot_color='#7DD3FC')
         return True
 
     def resume_dictation(self, show_hint: bool = True, silent_stream: bool = True) -> bool:
@@ -223,9 +235,9 @@ class CapsWriterClient:
 
         stream = self.stream.start(silent=silent_stream, force=True)
         if stream is None:
-            logger.warning("恢复听写失败：音频流启动失败")
+            logger.warning(Notice('diagnostic.app.cannot_resume_dictation_audio_stream_failed_to_start'))
             if show_hint:
-                show_status_hint('恢复听写失败：无法打开麦克风', duration_ms=2000, dot_color='#EF4444')
+                show_status_hint(tr('mic.resume_failed'), duration_ms=2000, dot_color='#EF4444')
             return False
 
         with self.state.recording_lock:
@@ -234,19 +246,19 @@ class CapsWriterClient:
             self.state.dictation_paused = False
             self.state.dictation_manually_paused = False
         set_dictation_paused(False)
-        logger.info("听写恢复流程已启动：音频流已重新打开，等待设备就绪")
+        logger.info(Notice('diagnostic.app.dictation_resume_started_audio_stream_reopened_waiting_for'))
         self.mark_user_activity()
 
         if show_hint:
             ready_event = self.stream.get_ready_event()
             if self.stream.is_ready(ready_event):
-                message = '听写已恢复：麦克风已就绪'
-                logger.info(message)
+                message = tr('mic.ready')
+                logger.info(Notice('diagnostic.app.ui_status'), 'mic.ready')
                 console.print(f'\n[ui.success]●[/] [ui.value]{message}[/]')
-                show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
+                show_status_hint(tr('mic.resumed'), duration_ms=1200, dot_color='#34D399')
             else:
-                message = '正在准备麦克风，请稍候'
-                logger.info(message)
+                message = tr('mic.preparing')
+                logger.info(Notice('diagnostic.app.ui_status'), 'mic.preparing')
                 console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
                 threading.Thread(
@@ -267,17 +279,17 @@ class CapsWriterClient:
             return
         if not ready_event.is_set():
             if not self.state.dictation_paused and ready_event is self.stream.get_ready_event():
-                message = '麦克风准备超时，请重试'
-                logger.info(message)
+                message = tr('mic.ready_timeout')
+                logger.info(Notice('diagnostic.app.ui_status'), 'mic.ready_timeout')
                 console.print(f'\n[ui.error]●[/] [ui.value]{message}[/]')
                 show_status_hint(message, duration_ms=2200, dot_color='#EF4444')
             return
 
         if not self.state.dictation_paused and self.stream.is_ready(ready_event):
-            message = '听写已恢复：麦克风已就绪'
-            logger.info(message)
+            message = tr('mic.ready')
+            logger.info(Notice('diagnostic.app.ui_status'), 'mic.ready')
             console.print(f'\n[ui.success]●[/] [ui.value]{message}[/]')
-            show_status_hint('听写已恢复', duration_ms=1200, dot_color='#34D399')
+            show_status_hint(tr('mic.resumed'), duration_ms=1200, dot_color='#34D399')
 
     def toggle_dictation_pause(self) -> bool:
         """切换听写暂停状态。"""
@@ -310,7 +322,7 @@ class CapsWriterClient:
             try:
                 await asyncio.to_thread(operation)
             except Exception as exc:
-                logger.warning('Shutdown operation failed: %s', type(exc).__name__)
+                logger.warning(Notice('diagnostic.app.shutdown_operation_failed'), type(exc).__name__)
 
         await release(self.stop_idle_suspend_monitor)
         await release(self.udp.stop)
@@ -330,12 +342,12 @@ class CapsWriterClient:
         try:
             await self.ws.close()
         except Exception as exc:
-            logger.warning('Connection close failed: %s', type(exc).__name__)
+            logger.warning(Notice('diagnostic.app.connection_close_failed'), type(exc).__name__)
         if self._runner_task is not None and not self._runner_task.done():
             self._runner_task.cancel()
             await asyncio.gather(self._runner_task, return_exceptions=True)
         await release(self.state.reset)
-        logger.info('Client resource cleanup complete')
+        logger.info(Notice('diagnostic.app.client_resource_cleanup_complete'))
 
 
     def start(self) -> int:
@@ -356,8 +368,8 @@ class CapsWriterClient:
                 recursive=self.command.recursive,
             )
             if not files:
-                console.print('[ui.error]✗ 没有发现可转写的媒体文件[/]')
-                logger.error('没有发现可转写的媒体文件')
+                console.print(tr('file.no_media'))
+                logger.error(Notice('diagnostic.app.no_transcribable_media_files_found'))
                 return 2
             runner = FileRunner(
                 self,

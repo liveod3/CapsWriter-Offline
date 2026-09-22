@@ -4,6 +4,8 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice
 import ctypes as C
 from ctypes import wintypes as W
 
@@ -112,7 +114,7 @@ def make_bitmap(name, size):
     pointer = C.c_void_p()
     bitmap = G.CreateDIBSection(None, C.byref(header), 0, C.byref(pointer), None, 0)
     if not bitmap:
-        raise OSError("Cannot allocate menu bitmap")
+        raise OSError(Notice('validation.tray_native.cannot_allocate_menu_bitmap'))
     C.memmove(pointer, bytes(pixels), len(pixels))
     return bitmap
 
@@ -176,7 +178,8 @@ class NativeMenuIcon(Icon):
                 info.fMask |= 0x80
                 info.hbmpItem = self._bitmaps[key]
             win32.InsertMenuItem(menu, index, True, C.byref(info))
-            self._tips[identifier] = getattr(descriptor, "caps_tooltip", "")
+            tooltip = getattr(descriptor, "caps_tooltip", "")
+            self._tips[identifier] = tooltip(descriptor) if callable(tooltip) else tooltip
             self._positions[(int(menu), index)] = identifier
         return menu
 

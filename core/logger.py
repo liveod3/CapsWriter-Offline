@@ -6,6 +6,7 @@ from pathlib import Path
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from rich.logging import RichHandler
+from core.i18n.logging import LocalizedFormatter
 
 
 class ConsoleFeedbackFilter(logging.Filter):
@@ -134,6 +135,7 @@ class Logger:
             show_path=False
         )
         stream_handler.addFilter(ConsoleFeedbackFilter())
+        stream_handler.setFormatter(LocalizedFormatter())
         logger.addHandler(stream_handler)
 
         # 缓存日志记录器

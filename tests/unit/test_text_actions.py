@@ -70,13 +70,13 @@ def test_preparing_status_precedes_catalog_and_waiting_covers_transport(monkeypa
     catalog = load_catalog(ROOT / "LLM")
 
     def load(_):
-        assert stages == ["Preparing LLM…"]
+        assert stages == ["status.prepare_llm"]
         return catalog
 
     async def complete(*args):
-        assert stages == ["Preparing LLM…", "Waiting for LLM…"]
+        assert stages == ["status.prepare_llm", "status.wait_llm"]
         await asyncio.sleep(0)
-        assert stages[-1] == "Waiting for LLM…"
+        assert stages[-1] == "status.wait_llm"
         return "result"
 
     monkeypatch.setattr("core.client.llm.service.load_catalog", load)

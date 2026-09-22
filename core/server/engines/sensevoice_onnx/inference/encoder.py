@@ -1,3 +1,5 @@
+
+from core.i18n import tr
 from pathlib import Path
 import json
 import numpy as np
@@ -46,7 +48,7 @@ class SenseVoiceEncoder:
                 "output_size": int(meta.get("output_size", 512))
             }
         else:
-            print("[Encoder] 警告：在 ONNX 中未找到元数据，将回退至硬编码配置。")
+            print(tr('terminal.encoder.encoder_warning_onnx_metadata_missing_using_built_in'))
             self.config = {} # 或设置默认值
 
         # 4. 精度适配 (检测模型是 FP32 还是 FP16)
@@ -64,13 +66,13 @@ class SenseVoiceEncoder:
         dummy_lfr = np.random.randn(1, self.fixed_len, 560).astype(self.input_dtype)
         dummy_mask = np.ones((1, self.fixed_len), dtype=self.input_dtype)
         dummy_prompt = np.zeros((1, 4, 560), dtype=self.input_dtype)
-        print(f"[Encoder] DML 推理模式：正在使用形状为 {dummy_lfr.shape} 的 {self.fixed_len//17}s 随机数据进行预热...")
+        print(tr('terminal.encoder.encoder_dml_warmup_with_s_random_data_of', value0=dummy_lfr.shape, value1=self.fixed_len // 17))
         self.session.run(None, {
             "speech_feat": dummy_lfr,
             "mask": dummy_mask,
             "prompt_ids": np.zeros((1, 4), dtype=np.int64)
         })
-        print("[Encoder] DML 预热完成。")
+        print(tr('terminal.encoder.encoder_dml_warmup_complete'))
 
     def construct_prompt(self, lid="auto", itn=True):
         """构造 4 个 Prompt Token ID"""

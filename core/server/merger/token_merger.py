@@ -6,6 +6,8 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice
 import difflib
 from typing import List, Tuple
 from core.constants import Punctuation
@@ -62,7 +64,7 @@ def merge_tokens_by_sequence_matcher(
     best = _find_best_token_overlap(prev_tail_text, new_head_text)
 
     if best is None:
-        logger.debug("Token 拼接: 未找到重叠，直接拼接")
+        logger.debug(Notice('diagnostic.token_merger.token_merge_no_overlap_found_appending_directly'))
         return _fallback_merge(prev_tokens, prev_timestamps, new_tokens, new_global_timestamps, offset)
 
     match_pos_prev, match_pos_new, match_len = best
@@ -82,8 +84,7 @@ def merge_tokens_by_sequence_matcher(
     result_timestamps = prev_timestamps[:prev_cut] + new_global_timestamps[new_start:]
 
     logger.debug(
-        f"Token 拼接: 匹配长度 {match_len}, "
-        f"prev 截断 token[{prev_cut}], new 起始 token[{new_start}]"
+        Notice('diagnostic.token_merger.token_merge_match_previous_end_token_new_start', value0=match_len, value1=prev_cut, value2=new_start)
     )
 
     # 5. 后处理：清理连续重复标点
@@ -148,7 +149,7 @@ def _fallback_merge(
     result_tokens = prev_tokens + new_tokens[new_start_idx:]
     result_timestamps = prev_timestamps + new_global_timestamps[new_start_idx:]
 
-    logger.debug(f"时间戳兜底拼接: 从 new[{new_start_idx}] 开始")
+    logger.debug(Notice('diagnostic.token_merger.timestamp_merge_fallback_starting_at_new', value0=new_start_idx))
     return result_tokens, result_timestamps
 
 

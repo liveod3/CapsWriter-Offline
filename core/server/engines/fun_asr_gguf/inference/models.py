@@ -1,3 +1,6 @@
+
+from core.i18n import Notice, tr
+
 import os
 import time
 from pathlib import Path
@@ -34,16 +37,16 @@ class Models:
 
         try:
             _, elapsed = timer(self._load_models, verbose)
-            vprint(f"✓ 模型加载完成 (耗时: {elapsed:.2f}s)", verbose)
+            vprint(Notice('terminal.models.model_loaded_elapsed_s', value0=elapsed), verbose)
             self._initialized = True
         except Exception as e:
-            vprint(f'Model initialization failed: error={type(e).__name__}', verbose)
-            raise RuntimeError(f'Model initialization failed: {type(e).__name__}') from None
+            vprint(Notice('terminal.models.model_initialization_failed_error', value0=type(e).__name__), verbose)
+            raise RuntimeError(Notice('validation.models.model_initialization_failed', value0=type(e).__name__)) from None
 
     def _load_models(self, verbose):
         """执行实际的模型加载逻辑"""
         # 1. Encoder (ONNX)
-        vprint("[1/6] 加载音频编码器 (Encoder)...", verbose)
+        vprint(Notice('terminal.models.loading_audio_encoder'), verbose)
         self.encoder = AudioEncoder(
             model_path=self.config.encoder_onnx_path,
             onnx_provider=self.config.onnx_provider,
@@ -51,7 +54,7 @@ class Models:
         )
 
         # 2. CTC Decoder (ONNX + Search)
-        vprint("[2/6] 加载 CTC 解码器...", verbose)
+        vprint(Notice('terminal.models.loading_ctc_decoder'), verbose)
         self.ctc_decoder = CTCDecoder(
             model_path=self.config.ctc_onnx_path,
             tokens_path=self.config.tokens_path,
@@ -60,7 +63,7 @@ class Models:
         )
 
         # 3. GGUF LLM Decoder
-        vprint("[3/6] 加载 GGUF LLM 解码器...", verbose)
+        vprint(Notice('terminal.models.loading_gguf_llm_decoder'), verbose)
         if self.config.vulkan_force_fp32:
             os.environ["GGML_VK_DISABLE_F16"] = "1" 
         self.model = llama.LlamaModel(self.config.decoder_gguf_path, use_gpu=self.config.llm_use_gpu)
@@ -68,11 +71,11 @@ class Models:
         self.eos_token = self.model.eos_token
 
         # 4. Embeddings
-        vprint("[4/6] 加载 Embedding 权重...", verbose)
+        vprint(Notice('terminal.models.loading_embedding_weights'), verbose)
         self.embedding_table = llama.get_token_embeddings_gguf(self.config.decoder_gguf_path)
         
         # 5. LLM Context
-        vprint("[5/6] 创建 LLM 上下文...", verbose)
+        vprint(Notice('terminal.models.creating_llm_context'), verbose)
         self.ctx = llama.LlamaContext(
             self.model,
             n_ctx=2048,
@@ -82,7 +85,7 @@ class Models:
         )
         
         # 6. Prompt构建器
-        vprint("[6/6] 初始化 Prompt 构建器器...", verbose)
+        vprint(Notice('terminal.models.initializing_prompt_builder'), verbose)
         self.prompt_builder = PromptBuilder(self.vocab, self.embedding_table)
 
     def cleanup(self):
@@ -91,4 +94,4 @@ class Models:
         self.encoder = None
         self.ctc_decoder = None
         self._initialized = False
-        print("[ASR] 资源已释放")
+        print(tr('terminal.models.asr_resources_released'))

@@ -5,6 +5,9 @@
 负责维护单机识别进程的生命周期，包括启动、模型加载监控、异常退出捕获。
 """
 from __future__ import annotations
+
+from core.i18n import Notice, tr
+
 import sys
 import os
 import queue
@@ -48,6 +51,12 @@ class ProcessManager:
         import config_server
         # Includes client-owned logger defaults until logging ownership is split.
         self._child_config = configuration_snapshot(config_server, config_client)
+        from core.i18n import get_language
+        self._ui_language = Value('i', int(get_language() == 'zh-CN'))
+
+    def publish_ui_language(self, language):
+        """Update display language without restarting or interrupting inference."""
+        self._ui_language.value = int(language == 'zh-CN')
 
     def start(self):
         """
@@ -89,13 +98,14 @@ class ProcessManager:
                   stdin_fn,
                   state.worker_failed,
                   state.worker_progress),
+            kwargs={'ui_language': self._ui_language},
             daemon=True
         )
         self._process.start()
         
         # 存入状态以便其他模块引用
         state.recognize_process = self._process
-        logger.info(f"识别子进程已拉起 (PID: {self._process.pid})")
+        logger.info(Notice('diagnostic.process_manager.recognition_process_started_pid', value0=self._process.pid))
 
         # 5. 等待模型加载完成 (轮询方式)
         self._wait_for_models()
@@ -132,6 +142,7 @@ class ProcessManager:
             self._align_process = Process(
                 target=start_configured_worker,
                 args=(self._child_config, 'aligner', state.align_queue_in, state.align_queue_out),
+                kwargs={'ui_language': self._ui_language},
                 daemon=True,
             )
             self._align_process.start()
@@ -140,7 +151,7 @@ class ProcessManager:
                 self._align_process.join(timeout=1)
                 return None
             state.aligner_process = self._align_process
-            logger.info(f"Aligner 兄弟进程已拉起 (PID: {self._align_process.pid})")
+            logger.info(Notice('diagnostic.process_manager.aligner_process_started_pid', value0=self._align_process.pid))
             return self._align_process
 
     def _monitor_aligner(self):
@@ -152,7 +163,7 @@ class ProcessManager:
                 self._check_runtime()
             except Exception as exc:
                 reason = str(exc) if isinstance(exc, ResultDeliveryError) else type(exc).__name__
-                logger.error('Worker supervision stopped service: %s', reason)
+                logger.error(Notice('diagnostic.process_manager.worker_supervision_stopped_service'), reason)
                 self.app.state.worker_failed.set()
                 return
 
@@ -171,7 +182,7 @@ class ProcessManager:
                 if process.exitcode not in (0, None):
                     raise ResultDeliveryError('AlignerExited')
                 else:
-                    logger.info('Replacing an idle aligner process')
+                    logger.info(Notice('diagnostic.process_manager.replacing_an_idle_aligner_process'))
                     self._record_aligner_idle_exit()
             else:
                 return
@@ -194,23 +205,17 @@ class ProcessManager:
         self._last_aligner_churn_warning = now
         timeout = getattr(Config, 'aligner_idle_timeout', 600)
         logger.warning(
-            f'检测到 Aligner 在 60 秒内反复退出 {len(self._aligner_idle_exits)} 次；'
-            f'aligner_idle_timeout={timeout!r} 可能过短'
+            Notice('diagnostic.process_manager.aligner_exited_times_within_seconds_aligner_idle_timeout', value0=len(self._aligner_idle_exits), value1=timeout)
         )
         console.print(Panel.fit(
-            f'[bold yellow]60 秒内已发生 {len(self._aligner_idle_exits)} 次 '
-            'Aligner 卸载/重载。[/bold yellow]\n'
-            '这会造成专用显存和 GPU 利用率呈锯齿波动，并拖慢文件转写；'
-            '[bold]它不等同于显存交换[/bold]。\n'
-            f'[dim]当前 aligner_idle_timeout = {timeout!r}。若显存容得下 ASR 与 '
-            'Aligner 同时驻留，可尝试提高到 30；设为 0 表示常驻。[/dim]',
-            title='[bold yellow]GPU 模型反复装卸告警[/bold yellow]',
+            tr('gpu.churn', value0=len(self._aligner_idle_exits), value1=timeout),
+            title=tr('gpu.churn_title'),
             border_style='bold yellow',
         ))
 
     def _wait_for_models(self):
         """Own one daemon read and bound startup even when a pipe read is wedged."""
-        logger.info('Waiting for recognition models')
+        logger.info(Notice('diagnostic.process_manager.waiting_for_recognition_models'))
         deadline = time.monotonic() + positive_timeout(Config, 'model_startup_timeout', 300.0)
         read = None
         executor = SimpleDaemonExecutor()
@@ -221,11 +226,11 @@ class ProcessManager:
                 return
             failure = getattr(self.app.state, 'worker_failed', None)
             if failure is not None and failure.is_set():
-                logger.error('Recognition worker failed during startup; stopping server')
+                logger.error(Notice('diagnostic.process_manager.recognition_worker_failed_during_startup_stopping_server'))
                 self.app.stop()
                 return
             if time.monotonic() >= deadline:
-                logger.error('Model startup timed out; restart required')
+                logger.error(Notice('diagnostic.process_manager.model_startup_timed_out_restart_required'))
                 self.app.stop()
                 return
             if self._process and not self._process.is_alive():
@@ -242,28 +247,28 @@ class ProcessManager:
                 raise ResultDeliveryError('InvalidStartupResult')
             except FutureTimeout:
                 if read.done():
-                    logger.error('Model startup reader failed; restart required')
+                    logger.error(Notice('diagnostic.process_manager.model_startup_reader_failed_restart_required'))
                     self.app.stop()
                     return
                 continue
             except queue.Empty:
                 read = None
             except Exception as exc:
-                logger.error('Model startup channel failed: %s', type(exc).__name__)
+                logger.error(Notice('diagnostic.process_manager.model_startup_channel_failed'), type(exc).__name__)
                 self.app.stop()
                 return
             
         if not self.is_alive: return
-        logger.info("模型加载完成，ASR 服务就绪")
-        console.rule('[green3]开始服务')
+        logger.info(Notice('diagnostic.process_manager.models_loaded_asr_service_ready'))
+        console.rule(tr('server.ready'))
         console.line()
 
     def _handle_unexpected_exit(self):
         """处理子进程加载模型时的意外退出"""
         exit_code = self._process.exitcode
         if exit_code != 0:
-            logger.error(f"识别子进程意外退出! ExitCode: {exit_code}")
-            logger.error("这通常是由于模型损坏、底层库冲突或系统资源不足导致的。")
+            logger.error(Notice('diagnostic.process_manager.recognition_process_exited_unexpectedly_exitcode', value0=exit_code))
+            logger.error(Notice('diagnostic.process_manager.possible_causes_include_damaged_models_native_library_conflicts'))
         
         # 请求主系统同步退出
         self.app.stop()
@@ -287,13 +292,13 @@ class ProcessManager:
             try:
                 self._stop_process(process, channel)
             except Exception as exc:
-                logger.error('Process cleanup failed: %s', type(exc).__name__)
+                logger.error(Notice('diagnostic.process_manager.process_cleanup_failed'), type(exc).__name__)
 
         if self._manager is not None:
             try:
                 self._manager.shutdown()
             except Exception as exc:
-                logger.error('Shared registry cleanup failed: %s', type(exc).__name__)
+                logger.error(Notice('diagnostic.process_manager.shared_registry_cleanup_failed'), type(exc).__name__)
             finally:
                 self._manager = None
         for name in ('queue_in', 'queue_out', 'align_queue_in', 'align_queue_out'):
@@ -304,7 +309,7 @@ class ProcessManager:
                     channel.cancel_join_thread()
                     channel.close()
                 except (OSError, ValueError) as exc:
-                    logger.debug('Queue cleanup failed: %s', type(exc).__name__)
+                    logger.debug(Notice('diagnostic.process_manager.queue_cleanup_failed'), type(exc).__name__)
 
     @staticmethod
     def _stop_process(process, channel):
@@ -312,7 +317,7 @@ class ProcessManager:
             try:
                 channel.put(None, timeout=0.5)
             except (queue.Full, OSError, EOFError, ValueError) as exc:
-                logger.debug('Worker shutdown signal unavailable: %s', type(exc).__name__)
+                logger.debug(Notice('diagnostic.process_manager.worker_shutdown_signal_unavailable'), type(exc).__name__)
             process.join(timeout=2)
             if process.is_alive():
                 process.terminate()
@@ -320,4 +325,4 @@ class ProcessManager:
         else:
             process.join(timeout=0)
         if process.is_alive():
-            logger.error('Worker did not exit after termination')
+            logger.error(Notice('diagnostic.process_manager.worker_did_not_exit_after_termination'))

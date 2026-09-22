@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import re
 import shutil
 import tempfile
@@ -58,9 +60,9 @@ class AudioFileManager:
         self._has_ffmpeg = self._ffmpeg_path is not None
         
         if self._has_ffmpeg:
-            logger.debug("检测到 FFmpeg，将使用 MP3 格式保存录音")
+            logger.debug(Notice('diagnostic.file_manager.ffmpeg_detected_recordings_will_use_mp'))
         else:
-            logger.debug("未检测到 FFmpeg，将使用 WAV 格式保存录音")
+            logger.debug(Notice('diagnostic.file_manager.ffmpeg_not_detected_recordings_will_use_wav'))
     
     def create(self, channels: int, time_start: float) -> Tuple[Path, AudioWriter]:
         """
@@ -113,9 +115,9 @@ class AudioFileManager:
                     stderr=DEVNULL,
                     bufsize=0,
                 )
-                logger.debug('MP3 recording file created')
+                logger.debug(Notice('diagnostic.file_manager.mp_recording_file_created'))
             except OSError as exc:
-                logger.warning('FFmpeg startup failed; using WAV: %s', type(exc).__name__)
+                logger.warning(Notice('diagnostic.file_manager.ffmpeg_startup_failed_using_wav'), type(exc).__name__)
                 self._ffmpeg_path = None
                 self._has_ffmpeg = False
                 # Only remove the empty file reserved by this failed create.
@@ -136,7 +138,7 @@ class AudioFileManager:
             except Exception:
                 file_handle.close()
                 raise
-            logger.debug('WAV recording file created')
+            logger.debug(Notice('diagnostic.file_manager.wav_recording_file_created'))
         
         self.file_path = file_path
         with self._process_lock:
@@ -157,7 +159,7 @@ class AudioFileManager:
             data: 音频数据数组（float32 格式）
         """
         if self.file_handle is None:
-            logger.warning("尝试写入数据但文件未打开")
+            logger.warning(Notice('diagnostic.file_manager.cannot_write_audio_file_is_not_open'))
             return
         if self._aborted.is_set():
             raise RuntimeError('AudioWriterAborted')
@@ -237,7 +239,7 @@ class AudioFileManager:
             重命名后的文件路径，如果失败返回 None
         """
         if self.file_path is None or not self.file_path.exists():
-            logger.warning('Audio rename skipped: file unavailable')
+            logger.warning(Notice('diagnostic.file_manager.audio_rename_skipped_file_unavailable'))
             return None
         
         # 构建新文件名
@@ -252,9 +254,9 @@ class AudioFileManager:
         
         try:
             self.file_path.rename(new_path)
-            logger.debug('Audio renamed: name_chars=%d', len(text_clean))
+            logger.debug(Notice('diagnostic.file_manager.audio_renamed_name_chars'), len(text_clean))
             self.file_path = new_path
             return new_path
         except Exception as e:
-            logger.error('Audio rename failed: error=%s', type(e).__name__)
+            logger.error(Notice('diagnostic.file_manager.audio_rename_failed_error'), type(e).__name__)
             return self.file_path

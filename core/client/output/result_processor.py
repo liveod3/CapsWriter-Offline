@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import asyncio
 import time
 from pathlib import Path
@@ -83,7 +85,7 @@ class ResultProcessor:
                     # 接收异常属于连接边界，不能让它结束整个麦克风运行器。
                     # 主动退出保持安静；其他断线清理后由外层循环重新连接。
                     if not self._exit_event.is_set():
-                        logger.warning("Connection interrupted: %s", type(exc).__name__)
+                        logger.warning(Notice('diagnostic.result_processor.connection_interrupted'), type(exc).__name__)
                     self._fail_unfinished(notify=not self._exit_event.is_set())
                     await close_dictation_connection(self.state, websocket)
                     break
@@ -93,9 +95,9 @@ class ResultProcessor:
                 try:
                     await self._handle_message(message, enqueue=True)
                 except Exception as exc:
-                    logger.error("Result processing failed: %s", type(exc).__name__)
+                    logger.error(Notice('diagnostic.result_processor.result_processing_failed'), type(exc).__name__)
             if not self._exit_event.is_set():
-                console.print("[ui.warning]Connection lost. Reconnecting…[/]")
+                console.print(tr('connection.reconnecting'))
 
     async def _handle_message(self, message: RecognitionMessage | None, *, enqueue=False):
         if message is None or message.is_final is not True:
@@ -109,7 +111,7 @@ class ResultProcessor:
         if task_id not in self.state.dictation_deadlines:
             return
         if time.monotonic() >= self.state.dictation_deadlines[task_id]:
-            self._fail_task(task_id, 'result_timeout', '识别等待超时，请重试本次听写。')
+            self._fail_task(task_id, 'result_timeout', tr('mic.result_timeout'))
             return
         self.state.dictation_deadlines.pop(task_id)
         self._received.add(task_id)
@@ -124,7 +126,7 @@ class ResultProcessor:
             try:
                 await self._process_final(message)
             except Exception as exc:
-                logger.error('Result processing failed: %s', type(exc).__name__)
+                logger.error(Notice('diagnostic.result_processor.result_processing_failed'), type(exc).__name__)
 
     async def _process_final(self, message):
         task_id = message.task_id
@@ -152,19 +154,19 @@ class ResultProcessor:
         now = time.monotonic()
         for task_id, deadline in list(self.state.dictation_deadlines.items()):
             if now >= deadline:
-                self._fail_task(task_id, 'result_timeout', '识别等待超时，请重试本次听写。')
+                self._fail_task(task_id, 'result_timeout', tr('mic.result_timeout'))
 
     def _fail_unfinished(self, *, notify):
         tasks = set(self.state.dictation_uploads) | set(self.state.task_contexts)
         with self.state.recording_lock:
             tasks.update(self.state.recorder_by_id)
         for task_id in tasks - self._received:
-            self._fail_task(task_id, 'connection_lost', '连接已断开，请重试本次听写。', notify=notify)
+            self._fail_task(task_id, 'connection_lost', tr('mic.connection_lost'), notify=notify)
 
     def _handle_error(self, message: RecognitionMessage):
         """Reject unknown/duplicate errors and cancel only their recording owner."""
         if message.task_id not in self._received:
-            self._fail_task(message.task_id, message.error_code, '识别失败，请重试本次听写。')
+            self._fail_task(message.task_id, message.error_code, tr('mic.recognition_failed'))
 
     def _fail_task(self, task_id, code, feedback, *, notify=True):
         with self.state.recording_lock:
@@ -195,7 +197,7 @@ class ResultProcessor:
                 operation.add_done_callback(self._cancellations.discard)
         if not notify:
             return
-        logger.warning('Dictation task failed: task=%s code=%s', task_id[:8], code,
+        logger.warning(Notice('diagnostic.result_processor.dictation_task_failed_task_code'), task_id[:8], code,
                        extra={'console_handled': True})
         console.print(f'[ui.error]{feedback}[/]')
         # Recheck under the ownership lock: a shortcut may have started a new
@@ -206,7 +208,7 @@ class ResultProcessor:
                 show_status_hint(feedback, duration_ms=3500, dot_color='#EF4444')
 
     async def _handle_final(self, message: RecognitionMessage):
-        self.app.progress.update(message.task_id, "Preparing text…")
+        self.app.progress.update(message.task_id, 'status.prepare_text')
         original = message.text
         text = original
         if Config.traditional_convert:
@@ -216,7 +218,7 @@ class ResultProcessor:
         text = TextOutput.strip_punc(text)
         self.state.last_recognition_text = original
         context, target_window = self.state.task_contexts.pop(message.task_id, ("", 0))
-        logger.info("Final transcription: task=%s chars=%d", message.task_id[:8], len(original))
+        logger.info(Notice('diagnostic.result_processor.final_transcription_task_chars'), message.task_id[:8], len(original))
         result = await self.app.llm.process(
             text, context=context,
             progress_callback=lambda stage: self.app.progress.update(message.task_id, stage),
@@ -225,22 +227,24 @@ class ResultProcessor:
         final_text = result.text
         # 无论失败/取消都可从菜单找回本次文字；取消不会自动上屏。
         self.state.set_output_text(final_text)
-        console.print("Transcription:", original, markup=False)
+        console.print(tr('result.transcription'), original, markup=False)
         if result.processed:
-            console.print("LLM action:", final_text, markup=False)
+            console.print(tr('result.llm'), final_text, markup=False)
 
         from core.ui import show_status_hint
 
+        if result.cancelled:
+            show_status_hint(tr('llm.cancelled'), duration_ms=3500)
         if result.error:
             show_status_hint(
-                (result.error_message or "LLM action failed.")
-                + " Original transcription retained.",
+                (result.error_message or tr('llm.failed'))
+                + tr('llm.original_retained'),
                 duration_ms=5000,
             )
         can_output = not result.cancelled and not self._exit_event.is_set()
         if target_window and foreground_window() != target_window:
             can_output = False
-            show_status_hint("Result ready. Use Copy last result.", duration_ms=3000)
+            show_status_hint(tr('result.ready'), duration_ms=3000)
         if can_output:
             info = get_active_window_info()
             process_name = info.get("process_name", "").lower()
@@ -277,11 +281,11 @@ class ResultProcessor:
                     else None,
                 )
             except OSError as exc:
-                logger.error("Transcript archive failed: %s", type(exc).__name__)
+                logger.error(Notice('diagnostic.result_processor.transcript_archive_failed'), type(exc).__name__)
         if result.processed and getattr(Config, "save_llm_records", False):
             try:
                 self.app.action_records.write(
                     final_text, message.time_start, audio_path, action_input=result.input_text
                 )
             except OSError as exc:
-                logger.error("Text action archive failed: %s", type(exc).__name__)
+                logger.error(Notice('diagnostic.result_processor.text_action_archive_failed'), type(exc).__name__)

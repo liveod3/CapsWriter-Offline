@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import asyncio
 import base64
 import math
@@ -145,20 +147,18 @@ class LiveMetricsColumn(ProgressColumn):
         now = time.perf_counter()
         elapsed = max(0.0, now - estimator.started_at)
         eta = estimator.eta_seconds(now=now)
-        eta_text = format_duration(eta) if eta is not None else '计算中'
+        eta_text = format_duration(eta) if eta is not None else tr('file.calculating')
         speed = estimator.live_speed(now=now)
-        speed_text = f'{speed:.2f}×' if speed > 0 else '计算中'
+        speed_text = f'{speed:.2f}×' if speed > 0 else tr('file.calculating')
         return Text.from_markup(
-            f'   [ui.label]耗时[/] [ui.value]{format_duration(elapsed)}[/]    '
-            f'[ui.label]ETA[/] [ui.value]{eta_text}[/]    '
-            f'[ui.label]实时速度[/] [ui.accent]{speed_text}[/]'
+            tr('file.live_metrics', value0=format_duration(elapsed), value1=eta_text, value2=speed_text)
         )
 
 
 async def read_fixed_chunk(reader: asyncio.StreamReader, chunk_size: int) -> bytes:
     """从异步管道累计读取一个定长块；到达 EOF 时返回最后一个不足定长的块。"""
     if chunk_size <= 0:
-        raise ValueError("chunk_size 必须为正数")
+        raise ValueError(Notice('validation.file_transcriber.chunk_size_must_be_positive'))
 
     data = bytearray()
     while len(data) < chunk_size:
@@ -222,7 +222,7 @@ class FileTranscriber:
             return
         self._progress = Progress(
             SpinnerColumn(style='ui.accent'),
-            TextColumn('[ui.accent]转写[/]'),
+            TextColumn(tr('file.progress_title')),
             BarColumn(
                 bar_width=20,
                 complete_style='ui.progress',
@@ -230,12 +230,10 @@ class FileTranscriber:
                 pulse_style='ui.secondary',
             ),
             TextColumn(
-                '[ui.label]进度[/] [ui.value]{task.percentage:.1f}%[/]'
+                tr('file.progress_percentage')
             ),
             TextColumn(
-                '   [ui.label]全部/已处理/待处理[/] '
-                '[ui.value]{task.fields[total_audio]}/'
-                '{task.fields[processed]}/{task.fields[remaining]}[/]'
+                tr('file.progress_audio')
             ),
             LiveMetricsColumn(),
             console=console,
@@ -246,7 +244,7 @@ class FileTranscriber:
         started_at = self._started_at or time.perf_counter()
         self._progress_estimator = ProgressEstimator(started_at=started_at)
         self._progress_task_id = self._progress.add_task(
-            '转写',
+            tr('file.transcribe'),
             total=total,
             total_audio=(format_duration(total) if total is not None else '--:--'),
             processed='00:00',
@@ -307,7 +305,7 @@ class FileTranscriber:
         # 检查文件是否存在
         if not self.file.exists():
             self.failure_code = 'missing_file'
-            logger.error('Input file not found', extra={'console_handled': True})
+            logger.error(Notice('diagnostic.file_transcriber.input_file_not_found'), extra={'console_handled': True})
             return False
 
         # 检查媒体工具环境 (FFmpeg)
@@ -320,7 +318,7 @@ class FileTranscriber:
             self._ws_manager.connect(announce=False), self._io_timeout
         ):
             self.failure_code = 'connection_failed'
-            logger.error('File connection failed', extra={'console_handled': True})
+            logger.error(Notice('diagnostic.file_transcriber.file_connection_failed'), extra={'console_handled': True})
             return False
         
         
@@ -332,7 +330,7 @@ class FileTranscriber:
         # 1. 预先获取时长
         self._audio_duration = await MediaTool.get_audio_duration(self.file)
         
-        logger.info('File transcription started: task=%s', self.task_id[:8])
+        logger.info(Notice('diagnostic.file_transcriber.file_transcription_started_task'), self.task_id[:8])
         time_start = time.time()
         self._started_at = time.perf_counter()
         self._start_progress()
@@ -382,7 +380,7 @@ class FileTranscriber:
                     if not await asyncio.wait_for(
                         self._ws_manager.send(message), self._io_timeout
                     ):
-                        raise ConnectionError("消息发送失败，连接可能已断开")
+                        raise ConnectionError(Notice('validation.file_transcriber.message_send_failed_connection_may_have_closed'))
                 except Exception:
                     self._send_window.release()
                     raise
@@ -407,13 +405,13 @@ class FileTranscriber:
             if not await asyncio.wait_for(
                 self._ws_manager.send(final_message), self._io_timeout
             ):
-                raise ConnectionError("结束标志发送失败")
+                raise ConnectionError(Notice('validation.file_transcriber.failed_to_send_final_marker'))
             self._send_complete.set()
             
             if self._audio_duration == 0:
                 self._audio_duration = progress
 
-            logger.debug("音频数据发送完成")
+            logger.debug(Notice('diagnostic.file_transcriber.audio_data_transmission_completed'))
             return True
             
         except asyncio.CancelledError:
@@ -430,7 +428,7 @@ class FileTranscriber:
                     self.failure_code = 'decoder_unavailable'
                 else:
                     self.failure_code = 'unexpected'
-            logger.error('File send failed: task=%s error=%s',
+            logger.error(Notice('diagnostic.file_transcriber.file_send_failed_task_error'),
                          self.task_id[:8], type(exc).__name__,
                          extra={'console_handled': True})
             return False
@@ -460,7 +458,7 @@ class FileTranscriber:
                     continue
                 if msg.error_code:
                     self.failure_code = 'recognition_failed'
-                    logger.error('Server rejected file task: task=%s code=%s',
+                    logger.error(Notice('diagnostic.file_transcriber.server_rejected_file_task_task_code'),
                                  self.task_id[:8], msg.error_code,
                                  extra={'console_handled': True})
                     return False
@@ -488,7 +486,7 @@ class FileTranscriber:
                     self.failure_code = 'connection_failed'
                 else:
                     self.failure_code = 'invalid_result'
-            logger.error('File receive failed: task=%s error=%s',
+            logger.error(Notice('diagnostic.file_transcriber.file_receive_failed_task_error'),
                          self.task_id[:8], type(exc).__name__,
                          extra={'console_handled': True})
             return False
@@ -510,8 +508,7 @@ class FileTranscriber:
 
         if sequence > 1:
             console.print(
-                f'[ui.warning]▲ 同名结果已存在，本次使用编号 ({sequence})；'
-                '未覆盖既有文件[/]'
+                tr('file.numbered_output', value0=sequence)
             )
 
         elapsed = (
@@ -529,8 +526,7 @@ class FileTranscriber:
         )
         
         logger.info(
-            'File transcription completed: task=%s duration=%.2f elapsed=%.2f '
-            'speed=%.2f rtf=%.3f chars=%d sequence=%d outputs=%d',
+            Notice('diagnostic.file_transcriber.file_transcription_completed_task_duration_f_elapsed_f'),
             self.task_id[:8], audio_duration, elapsed, self.summary.speed_ratio,
             self.summary.rtf, len(text_display), sequence, len(output_paths),
         )
@@ -544,7 +540,7 @@ class FileTranscriber:
         try:
             await asyncio.wait_for(self._ws_manager.close(), 5.0)
         except Exception as exc:
-            logger.warning('File connection cleanup failed: %s', type(exc).__name__)
+            logger.warning(Notice('diagnostic.file_transcriber.file_connection_cleanup_failed'), type(exc).__name__)
             if websocket is not None:
                 transport = getattr(websocket, 'transport', None)
                 if transport is not None:

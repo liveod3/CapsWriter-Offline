@@ -14,6 +14,8 @@
 注意：pystray 在 Linux 无 GUI 环境下无法导入，因此采用延迟导入。
 """
 
+from core.i18n import Notice, lazy, tr
+
 import os
 import sys
 import time
@@ -61,10 +63,10 @@ def _check_tray_available() -> bool:
         from PIL import Image
         _tray_available = True
     except ImportError as e:
-        logger.warning(f"托盘功能不可用: {e}")
+        logger.warning(Notice('diagnostic.tray.tray_unavailable', value0=e))
         _tray_available = False
     except Exception as e:
-        logger.warning(f"托盘功能检测失败: {e}")
+        logger.warning(Notice('diagnostic.tray.tray_detection_failed', value0=e))
         _tray_available = False
     
     return _tray_available
@@ -109,7 +111,7 @@ def _init_win_api():
         user32.ShowWindow.argtypes = [W.HWND, ctypes.c_int]
         _win_api_initialized = True
     except Exception as e:
-        logger.warning(f"Windows API 初始化失败: {e}")
+        logger.warning(Notice('diagnostic.tray.windows_api_initialization_failed', value0=e))
 
 
 # 全局变量
@@ -211,16 +213,16 @@ def _create_icon(icon_path: Optional[str] = None, recording: bool = False):
     from PIL import Image
 
     if not icon_path:
-        raise ValueError('缺少托盘图标路径')
+        raise ValueError(Notice('validation.tray.tray_icon_path_is_missing'))
     if not os.path.exists(icon_path):
-        raise FileNotFoundError(f'托盘图标不存在: {icon_path}')
+        raise FileNotFoundError(Notice('validation.tray.tray_icon_does_not_exist', value0=icon_path))
 
     try:
         with Image.open(icon_path) as source:
             image = source.convert('RGBA')
         image = image.resize((64, 64), Image.Resampling.LANCZOS)
     except Exception as error:
-        raise RuntimeError(f'加载托盘图标失败: {icon_path}') from error
+        raise RuntimeError(Notice('validation.tray.failed_to_load_tray_icon', value0=icon_path)) from error
 
     if recording:
         return _add_recording_badge(image)
@@ -240,6 +242,7 @@ class _TraySystem:
         self.hwnd = _get_console_hwnd()
         self.should_exit = False
         self.title = name if name else (os.path.basename(sys.argv[0]) or "Console App")
+        self._title_id = {'CapsWriter Client': 'app.client', 'CapsWriter Server': 'app.server'}.get(self.title)
         self._icon_path = icon_path
 
         # 禁用关闭按钮
@@ -248,9 +251,9 @@ class _TraySystem:
 
         # 定义菜单
         menu_items = [
-            item(f"{self.title}", lambda: None, enabled=False),
-            MenuAction(lambda _item: 'Hide console' if _is_window_visible(self.hwnd) else 'Show console',
-                       self.toggle_window, 'Show or hide the console. Dictation continues while hidden.',
+            item(lambda _item: self.display_title, lambda: None, enabled=False),
+            MenuAction(lambda _item: tr('tray.console.hide') if _is_window_visible(self.hwnd) else tr('tray.console.show'),
+                       self.toggle_window, lazy('tray.console.tip'),
                        'console', default=True).to_item(),
         ]
 
@@ -264,18 +267,22 @@ class _TraySystem:
                     menu_items.append(item(opt_name, opt_func))
 
         menu_items.append(pystray.Menu.SEPARATOR)
-        menu_items.append(MenuAction('Restart client' if 'Client' in self.title else 'Restart server',
-                                    self.on_restart, 'Restart this process and reload its configuration.',
+        menu_items.append(MenuAction(lazy('tray.restart.client' if self._title_id == 'app.client' else 'tray.restart.server'),
+                                    self.on_restart, lazy('tray.restart.tip'),
                                     'restart').to_item())
-        menu_items.append(MenuAction('Quit', self.on_exit, 'Close this process and release its resources.',
+        menu_items.append(MenuAction(lazy('tray.quit'), self.on_exit, lazy('tray.quit.tip'),
                                     'quit').to_item())
 
         self.icon = NativeMenuIcon(
             "console_tray",
             _create_icon(icon_path),
-            title=f"{self.title}",
+            title=self.display_title,
             menu=pystray.Menu(*menu_items)
         )
+
+    @property
+    def display_title(self):
+        return tr(self._title_id) if self._title_id else self.title
 
     def toggle_window(self) -> None:
         """切换窗口显示状态"""
@@ -299,7 +306,7 @@ class _TraySystem:
 
     def on_restart(self, icon, item) -> None:
         """托盘重启处理：启动新进程后退出当前进程"""
-        logger.info("托盘重启: 用户点击重启菜单，准备重启程序")
+        logger.info(Notice('diagnostic.tray.tray_restart_requested_preparing_to_restart_application'))
         try:
             if getattr(sys, 'frozen', False):
                 cmd = sys.argv
@@ -307,7 +314,7 @@ class _TraySystem:
                 cmd = [sys.executable] + sys.argv
             subprocess.Popen(cmd)
         except Exception as e:
-            logger.error(f"重启失败: {e}")
+            logger.error(Notice('diagnostic.tray.restart_failed', value0=e))
             return
 
         # 启动新进程成功后，调用退出回调退出当前进程
@@ -316,42 +323,42 @@ class _TraySystem:
             try:
                 exit_callback()
             except Exception as e:
-                logger.error(f"重启时调用退出回调发生错误: {e}")
+                logger.error(Notice('diagnostic.tray.exit_callback_failed_during_restart', value0=e))
 
     def on_exit(self, icon, item) -> None:
         """托盘退出处理"""
         exit_callback = _get_exit_callback()
 
-        logger.info("托盘退出: 用户点击退出菜单，准备清理资源并退出")
+        logger.info(Notice('diagnostic.tray_manager.tray_exit_requested_cleaning_up_resources'))
 
         # 1. 设置退出标志，停止监控循环
         self.should_exit = True
-        logger.debug("已设置托盘退出标志")
+        logger.debug(Notice('diagnostic.tray.tray_exit_flag_set'))
 
         # 2. 恢复窗口关闭按钮并显示窗口
         if self.hwnd and user32:
             _enable_close_button(self.hwnd)
             user32.ShowWindow(self.hwnd, SW_RESTORE)
-            logger.debug("已恢复窗口显示")
+            logger.debug(Notice('diagnostic.tray.window_visibility_restored'))
 
         # 3. 调用退出回调函数，请求主程序退出
         if exit_callback:
             try:
-                logger.debug("正在调用退出回调函数...")
+                logger.debug(Notice('diagnostic.tray.calling_exit_callback'))
                 exit_callback()
-                logger.info("退出回调函数已调用")
+                logger.info(Notice('diagnostic.tray.exit_callback_completed'))
             except Exception as e:
-                logger.error(f"调用退出回调函数时发生错误: {e}")
+                logger.error(Notice('diagnostic.tray.exit_callback_failed', value0=e))
 
 
 
         # 5. 停止托盘图标
         try:
-            logger.debug("正在停止托盘图标线程...")
+            logger.debug(Notice('diagnostic.tray.stopping_tray_icon_thread'))
             self.icon.stop()
-            logger.debug("托盘图标线程已停止")
+            logger.debug(Notice('diagnostic.tray.tray_icon_thread_stopped'))
         except Exception as e:
-            logger.warning(f"停止托盘图标时发生错误: {e}")
+            logger.warning(Notice('diagnostic.tray.failed_to_stop_tray_icon', value0=e))
 
     def start(self) -> None:
         """启动托盘系统"""
@@ -390,7 +397,7 @@ def enable_min_to_tray(name: Optional[str] = None, icon_path: Optional[str] = No
 
     # 检查托盘功能是否可用
     if not _check_tray_available():
-        logger.info("托盘功能不可用，跳过启用")
+        logger.info(Notice('diagnostic.tray.tray_unavailable_enable_skipped'))
         return
 
     # DPI 感知设置
@@ -451,20 +458,27 @@ def _refresh_tray_status() -> None:
             recording=_tray_recording,
         )
         if _tray_recording:
-            suffix = ' · Recording'
+            suffix = tr('tray.recording_suffix')
         elif _tray_paused:
-            suffix = ' · Paused'
+            suffix = tr('tray.paused_suffix')
         else:
             suffix = ''
-        _tray_instance.icon.title = f"{_tray_instance.title}{suffix}"
+        _tray_instance.icon.title = f"{_tray_instance.display_title}{suffix}"
     except Exception as e:
-        logger.warning(f'更新托盘图标状态失败: {e}')
+        logger.warning(Notice('diagnostic.tray.failed_to_update_tray_icon_state', value0=e))
+
+
+def refresh_language() -> None:
+    """Menus resolve labels on opening; refresh the taskbar tooltip immediately."""
+    _refresh_tray_status()
 
 
 if __name__ == "__main__":
+    from core.i18n import initialize_tool_language
+    initialize_tool_language()
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
     demo_icon_path = os.path.join(project_root, 'assets', 'client-icon.ico')
     enable_min_to_tray(icon_path=demo_icon_path)
-    print("程序运行中... 你可以双击托盘图标隐藏我。")
+    print(tr('terminal.tray.application_running_double_click_the_tray_icon_to'))
     while True:
         time.sleep(1)

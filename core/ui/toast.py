@@ -10,6 +10,8 @@ Usage:
     # 流式 Toast（用于测试）
     toast_stream("消息内容", markdown=False)
 """
+
+from core.i18n import Notice, tr
 import time
 import logging
 import threading
@@ -19,6 +21,8 @@ import os
 
 # 直接运行时，将项目根目录添加到 sys.path
 if __name__ == "__main__":
+    from core.i18n import initialize_tool_language
+    initialize_tool_language()
     file_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(os.path.dirname(file_dir))
     if project_root not in sys.path:
@@ -164,20 +168,20 @@ if __name__ == "__main__":
         force=True  # 强制重新配置
     )
 
-    logger.info(f"日志文件: {log_file}")
+    logger.info(Notice('diagnostic.toast.log_file', value0=log_file))
 
     print("=" * 60)
-    print("全面 Toast 测试程序")
+    print(tr('terminal.toast.toast_test_program'))
     print("=" * 60)
-    print("\n将执行 8 个测试用例:")
-    print("1. Text 版本 - 普通文本 - 非流式")
-    print("2. Text 版本 - 普通文本 - 流式")
-    print("3. Text 版本 - Markdown - 非流式")
-    print("4. Text 版本 - Markdown - 流式")
-    print("5. Label 版本 - 普通文本 - 非流式")
-    print("6. Label 版本 - 普通文本 - 流式")
-    print("7. Label 版本 - Markdown - 非流式")
-    print("8. Label 版本 - Markdown - 流式")
+    print(tr('terminal.toast.eight_test_cases'))
+    print(tr('terminal.toast.text_plain_text_non_streaming'))
+    print(tr('terminal.toast.text_plain_text_streaming'))
+    print(tr('terminal.toast.text_markdown_non_streaming'))
+    print(tr('terminal.toast.text_markdown_streaming'))
+    print(tr('terminal.toast.label_plain_text_non_streaming'))
+    print(tr('terminal.toast.label_plain_text_streaming'))
+    print(tr('terminal.toast.label_markdown_non_streaming'))
+    print(tr('terminal.toast.label_markdown_streaming'))
     print("=" * 60)
 
     # 测试文本
@@ -230,7 +234,7 @@ def hello():
     # toast_stream(plain_text, bg="#7B1FA2", fg='white', duration=5000, window_type='label', initial_width=800, markdown=False)
     # time.sleep(7)
 
-    print("[测试 7] Label 版本 - Markdown - 非流式 (3秒)")
+    print(tr('terminal.toast.test_label_markdown_non_streaming_seconds'))
     toast(markdown_text, bg="#00796B", fg='white', duration=3000, window_type='label', initial_width=800, markdown=True)
     time.sleep(4)
 
@@ -239,11 +243,11 @@ def hello():
     # time.sleep(7)
 
     print("\n" + "=" * 60)
-    print("所有测试完成！按 Ctrl+C 退出程序")
+    print(tr('terminal.toast.all_tests_complete_press_ctrl_c_to_exit'))
     print("=" * 60)
 
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n程序退出")
+        print(tr('terminal.toast.exiting'))

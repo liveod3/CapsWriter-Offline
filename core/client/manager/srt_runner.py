@@ -3,13 +3,15 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 from pathlib import Path
 
 
 class SrtRebuildRunner:
     def __init__(self, text_file: Path | None, json_file: Path | None):
         if text_file is None or json_file is None:
-            raise ValueError("字幕重建缺少 TXT 或 JSON")
+            raise ValueError(Notice('validation.srt_runner.subtitle_rebuild_requires_txt_and_json_inputs'))
         self.text_file = text_file
         self.json_file = json_file
 

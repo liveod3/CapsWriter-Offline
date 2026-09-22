@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import os
 
 from rich.panel import Panel
@@ -41,11 +43,11 @@ def _get_shortcuts_display() -> str:
     """
     enabled_shortcuts = [sc for sc in Config.shortcuts if sc.get('enabled', True)]
     if not enabled_shortcuts:
-        return '未配置快捷键'
+        return tr('tips.no_shortcuts')
 
     # 格式化每个快捷键名称
     formatted = [_format_shortcut_name(sc['key']) for sc in enabled_shortcuts]
-    return '、'.join(formatted)
+    return tr('tips.separator').join(formatted)
 
 
 class TipsDisplay:
@@ -63,22 +65,21 @@ class TipsDisplay:
         details = Table.grid(padding=(0, 2))
         details.add_column(style='ui.label', no_wrap=True)
         details.add_column(style='ui.value')
-        details.add_row('快捷键', shortcuts_display)
-        details.add_row('识别服务', f'{Config.addr}:{Config.port}')
-        details.add_row('工作目录', os.getcwd())
-        details.add_row('状态', '等待语音输入')
+        details.add_row(tr('tips.shortcuts'), shortcuts_display)
+        details.add_row(tr('tips.server'), f'{Config.addr}:{Config.port}')
+        details.add_row(tr('tips.directory'), os.getcwd())
+        details.add_row(tr('tips.status'), tr('tips.waiting'))
         console.print()
         console.print(Panel(
             details,
-            title=f'[ui.title]CapsWriter Offline[/]  [ui.accent]语音输入[/]  '
-                  f'[ui.secondary]v{__version__}[/]',
+            title=tr('tips.mic_title', value0=__version__),
             title_align='left',
             border_style='ui.border',
             padding=(0, 2),
         ))
-        console.print('[ui.muted]按下快捷键开始录音；再次按下或松开以结束。[/]')
+        console.print(tr('tips.instructions'))
 
-        logger.debug("已显示麦克风模式启动提示")
+        logger.debug(Notice('diagnostic.tips.microphone_startup_tips_displayed'))
     
     @staticmethod
     def show_file_tips(total: int, formats: str) -> None:
@@ -86,17 +87,16 @@ class TipsDisplay:
         details = Table.grid(padding=(0, 2))
         details.add_column(style='ui.label', no_wrap=True)
         details.add_column(style='ui.value')
-        details.add_row('识别服务', f'{Config.addr}:{Config.port}')
-        details.add_row('工作目录', os.getcwd())
-        details.add_row('任务', f'{total} 个文件 · {formats}')
+        details.add_row(tr('tips.server'), f'{Config.addr}:{Config.port}')
+        details.add_row(tr('tips.directory'), os.getcwd())
+        details.add_row(tr('tips.tasks'), tr('tips.file_count', value0=total, value1=formats))
         console.print()
         console.print(Panel(
             details,
-            title=f'[ui.title]CapsWriter Offline[/]  [ui.accent]文件转写[/]  '
-                  f'[ui.secondary]v{__version__}[/]',
+            title=tr('tips.file_title', value0=__version__),
             title_align='left',
             border_style='ui.border',
             padding=(0, 2),
         ))
         
-        logger.debug("已显示文件转录模式启动提示")
+        logger.debug(Notice('diagnostic.tips.file_transcription_startup_tips_displayed'))

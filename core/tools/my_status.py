@@ -8,6 +8,7 @@ Rich Status 扩展模块
 from rich.console import RenderableType
 from rich.style import StyleType
 from rich.status import Status as RichStatus
+from core.i18n import tr
 
 
 class Status(RichStatus):
@@ -23,8 +24,9 @@ class Status(RichStatus):
     
     def __init__(
         self,
-        status: RenderableType,
+        status: RenderableType = "",
         *,
+        message_id: str | None = None,
         spinner: str = "dots",
         spinner_style: StyleType = "status.spinner",
         speed: float = 1.0,
@@ -49,10 +51,14 @@ class Status(RichStatus):
             refresh_per_second=refresh_per_second,
         )
         self.started = False
+        self._message_id = message_id
 
     def start(self) -> None:
         """启动动画（如果尚未启动）"""
         if not self.started:
+            # Reused status objects must resolve the current locale at each start.
+            if self._message_id is not None:
+                self.update(tr(self._message_id))
             self.started = True
             super().start()
 

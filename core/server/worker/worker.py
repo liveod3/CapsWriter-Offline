@@ -6,6 +6,8 @@
 该模块作为子进程运行的完整生命周期管理者。
 """
 
+from core.i18n import Notice
+
 import os
 import sys
 import signal
@@ -48,7 +50,7 @@ class RecognizerWorker:
             try:
                 sys.stdin = os.fdopen(self.stdin_fn)
             except Exception as e:
-                logger.warning(f"Worker 无法接管标准输入: {str(e)}")
+                logger.warning(Notice('diagnostic.worker.worker_cannot_take_over_standard_input', value0=str(e)))
 
         # 注册信号处理器 (优雅退出)
         def signal_handler(signum, frame):
@@ -63,7 +65,7 @@ class RecognizerWorker:
         
         # atexit 兜底
         atexit.register(self.stop)
-        logger.debug("Worker 运行环境配置完成")
+        logger.debug(Notice('diagnostic.worker.worker_environment_configured'))
 
     def initialize(self):
         """执行识别子进程环境初始化与模型加载"""
@@ -71,7 +73,7 @@ class RecognizerWorker:
         self._setup_environment()
 
         # 2. 载入核心识别模型
-        logger.info("Worker 正在加载语音识别模型...")
+        logger.info(Notice('diagnostic.worker.worker_loading_speech_recognition_models'))
         self.loader.load()
         
         # 3. 将加载好的引擎委派给处理器
@@ -89,7 +91,7 @@ class RecognizerWorker:
             from core.tools.empty_working_set import empty_current_working_set
             empty_current_working_set()
         
-        logger.info("Worker 资源初始化完成")
+        logger.info(Notice('diagnostic.worker.worker_resources_initialized'))
 
     def start(self):
         """
@@ -104,7 +106,7 @@ class RecognizerWorker:
         except Exception as exc:
             if self.failure_event is not None:
                 self.failure_event.set()
-            logger.error('Recognition worker stopped: error=%s', type(exc).__name__)
+            logger.error(Notice('diagnostic.worker.recognition_worker_stopped_error'), type(exc).__name__)
             raise
         finally:
             self.stop()
@@ -115,9 +117,9 @@ class RecognizerWorker:
         if not self._is_running:return
         self._is_running = False
 
-        logger.info("正在停止 Worker 并回收资源...")
+        logger.info(Notice('diagnostic.worker.stopping_worker_and_releasing_resources'))
         self.loader.cleanup()
-        logger.info("Worker 资源已完成回收")
+        logger.info(Notice('diagnostic.worker.worker_resources_released'))
 
 
     def run(self):

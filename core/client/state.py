@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import asyncio
 import time
 from threading import RLock
@@ -111,7 +113,7 @@ class ClientState:
         
         清理所有状态，关闭连接和流。用于重新初始化或退出时清理。
         """
-        logger.debug("正在重置客户端状态...")
+        logger.debug(Notice('diagnostic.state.resetting_client_state'))
         
         # 关闭 WebSocket 连接
         ws = self.websocket
@@ -127,7 +129,7 @@ class ClientState:
         if self.stream is not None:
             try:
                 self.stream.close()
-                logger.debug("音频流已关闭")
+                logger.debug(Notice('diagnostic.state.audio_stream_closed'))
             except Exception:
                 pass
             self.stream = None
@@ -149,7 +151,7 @@ class ClientState:
         self.last_activity_time = time.time()
         self.audio_files.clear()
         
-        logger.debug("客户端状态重置完成")
+        logger.debug(Notice('diagnostic.state.client_state_reset_complete'))
     
     def start_recording(self, start_time: float) -> None:
         """
@@ -160,7 +162,7 @@ class ClientState:
         """
         self.recording = True
         self.recording_start_time = start_time
-        logger.debug(f"录音状态已更新: recording=True, start_time={start_time:.2f}")
+        logger.debug(Notice('diagnostic.state.recording_state_updated_recording_true_start_time', value0=start_time))
     
     def stop_recording(self) -> float:
         """
@@ -175,7 +177,7 @@ class ClientState:
         
         self.recording = False
         self.recording_start_time = 0.0
-        logger.debug(f"录音状态已更新: recording=False, duration={duration:.2f}s")
+        logger.debug(Notice('diagnostic.state.recording_state_updated_recording_false_duration_s', value0=duration))
         return duration
     
     @property
@@ -197,7 +199,7 @@ class ClientState:
             file_path: 音频文件路径
         """
         self.audio_files[task_id] = file_path
-        logger.debug('Audio file registered: task=%s', task_id[:8])
+        logger.debug(Notice('diagnostic.state.audio_file_registered_task'), task_id[:8])
     
     def pop_audio_file(self, task_id: str) -> Optional[Path]:
         """
@@ -211,7 +213,7 @@ class ClientState:
         """
         file_path = self.audio_files.pop(task_id, None)
         if file_path:
-            logger.debug('Audio file retrieved: task=%s', task_id[:8])
+            logger.debug(Notice('diagnostic.state.audio_file_retrieved_task'), task_id[:8])
         return file_path
 
     def set_output_text(self, text: str) -> None:

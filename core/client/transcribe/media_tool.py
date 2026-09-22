@@ -1,3 +1,6 @@
+
+from core.i18n import Notice, tr
+
 # coding: utf-8
 import asyncio
 import shutil
@@ -21,20 +24,18 @@ class MediaTool:
         ffprobe_path = shutil.which('ffprobe')
         
         if ffmpeg_path is None:
-            console.print('\n[ui.error]✗ 缺少 FFmpeg[/]')
-            console.print('[ui.value]文件转写需要 FFmpeg 提取音轨。[/]')
-            console.print('[ui.label]解决方法[/]  [ui.value]将 FFmpeg 的 bin 目录加入 Path，'
-                          '或把 ffmpeg.exe 放到程序目录。[/]')
-            console.print('[ui.label]下载[/]  [link=https://ffmpeg.org/download.html]'
-                          'https://ffmpeg.org/download.html[/link]\n')
-            logger.error('FFmpeg unavailable', extra={'console_handled': True})
+            console.print(tr('file.ffmpeg_missing'))
+            console.print(tr('file.ffmpeg_required'))
+            console.print(tr('file.ffmpeg_fix'))
+            console.print(tr('file.ffmpeg_download'))
+            logger.error(Notice('diagnostic.media_tool.ffmpeg_unavailable'), extra={'console_handled': True})
             return False
             
         if ffprobe_path is None:
-            console.print('\n[ui.warning]▲ 未检测到 ffprobe[/]')
-            console.print('[ui.value]读取完整段音频前，仅显示已处理时长；随后补全百分比与 ETA。[/]')
-            console.print('[ui.label]建议[/]  [ui.value]将 ffprobe.exe 与 ffmpeg.exe 一同安装。[/]\n')
-            logger.warning('ffprobe unavailable', extra={'console_handled': True})
+            console.print(tr('file.ffprobe_missing'))
+            console.print(tr('file.ffprobe_progress'))
+            console.print(tr('file.ffprobe_fix'))
+            logger.warning(Notice('diagnostic.media_tool.ffprobe_unavailable'), extra={'console_handled': True})
             
         return True
 
@@ -57,7 +58,7 @@ class MediaTool:
             if process.returncode == 0:
                 return float(stdout.decode().strip())
         except Exception as exc:
-            logger.warning('Media duration unavailable: %s', type(exc).__name__,
+            logger.warning(Notice('diagnostic.media_tool.media_duration_unavailable'), type(exc).__name__,
                            extra={'console_handled': True})
         finally:
             if process is not None:

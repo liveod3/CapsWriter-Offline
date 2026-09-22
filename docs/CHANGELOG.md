@@ -1,5 +1,12 @@
 # 更新日志
 
+## 2026-09-22 — Unreleased, multilingual interface accepted
+
+- Add English and Simplified Chinese UI catalogs with stable IDs and English fallback. Client tray language selection saves `ClientConfig.ui_language`; the local server follows it at startup and through validated configuration reload, including terminal, tray and worker notices. Keep `ServerConfig.ui_language` as a legacy fallback. Client changes apply after pending work settles; no recognition settings or server configuration files are changed.
+- Localize tray labels/tooltips, status hints, dialog buttons, file and subtitle feedback, controlled LLM errors, client CLI help and server product messages. Preserve recognition language, command/preset IDs, prompts and user text. Wrap long hints to fit the monitor work area and resolve menu labels when opened.
+- Complete the hardcoded-text follow-up across maintained terminal/UI, engine wrappers and utility entry points, including parser errors and nested configuration/protocol reasons. Localize console copies of diagnostic notices while retaining English file records. Share the server locale with ASR/aligner workers so subsequent notices follow live language changes without model restarts. Preserve native diagnostic text and recognition data. Add source guards for both direct and indirectly assigned labels.
+- Validation: `capswriter`, Python 3.11.15; **533 passed, 8 deselected**, configured coverage **85.22%**, and **8 native Windows menu checks passed**. Ruff, configured mypy targets, compileall, CLI help and diff checks pass. Reused Rich statuses resolve their language when displayed; real synthetic spawn tests cover shared language updates without models. The user accepted the complete item and authorized commit on 2026-09-22 after the terminal localization and local server language synchronization follow-ups. See the [language guide](interface-language.md) and [validation record](validation/P1-multilingual-interface.md).
+
 ## 2026-09-22 — Unreleased, recording storage and configuration reload accepted
 
 - Add configurable recording storage with a per-user Windows default, portable relative paths and absolute paths. Preserve legacy recordings and links, support cross-drive transcript links, expose the recording folder in the tray and continue dictation when archive creation fails.

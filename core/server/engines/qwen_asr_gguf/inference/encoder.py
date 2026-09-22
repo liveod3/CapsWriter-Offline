@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import tr
 import os
 import time
 from pathlib import Path
@@ -154,9 +156,9 @@ class QwenAudioEncoder:
             providers.insert(0, 'CUDAExecutionProvider')
             
         if self.verbose: 
-            print(f"--- [Encoder] 加载 Split ONNX 模型 (Provider: {providers[0]}, Pad: {dml_pad_to}s) ---")
-            print(f"    Frontend: {os.path.basename(frontend_path)}")
-            print(f"    Backend:  {os.path.basename(backend_path)}")
+            print(tr('terminal.encoder.encoder_loading_split_onnx_models_provider_pad_s', value0=providers[0], value1=dml_pad_to))
+            print(tr('terminal.encoder.frontend', value0=os.path.basename(frontend_path)))
+            print(tr('terminal.encoder.backend', value0=os.path.basename(backend_path)))
 
         # 加载两个 Session
         self.sess_fe = ort.InferenceSession(frontend_path, sess_options=sess_opts, providers=providers)
@@ -173,15 +175,15 @@ class QwenAudioEncoder:
 
         # 预热处理
         if self.dml_pad_to > 0 and self.active_dml:
-            if self.verbose: print(f"--- [Encoder] 正在预热 (固定形状: {self.dml_pad_to}s)... ---")
+            if self.verbose: print(tr('terminal.encoder.encoder_warming_up_fixed_shape_s', value0=self.dml_pad_to))
             dummy_wav = np.zeros(int(16000 * self.dml_pad_to)).astype(np.float32)
             _ = self.encode(dummy_wav)
         else:
             # 非 DML 模式下，预热一个短音频即可，无需 Padding
-            if self.verbose: print(f"--- [Encoder] 正在预热 (非 DML 模式)... ---")
+            if self.verbose: print(tr('terminal.encoder.encoder_warming_up_non_dml_mode'))
             dummy_wav = np.zeros(int(16000 * 2.0)).astype(np.float32)
             _ = self.encode(dummy_wav)
-        if self.verbose: print("--- [Encoder] 预热完成 ---")
+        if self.verbose: print(tr('terminal.encoder.encoder_warmup_complete'))
 
     def _run_frontend(self, mel: np.ndarray) -> np.ndarray:
         """前端推理流水线：Pad -> Chunk Loop -> Concat -> Slice"""

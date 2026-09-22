@@ -3,6 +3,8 @@ Toast Text 窗口模块
 
 基于 Text 组件的浮动消息窗口，适合流式输出场景（如 LLM 实时显示）。
 """
+
+from core.i18n import Notice
 import logging
 import tkinter as tk
 from tkinter import font
@@ -197,7 +199,7 @@ class ToastWindowText(ToastWindowBase):
 
             self.window.geometry(f'{window_width}x{int(window_height)}+{x}+{y}')
         except tk.TclError as e:
-            logger.warning(f"设置窗口位置失败: {e}")
+            logger.warning(Notice('diagnostic.toast_label.window_positioning_failed', value0=e))
 
     def update_text(self, new_text: str) -> None:
         """更新文本内容（增量插入模式）

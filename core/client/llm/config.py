@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 from dataclasses import dataclass, field
 from pathlib import Path
 import math
@@ -51,14 +53,14 @@ class Catalog:
         if default is None:
             return None, text
         if not isinstance(default, str) or default not in self.presets:
-            raise ValueError("llm_default_preset must be one preset ID or None")
+            raise ValueError(Notice('validation.config.llm_default_preset_must_be_one_preset_id'))
         return self.presets[default], text
 
 
 def _text(data: dict, name: str, default=None) -> str:
     value = data.get(name, default)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{name} must be a non-empty string")
+        raise ValueError(Notice('validation.config.must_be_a_non_empty_string', value0=name))
     return value.strip()
 
 
@@ -77,7 +79,7 @@ def load_catalog(directory: Path) -> Catalog:
     for identifier, data in provider_data.items():
         kind = _text(data, "kind")
         if kind not in {"ollama", "openai"}:
-            raise ValueError("Provider kind must be ollama or openai")
+            raise ValueError(Notice('validation.config.provider_kind_must_be_ollama_or_openai'))
         url = _text(data, "base_url").rstrip("/")
         parsed = urlsplit(url)
         if (
@@ -86,16 +88,16 @@ def load_catalog(directory: Path) -> Catalog:
             or parsed.username
             or parsed.password
         ):
-            raise ValueError("Provider URL must be HTTP(S), without embedded credentials")
+            raise ValueError(Notice('validation.config.provider_url_must_be_http_s_without_embedded'))
         timeout = float(data.get("timeout", 30))
         if not math.isfinite(timeout) or not 0 < timeout <= 300:
-            raise ValueError("Provider timeout must be between 0 and 300 seconds")
+            raise ValueError(Notice('validation.config.provider_timeout_must_be_between_and_seconds'))
         key_env = data.get("api_key_env", "")
         if not isinstance(key_env, str):
-            raise ValueError("api_key_env must be an environment variable name")
+            raise ValueError(Notice('validation.config.api_key_env_must_be_an_environment_variable'))
         key = data.get("api_key")
         if key is not None and not isinstance(key, str):
-            raise ValueError("api_key must be a string")
+            raise ValueError(Notice('validation.config.api_key_must_be_a_string'))
         providers[identifier] = Provider(
             identifier,
             kind,
@@ -109,26 +111,26 @@ def load_catalog(directory: Path) -> Catalog:
     for identifier, data in preset_data.items():
         provider = _text(data, "provider")
         if provider not in providers:
-            raise ValueError(f"Unknown provider in preset {identifier}")
+            raise ValueError(Notice('validation.config.unknown_provider_in_preset', value0=identifier))
         triggers = data.get("triggers", [])
         if not isinstance(triggers, list) or any(
             not isinstance(t, str) or not t.strip() for t in triggers
         ):
-            raise ValueError("triggers must be a list of non-empty strings")
+            raise ValueError(Notice('validation.config.triggers_must_be_a_list_of_non_empty'))
         triggers = tuple(t.strip() for t in triggers)
         for trigger in triggers:
             if trigger in triggers_seen:
-                raise ValueError("Duplicate preset trigger")
+                raise ValueError(Notice('validation.config.duplicate_preset_trigger'))
             triggers_seen.add(trigger)
         context = data.get("use_caret_context", False)
         if not isinstance(context, bool):
-            raise ValueError("use_caret_context must be boolean")
+            raise ValueError(Notice('validation.config.use_caret_context_must_be_boolean'))
         temperature = float(data.get("temperature", 0))
         tokens = data.get("max_tokens", 2048)
         if not math.isfinite(temperature) or not 0 <= temperature <= 2:
-            raise ValueError("temperature must be between 0 and 2")
+            raise ValueError(Notice('validation.config.temperature_must_be_between_and'))
         if isinstance(tokens, bool) or not isinstance(tokens, int) or not 1 <= tokens <= 32768:
-            raise ValueError("max_tokens must be between 1 and 32768")
+            raise ValueError(Notice('validation.config.max_tokens_must_be_between_and'))
         presets[identifier] = Preset(
             identifier,
             _text(data, "name"),

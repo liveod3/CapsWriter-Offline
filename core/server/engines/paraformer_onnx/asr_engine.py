@@ -1,4 +1,6 @@
 # coding: utf-8
+
+from core.i18n import Notice
 import sherpa_onnx
 import numpy as np
 from typing import Optional, List, Any, Tuple
@@ -126,7 +128,7 @@ class ParaformerEngine(BaseASREngine):
 
     def __init__(self, config: ParaformerConfig):
         super().__init__(config)
-        logger.debug(f"正在初始化 ParaformerEngine，配置: {self.config}")
+        logger.debug(Notice('diagnostic.asr_engine.initializing_paraformerengine_with_configuration', value0=self.config))
         
         # 提取参数用于 sherpa-onnx
         params = {
@@ -162,9 +164,9 @@ class ParaformerEngine(BaseASREngine):
     ):
         """解码识别流并同步结果"""
         if context:
-            logger.debug(f"ParaformerEngine 不支持解码 context，已忽略")
+            logger.debug(Notice('diagnostic.asr_engine.paraformerengine_does_not_support_decoding_context_ignored'))
         if language and language != 'auto':
-            logger.debug('Paraformer language override ignored')
+            logger.debug(Notice('diagnostic.asr_engine.paraformer_language_override_ignored'))
         
         # 1. 调用内核解码
         self.recognizer.decode_stream(stream.internal_stream)

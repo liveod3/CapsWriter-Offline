@@ -5,6 +5,8 @@
 处理键盘和鼠标事件的逻辑
 """
 
+from core.i18n import Notice
+
 import time
 from . import logger
 
@@ -62,7 +64,7 @@ class ShortcutEventHandler:
             return
 
         duration = time.time() - task.recording_start_time
-        logger.debug(f"[{key_name}] 松开，持续时间: {duration:.2f}s")
+        logger.debug(Notice('diagnostic.event_handler.released_after_s', value0=key_name, value1=duration))
 
         if duration < task.threshold:
             self._handle_short_press(key_name, task)
@@ -74,10 +76,10 @@ class ShortcutEventHandler:
         cancel_start = time.perf_counter()
         task.cancel()
         cancel_time = (time.perf_counter() - cancel_start) * 1000
-        logger.debug(f"[{key_name}] task.cancel() 耗时: {cancel_time:.2f}ms")
+        logger.debug(Notice('diagnostic.event_handler.task_cancel_took_ms', value0=key_name, value1=cancel_time))
 
         if task.shortcut.suppress:
-            logger.debug(f"[{key_name}] 安排异步补发按键")
+            logger.debug(Notice('diagnostic.event_handler.asynchronous_key_replay_scheduled', value0=key_name))
             self.pool.submit(self.emulator.emulate_key, key_name)
 
     def _count_down(self, task) -> None:

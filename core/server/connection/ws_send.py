@@ -1,5 +1,7 @@
 """Bound result delivery and stop permanently broken shared channels."""
 
+from core.i18n import Notice, tr
+
 import asyncio
 import queue
 import time
@@ -28,7 +30,7 @@ async def _close_failed_connection(websocket, reason):
             transport.abort()
         raise
     except Exception as exc:
-        logger.warning('Result connection cleanup failed: %s', type(exc).__name__)
+        logger.warning(Notice('diagnostic.ws_send.result_connection_cleanup_failed'), type(exc).__name__)
         transport = getattr(websocket, 'transport', None)
         if transport is not None:
             transport.abort()
@@ -87,7 +89,7 @@ async def ws_send(app):
     state = app.state
     send_timeout = positive_timeout(Config, 'result_send_timeout', 10.0)
     queue_timeout = positive_timeout(Config, 'result_queue_timeout', 60.0)
-    logger.info('Result sender started')
+    logger.info(Notice('diagnostic.ws_send.result_sender_started'))
     while True:
         if getattr(app, 'is_alive', True) is False:
             return
@@ -142,7 +144,7 @@ async def ws_send(app):
                 transport.abort()
             raise
         except Exception as exc:
-            logger.warning('Result delivery failed: socket=%s task=%s error=%s',
+            logger.warning(Notice('diagnostic.ws_send.result_delivery_failed_socket_task_error'),
                            result.socket_id[:8], result.task_id[:8], type(exc).__name__)
             reason = 'Recognition task failed' if result.error_code else 'Result delivery failed'
             await _retire_connection(state, websocket, reason)
@@ -150,14 +152,14 @@ async def ws_send(app):
 
         if state.sockets.get(result.socket_id) is websocket:
             state.socket_last_activity[result.socket_id] = time.monotonic()
-        logger.debug('Result delivered: task=%s chars=%d final=%s',
+        logger.debug(Notice('diagnostic.ws_send.result_delivered_task_chars_final'),
                      result.task_id[:8], len(result.text), result.is_final)
         if result.error_code:
-            logger.warning('Task failure delivered: socket=%s task=%s code=%s',
+            logger.warning(Notice('diagnostic.ws_send.task_failure_delivered_socket_task_code'),
                            result.socket_id[:8], result.task_id[:8], result.error_code)
             if close_connection or result.close_connection:
                 await _retire_connection(state, websocket, 'Task failure limit reached; reconnect')
         elif result.type == 'file':
-            console.print(f'    Transcription progress: {result.duration:.2f}s', end='\r')
+            console.print(tr('server.progress', value0=result.duration), end='\r')
             if result.is_final:
-                console.print('\n    [green]Transcription complete')
+                console.print(tr('server.complete'))

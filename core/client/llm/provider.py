@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import tr
+
 import os
 import json
 from typing import Protocol
@@ -16,13 +18,12 @@ class MissingAPIKeyError(ValueError):
     def __init__(self, *, from_environment: bool):
         source = "environment variable" if from_environment else "local configuration"
         super().__init__(f"Configured API key {source} is empty")
-        self.user_message = (
-            "API key missing. Set the environment variable selected by api_key_env, "
-            "then restart Client."
-            if from_environment
-            else "API key missing. Fill api_key in providers.toml "
-            "via Settings > Provider connections."
-        )
+        self.message_id = "llm.missing_env_key" if from_environment else "llm.missing_local_key"
+
+    @property
+    def user_message(self):
+        return tr(self.message_id)
+
 
 
 class TextProvider(Protocol):
@@ -73,19 +74,19 @@ class HTTPTextProvider:
                     if len(data) + len(chunk) > limit:
                         if not response.is_success:
                             raise api_error(response.status_code, {})
-                        raise LLMResponseError("response_too_large", "LLM response exceeds the size limit.")
+                        raise LLMResponseError("response_too_large", "llm.response_too_large")
                     data.extend(chunk)
                 try:
                     result = json.loads(data)
                 except (ValueError, UnicodeError):
                     if not response.is_success:
                         raise api_error(response.status_code, {}) from None
-                    raise LLMResponseError("invalid_json", "The provider returned invalid JSON.") from None
+                    raise LLMResponseError("invalid_json", "llm.invalid_json") from None
                 if not response.is_success or (isinstance(result, dict) and "error" in result):
                     raise api_error(response.status_code, result, response.headers.get("retry-after", ""))
 
         if not isinstance(result, dict):
-            raise LLMResponseError("invalid_response", "The provider returned an unexpected response structure.")
+            raise LLMResponseError("invalid_response", "llm.invalid_structure")
         feedback = result.get("promptFeedback", {})
         if isinstance(feedback, dict) and feedback.get("blockReason"):
             raise generation_error(feedback["blockReason"], "block_reason")
@@ -103,21 +104,21 @@ class HTTPTextProvider:
         else:
             choices = result.get("choices")
             if not isinstance(choices, list) or not choices:
-                raise LLMResponseError("empty_choices", "The provider returned no output candidates.")
+                raise LLMResponseError("empty_choices", "llm.empty_choices")
             choice = choices[0]
             if not isinstance(choice, dict):
-                raise LLMResponseError("invalid_response", "The provider returned an invalid output candidate.")
+                raise LLMResponseError("invalid_response", "llm.invalid_candidate")
             reason = choice.get("finish_reason")
             if reason and reason != "stop":
                 raise generation_error(reason, "finish_reason")
             message = choice.get("message")
         if not isinstance(message, dict):
-            raise LLMResponseError("invalid_response", "The provider returned no text message.")
+            raise LLMResponseError("invalid_response", "llm.no_message")
         if message.get("refusal"):
             raise generation_error("CONTENT_BLOCKED", "finish_reason")
         if message.get("tool_calls") or message.get("function_call"):
             raise generation_error("TOOL_CALLS", "finish_reason")
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
-            raise LLMResponseError("empty_output", "The provider returned no usable text.")
+            raise LLMResponseError("empty_output", "llm.empty_output")
         return text.strip()

@@ -1,3 +1,5 @@
+
+from core.i18n import tr
 import signal
 import sys
 import time
@@ -13,9 +15,9 @@ class SignalHandler:
         now = time.time()
         if now - self.last_time > 1.0:
             self.last_time = now
-            print(f"\n收到 {signal.Signals(signum).name}，1秒内再次按下将会退出...")
+            print(tr('terminal.signal_handler.received_press_again_within_one_second_to_exit', value0=signal.Signals(signum).name))
         else:
-            print(f"\n收到 {signal.Signals(signum).name}，确认退出...\n")
+            print(tr('terminal.signal_handler.received_exiting', value0=signal.Signals(signum).name))
             self.last_time = 0
             self.callback()
             

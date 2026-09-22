@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import time
 import threading
 from functools import partial
@@ -99,12 +101,10 @@ class AudioStreamManager:
         if not previous_device or previous_device == device_name:
             return
 
-        message = f'输入设备已切换：{device_name}'
-        logger.info(f"输入音频设备已切换: {previous_device} -> {device_name}")
+        message = tr('audio.changed', value0=device_name)
+        logger.info(Notice('diagnostic.stream.input_audio_device_changed', value0=previous_device, value1=device_name))
         console.print(
-            f'\n[ui.warning]● 输入设备已切换[/]  '
-            f'[ui.value]{previous_device}[/] [ui.secondary]→[/] '
-            f'[ui.success]{device_name}[/]'
+            tr('audio.changed_console', value0=previous_device, value1=device_name)
         )
         show_status_hint(message, duration_ms=2600, dot_color='#F59E0B')
 
@@ -118,8 +118,7 @@ class AudioStreamManager:
                 self._commit_input_device(device_name)
             else:
                 logger.info(
-                    f"监控线程检测到输入音频设备变更，准备重开音频流: "
-                    f"{self._last_input_device} -> {device_name}"
+                    Notice('diagnostic.stream.input_device_change_detected_reopening_audio_stream', value0=self._last_input_device, value1=device_name)
                 )
                 self.reopen()
             return
@@ -190,7 +189,7 @@ class AudioStreamManager:
                 owner = self.state.recording_owner
                 if owner is not None:
                     owner.cancel()
-                    show_status_hint('Microphone disconnected. Please retry after recovery.',
+                    show_status_hint(tr('mic.disconnected'),
                                      duration_ms=3000, dot_color='#EF4444')
         try:
             self.app.loop.call_soon_threadsafe(cancel)
@@ -229,7 +228,7 @@ class AudioStreamManager:
                     try:
                         self.reopen()
                     except Exception as exc:
-                        logger.warning('Audio recovery failed: %s', type(exc).__name__)
+                        logger.warning(Notice('diagnostic.stream.audio_recovery_failed'), type(exc).__name__)
                     continue
             
             # 如果用户当前正在录音说话，绝对不要打断当前的音频流。
@@ -247,7 +246,7 @@ class AudioStreamManager:
                     self._handle_monitored_device(current_device_name)
 
             except Exception as e:
-                logger.debug(f"后台硬件监听循环异常: {e}")
+                logger.debug(Notice('diagnostic.stream.hardware_monitor_loop_failed', value0=e))
                 # 确保在任何意外错误后，底层的录音流一定能够被拉起
                 if (not self._running) and (not self.state.dictation_paused):
                     self.start(silent=True)
@@ -273,11 +272,11 @@ class AudioStreamManager:
         if self._shutdown.is_set():
             return None
         if self._running:
-            logger.debug("音频流已在运行，跳过启动")
+            logger.debug(Notice('diagnostic.stream.audio_stream_already_running_startup_skipped'))
             return self.state.stream
 
         if self.state.dictation_paused and not force:
-            logger.debug("当前处于听写挂起状态，跳过启动音频流")
+            logger.debug(Notice('diagnostic.stream.dictation_suspended_audio_stream_startup_skipped'))
             return None
         if self.state.stream is not None:
             try:
@@ -290,27 +289,25 @@ class AudioStreamManager:
         try:
             device = sd.query_devices(device=device_selector, kind='input')
             self._channels = min(2, device['max_input_channels'])
-            device_name = device.get('name', '未知设备')
-            selection_mode = '系统默认' if device_selector is None else '指定配置'
+            device_name = device.get('name', tr('audio.unknown_device'))
+            selection_mode = Notice('audio.system_default' if device_selector is None else 'audio.configured')
             
             if not silent:
                 console.print(
-                    f'[ui.label]音频设备[/]  [ui.value]{device_name}[/]  '
-                    f'[ui.muted]{selection_mode} · {self._channels} 声道[/]',
+                    tr('audio.device_console', value0=device_name, value1=selection_mode, value2=self._channels),
                     end='\n\n'
                 )
             logger.info(
-                f"找到音频设备: {device_name}, 声道数: {self._channels}, "
-                f"选择方式: {selection_mode}"
+                Notice('diagnostic.stream.audio_device_found_channels_selection', value0=device_name, value1=self._channels, value2=selection_mode)
             )
         except UnicodeDecodeError:
-            logger.warning('Could not decode input device information')
+            logger.warning(Notice('diagnostic.stream.could_not_decode_input_device_information'))
             return None
         except (ValueError, sd.PortAudioError) as e:
             if device_selector is None:
-                logger.error(f"未找到系统默认麦克风设备: {e}")
+                logger.error(Notice('diagnostic.stream.system_default_microphone_not_found', value0=e))
             else:
-                logger.error(f"未找到指定麦克风设备 {device_selector!r}: {e}")
+                logger.error(Notice('diagnostic.stream.selected_microphone_not_found', value0=device_selector, value1=e))
             return None
         
         # 创建音频流
@@ -338,21 +335,20 @@ class AudioStreamManager:
             self._running = True
             self._commit_input_device(device_name)
             logger.debug(
-                f"音频流已启动: 采样率={self.SAMPLE_RATE}, "
-                f"块大小={int(self.BLOCK_DURATION * self.SAMPLE_RATE)}"
+                Notice('diagnostic.stream.audio_stream_started_sample_rate_block_size', value0=self.SAMPLE_RATE, value1=int(self.BLOCK_DURATION * self.SAMPLE_RATE))
             )
 
             return stream
             
         except Exception as e:
-            logger.error(f"创建音频流失败: {e}", exc_info=True)
+            logger.error(Notice('diagnostic.stream.failed_to_create_audio_stream', value0=e), exc_info=True)
             self._running = False
             self._ready_event = threading.Event()
             if stream is not None:
                 try:
                     stream.close()
                 except Exception:
-                    logger.warning('Failed to close partially started input stream')
+                    logger.warning(Notice('diagnostic.stream.failed_to_close_partially_started_input_stream'))
                 else:
                     self.state.stream = None
             return None
@@ -386,9 +382,9 @@ class AudioStreamManager:
         if self.state.stream is not None:
             try:
                 self.state.stream.close()
-                logger.debug("音频流已停止")
+                logger.debug(Notice('diagnostic.stream.audio_stream_stopped'))
             except Exception as e:
-                logger.debug(f"停止音频流时发生错误: {e}")
+                logger.debug(Notice('diagnostic.stream.failed_to_stop_audio_stream', value0=e))
                 raise
             else:
                 self.state.stream = None
@@ -400,7 +396,7 @@ class AudioStreamManager:
             if not thread.is_alive():
                 self._monitor_thread = None
             else:
-                logger.warning('Audio monitor has not exited before the shutdown deadline')
+                logger.warning(Notice('diagnostic.stream.audio_monitor_has_not_exited_before_the_shutdown'))
 
     def request_shutdown(self):
         """Publish the permanent stop barrier before waiting for backend calls."""
@@ -419,7 +415,7 @@ class AudioStreamManager:
         Returns:
             新创建的音频输入流
         """
-        logger.info("正在重启音频流...")
+        logger.info(Notice('diagnostic.stream.restarting_audio_stream'))
         
         with self._stream_lock:
             if self._shutdown.is_set() or self.state.dictation_paused:

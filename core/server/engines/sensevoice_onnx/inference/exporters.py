@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import tr
 import re
 from datetime import timedelta
 from typing import List, Optional
@@ -73,7 +75,7 @@ def export_to_srt(path: str, result: TranscriptionResult):
     content = results_to_srt(result.results)
     with open(path, "w", encoding="utf-8") as f:
         f.write(content)
-    print(f"✅ 已生成字幕文件: {path}")
+    print(tr('terminal.exporters.subtitle_file_generated', value0=path))
 
 def export_to_json(path: str, result: TranscriptionResult):
     """将转录结果保存为 JSON 格式的时间戳列表"""
@@ -86,7 +88,7 @@ def export_to_json(path: str, result: TranscriptionResult):
     ]
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
-    print(f"✅ 已导出时间戳: {path}")
+    print(tr('terminal.exporters.timestamps_exported', value0=path))
 
 def export_to_txt(path: str, result: TranscriptionResult):
     """将转录结果保存为普通文本"""
@@ -95,4 +97,4 @@ def export_to_txt(path: str, result: TranscriptionResult):
     formatted_text = re.sub(r'([，。？！：])', r'\1\n', final_text)
     with open(path, "w", encoding="utf-8") as f:
         f.write(formatted_text)
-    print(f"✅ 已保存文本文件: {path}")
+    print(tr('terminal.exporters.text_file_saved', value0=path))

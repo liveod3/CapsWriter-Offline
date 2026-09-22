@@ -7,6 +7,8 @@
 2. text_accu (精确拼接): 基于时间戳去重，用于字幕生成
 """
 
+from core.i18n import Notice
+
 import re
 import time
 from core.server.state import WorkerState
@@ -52,16 +54,16 @@ class TaskPipeline:
             result.text = merge_by_text(result.text, segment_text)
             added_chars = len(result.text) - prev_len
             
-            logger.debug(f"简单拼接: +{added_chars} 字符, 片段={len(segment_text)}, 总={len(result.text)}")
+            logger.debug(Notice('diagnostic.pipeline.appending_text_chars_segment_total', value0=added_chars, value1=len(segment_text), value2=len(result.text)))
         except Exception as e:
-            logger.warning('Text merge failed: error=%s', type(e).__name__)
+            logger.warning(Notice('diagnostic.pipeline.text_merge_failed_error'), type(e).__name__)
 
     def process(self, task: Task) -> Result:
         """
         处理单个音频任务片段并返回识别结果
         """
         try:
-            logger.info('Recognition started: task=%s source=%s', task.task_id[:8], task.type)
+            logger.info(Notice('diagnostic.pipeline.recognition_started_task_source'), task.task_id[:8], task.type)
             is_first_segment = task.key not in self.state.sessions
             session = self.state.get_session(task.task_id, task.socket_id, task.type)
             result = session.result
@@ -91,7 +93,7 @@ class TaskPipeline:
 
             # 4. 路径 A: 简单文本拼接 (主要用于实时回显)
             asr_raw_text = stream.result.text
-            logger.info('Recognition decoded: task=%s chars=%d', task.task_id[:8], len(asr_raw_text))
+            logger.info(Notice('diagnostic.pipeline.recognition_decoded_task_chars'), task.task_id[:8], len(asr_raw_text))
             self._process_simple_merge(result, asr_raw_text)
 
             # 5. 路径 B: 对齐增强 (仅针对文件任务)
@@ -102,7 +104,7 @@ class TaskPipeline:
                 and self.aligner 
                 and stream.result.text.strip()):
                 
-                logger.debug(f"🚩 [Pipeline] 正在对文件分片执行对齐补齐...")
+                logger.debug(Notice('diagnostic.pipeline.pipeline_aligning_file_segment_timestamps'))
                 align_res = self.aligner.align(
                     audio=samples,
                     text=stream.result.text,
@@ -140,7 +142,7 @@ class TaskPipeline:
             raw_text = result.text
             result.text = self.formatter.format(result.text, formatting=task.formatting)
             result.text_accu = self.formatter.format(result.text_accu, formatting=task.formatting)
-            logger.debug('Recognition formatted: task=%s input_chars=%d output_chars=%d',
+            logger.debug(Notice('diagnostic.pipeline.recognition_formatted_task_input_chars_output_chars'),
                          task.task_id[:8], len(raw_text), len(result.text))
 
             # 将格式化引入的标点同步回 token 序列
@@ -162,10 +164,10 @@ class TaskPipeline:
             # 打印统计
             process_time = result.time_complete - task.time_submit
             rtf = process_time / result.duration if result.duration > 0 else 0
-            logger.info(f"任务完成: {task.task_id[:8]}, 时长={result.duration:.2f}s, 耗时={process_time:.3f}s, RTF={rtf:.3f}")
+            logger.info(Notice('diagnostic.pipeline.task_completed_duration_s_elapsed_s_rtf', value0=task.task_id[:8], value1=result.duration, value2=process_time, value3=rtf))
 
             return result
 
         except Exception as e:
-            logger.error('Recognition pipeline failed: %s', type(e).__name__)
+            logger.error(Notice('diagnostic.pipeline.recognition_pipeline_failed'), type(e).__name__)
             raise

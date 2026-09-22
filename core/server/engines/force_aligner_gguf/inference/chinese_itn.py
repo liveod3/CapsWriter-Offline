@@ -15,6 +15,8 @@
     print(res)  # 300~500人
 '''
 
+from core.i18n import tr
+
 __all__ = ['chinese_to_num']
 
 import re
@@ -494,7 +496,7 @@ def replace(original):
         num_type = '错误'
         final = original
         if DEBUG:
-            print(f"[错误] {original_text}: {e}")
+            print(tr('terminal.chinese_itn.error', value0=original_text, value1=e))
     
     return final
 

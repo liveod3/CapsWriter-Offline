@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import Notice
 import os
 import time
 import unicodedata
@@ -172,7 +174,7 @@ class AlignerProcessor:
                 curr_ptr = end_pos
                 last_ts = item.end_time
             else:
-                logger.warning('Alignment fallback: index=%d token_chars=%d offset=%d',
+                logger.warning(Notice('diagnostic.aligner.alignment_fallback_index_token_chars_offset'),
                                i, len(item.text), curr_ptr)
                 # 降级：若无法匹配则保持原样
                 reconciled.append(item)

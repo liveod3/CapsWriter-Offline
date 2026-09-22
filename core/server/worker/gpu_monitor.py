@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 from dataclasses import dataclass
 import subprocess
 import threading
@@ -170,24 +172,18 @@ class GpuMemoryMonitor:
     def _disable(self, reason) -> None:
         self._unavailable = True
         self._active.clear()
-        logger.info(f'NVIDIA 显存监控不可用，已静默停用: {reason}')
+        logger.info(Notice('diagnostic.gpu_monitor.nvidia_gpu_memory_monitoring_unavailable_disabled', value0=reason))
 
     def _warn(self, sample: GpuSample) -> None:
         used_gib = sample.used_mib / 1024
         total_gib = sample.total_mib / 1024
         percent = sample.memory_ratio * 100
         logger.warning(
-            f'GPU 专用显存持续高压: {used_gib:.1f}/{total_gib:.1f} GiB '
-            f'({percent:.0f}%), GPU 利用率 {sample.utilization:.0f}%'
+            Notice('diagnostic.gpu_monitor.sustained_dedicated_gpu_memory_pressure_gib_gpu_utilization', value0=used_gib, value1=total_gib, value2=percent, value3=sample.utilization)
         )
         self.console.print(Panel.fit(
-            f'[bold red]专用显存持续占用 {used_gib:.1f}/{total_gib:.1f} GiB '
-            f'({percent:.0f}%)[/bold red]\n'
-            f'[yellow]GPU 利用率 {sample.utilization:.0f}%；Windows 可能开始把 GPU '
-            '资源迁移到共享内存，转写速度可能明显波动。[/yellow]\n'
-            '[dim]此告警表示“显存压力高”，不能单独证明已经发生显存交换。'
-            '可同时观察任务管理器的“共享 GPU 内存”和转写速度。[/dim]',
-            title='[bold red]GPU 显存压力告警[/bold red]',
+            tr('gpu.pressure', value0=used_gib, value1=total_gib, value2=percent, value3=sample.utilization),
+            title=tr('gpu.pressure_title'),
             border_style='bold red',
         ))
 

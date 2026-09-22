@@ -5,6 +5,8 @@
 处理按键名称和虚拟键码之间的转换，以及相关常量定义
 """
 
+from core.i18n import Notice
+
 from pynput import keyboard
 from pynput._util.win32 import KeyTranslator
 from . import logger
@@ -136,5 +138,5 @@ class KeyMapper:
         if len(key_name) == 1:
             return keyboard.KeyCode.from_char(key_name)
 
-        logger.warning(f"未知按键名称: {key_name}")
+        logger.warning(Notice('diagnostic.key_mapper.unknown_key_name', value0=key_name))
         return None

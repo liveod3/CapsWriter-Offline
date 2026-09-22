@@ -1,8 +1,11 @@
 """Seed spawned workers with parent-owned configuration before server imports.
 
-Only detached Python values cross IPC. No configuration file is written and no
-edited source is imported when an idle aligner is replaced.
+Configuration snapshots contain detached Python values. A separate shared locale
+value controls display only. No configuration file is written and no edited
+source is imported when an idle aligner is replaced.
 """
+
+from core.i18n import Notice
 
 import copy
 import sys
@@ -45,8 +48,10 @@ def install_configuration(snapshot):
         sys.modules[name] = module
 
 
-def start_configured_worker(snapshot, kind, *args):
+def start_configured_worker(snapshot, kind, *args, ui_language=None):
     install_configuration(snapshot)
+    from core.i18n import bind_shared_language
+    bind_shared_language(ui_language)
     if kind == "asr":
         from core.server.worker import start_worker
 
@@ -56,4 +61,4 @@ def start_configured_worker(snapshot, kind, *args):
 
         start_aligner_worker(*args)
     else:
-        raise ValueError("Unknown worker kind")
+        raise ValueError(Notice('validation.worker_bootstrap.unknown_worker_kind'))

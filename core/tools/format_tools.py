@@ -82,6 +82,11 @@ def adjust_space(text: str) -> str:
 
 
 if __name__ == "__main__":
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from core.i18n import initialize_tool_language, tr
+    initialize_tool_language()
     # 测试用例
     test_cases = [
         # 基础中英空格
@@ -108,8 +113,7 @@ if __name__ == "__main__":
         "数字123也会测试",
     ]
 
-    print(f"{'Original Text':<25} | {'Adjusted Text'}")
+    print(f"{tr('format.original'):<25} | {tr('format.adjusted')}")
     print("-" * 60)
     for text in test_cases:
         print(f"{text:<25} | {adjust_space(text)}")
-

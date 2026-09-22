@@ -5,6 +5,8 @@
 负责异步模拟键盘和鼠标按键输入
 """
 
+from core.i18n import Notice
+
 from pynput import keyboard, mouse
 from . import logger
 from core.client.shortcut.key_mapper import KeyMapper
@@ -45,9 +47,9 @@ class ShortcutEmulator:
         if key_obj is not None:
             self._keyboard_controller.press(key_obj)
             self._keyboard_controller.release(key_obj)
-            logger.debug(f"[{key_name}] 补发按键成功")
+            logger.debug(Notice('diagnostic.emulator.key_replay_succeeded', value0=key_name))
         else:
-            logger.warning(f"[{key_name}] 无法识别的按键，跳过补发")
+            logger.warning(Notice('diagnostic.emulator.unknown_key_replay_skipped', value0=key_name))
 
     def emulate_mouse_click(self, button_name: str) -> None:
         """
@@ -68,6 +70,6 @@ class ShortcutEmulator:
             button = button_map[button_name]
             self._mouse_controller.press(button)
             self._mouse_controller.release(button)
-            logger.debug(f"[{button_name}] 补发鼠标按键成功")
+            logger.debug(Notice('diagnostic.emulator.mouse_button_replay_succeeded', value0=button_name))
         else:
-            logger.warning(f"[{button_name}] 无法识别的鼠标按键，跳过补发")
+            logger.warning(Notice('diagnostic.emulator.unknown_mouse_button_replay_skipped', value0=button_name))

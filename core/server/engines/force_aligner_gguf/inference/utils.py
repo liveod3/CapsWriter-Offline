@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import Notice
 import numpy as np
 from typing import List, Optional
 
@@ -41,10 +43,10 @@ def normalize_language_name(language: str) -> str:
     首字母大写，其余小写（例如 'cHINese' -> 'Chinese'）。
     """
     if language is None:
-        raise ValueError("language is None")
+        raise ValueError(Notice('validation.utils.language_is_none'))
     s = str(language).strip()
     if not s:
-        raise ValueError("language is empty")
+        raise ValueError(Notice('validation.utils.language_is_empty'))
     return s[:1].upper() + s[1:].lower()
 
 def validate_language(language: str) -> None:
@@ -52,5 +54,5 @@ def validate_language(language: str) -> None:
     验证语言是否在支持列表中。
     """
     if language not in SUPPORTED_LANGUAGES:
-        raise ValueError(f"Unsupported language: {language}. Supported: {SUPPORTED_LANGUAGES}")
+        raise ValueError(Notice('validation.utils.unsupported_language_supported', value0=language, value1=SUPPORTED_LANGUAGES))
 

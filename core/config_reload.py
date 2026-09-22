@@ -15,10 +15,11 @@ import os
 import operator
 from pathlib import Path
 from types import SimpleNamespace
+from core.i18n import Notice
 
 
 CLIENT_LIVE = frozenset(
-    """save_audio audio_dir audio_name_len language
+    """save_audio audio_dir audio_name_len language ui_language
 paste restore_clip paste_apps enter_apps trash_punc trash_punc_thresh trash_punc_apps
 traditional_convert traditional_locale save_transcripts transcript_dir
 transcript_save_original save_llm_records caret_context_enabled
@@ -28,7 +29,7 @@ mic_seg_duration mic_seg_overlap mic_io_timeout mic_result_timeout
 file_seg_duration file_seg_overlap file_io_timeout file_result_timeout
 file_max_inflight_chunks""".split()
 )
-SERVER_LIVE = frozenset({"format_num", "format_spell"})
+SERVER_LIVE = frozenset({"format_num", "format_spell", "ui_language"})
 
 
 class CandidateError(ValueError):
@@ -87,7 +88,7 @@ def read_settings(source: bytes, path: Path) -> dict:
                 value = expr(node.func.value, scope)
                 if isinstance(value, Path):
                     return value.as_posix()
-        raise CandidateError("Unsupported Python expression; restart required")
+        raise CandidateError(Notice('validation.config_reload.unsupported_python_expression_restart_required'))
 
     def assignments(body, scope, *, module=False):
         result = {}
@@ -120,23 +121,23 @@ def read_settings(source: bytes, path: Path) -> dict:
                 else ([node.target] if isinstance(node, ast.AnnAssign) else [])
             )
             if len(targets) != 1 or not isinstance(targets[0], ast.Name) or node.value is None:
-                raise CandidateError("Unsupported Python statement; restart required")
+                raise CandidateError(Notice('validation.config_reload.unsupported_python_statement_restart_required'))
             key = targets[0].id
             if key in result:
-                raise CandidateError("Duplicate configuration assignment")
+                raise CandidateError(Notice('validation.config_reload.duplicate_configuration_assignment'))
             try:
                 value = expr(node.value, scope)
             except CandidateError:
                 raise
             except Exception:
-                raise CandidateError("Invalid configuration expression") from None
+                raise CandidateError(Notice('validation.config_reload.invalid_configuration_expression')) from None
             scope[key] = result[key] = value
         return result
 
     try:
         return assignments(ast.parse(source.decode("utf-8-sig")).body, env, module=True)
     except (SyntaxError, UnicodeError):
-        raise CandidateError("Invalid or incomplete Python file") from None
+        raise CandidateError(Notice('validation.config_reload.invalid_or_incomplete_python_file')) from None
 
 
 def validate_settings(values, defaults, section):
@@ -175,12 +176,14 @@ def validate_settings(values, defaults, section):
             else:
                 valid = isinstance(value, type(default))
             if not valid:
-                raise CandidateError(f"Invalid type or range: {group}.{name}")
+                raise CandidateError(Notice('validation.config_reload.invalid_type_or_range', value0=group, value1=name))
     cfg = values[section]
+    if cfg.get("ui_language", "auto") not in {"auto", "en", "zh-CN"}:
+        raise CandidateError(Notice('validation.config_reload.invalid_ui_language_expected_auto_en_or_zh'))
     if not str(cfg["port"]).isdigit() or not 1 <= int(cfg["port"]) <= 65535:
-        raise CandidateError("Invalid port")
+        raise CandidateError(Notice('validation.config_reload.invalid_port'))
     if cfg["log_level"] not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
-        raise CandidateError("Invalid log_level")
+        raise CandidateError(Notice('validation.config_reload.invalid_log_level'))
     for name, value in cfg.items():
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if (
@@ -188,29 +191,29 @@ def validate_settings(values, defaults, section):
                 and value <= 0
                 and name not in {"aligner_idle_timeout"}
             ):
-                raise CandidateError(f"Expected positive value: {name}")
+                raise CandidateError(Notice('validation.config_reload.expected_positive_value', value0=name))
     if section == "ClientConfig":
         for prefix in ("mic", "file"):
             duration, overlap = cfg[f"{prefix}_seg_duration"], cfg[f"{prefix}_seg_overlap"]
             if not (0.1 <= duration <= 120 and 0 <= overlap <= 30 and overlap < duration):
-                raise CandidateError(f"Invalid segment duration/overlap: {prefix}")
+                raise CandidateError(Notice('validation.config_reload.invalid_segment_duration_overlap', value0=prefix))
         for name in ("paste_apps", "trash_punc_apps", "file_media_extensions"):
             if not all(isinstance(item, str) for item in cfg[name]):
-                raise CandidateError(f"Expected string entries: {name}")
+                raise CandidateError(Notice('validation.config_reload.expected_string_entries', value0=name))
         for name in ("audio_dir", "transcript_dir", "llm_config_dir"):
             if "\0" in cfg[name] or (name != "audio_dir" and not cfg[name].strip()):
-                raise CandidateError(f"Invalid directory: {name}")
+                raise CandidateError(Notice('validation.config_reload.invalid_directory', value0=name))
         audio_path = Path(os.path.expandvars(cfg["audio_dir"])).expanduser()
         if audio_path.drive and not audio_path.is_absolute():
-            raise CandidateError("Invalid audio_dir: drive-relative paths are ambiguous")
+            raise CandidateError(Notice('validation.config_reload.invalid_audio_dir_drive_relative_paths_are_ambiguous'))
         if cfg["audio_name_len"] > 200 or cfg["traditional_locale"] not in {
             "zh-hant",
             "zh-tw",
             "zh-hk",
         }:
-            raise CandidateError("Invalid audio_name_len or traditional_locale")
+            raise CandidateError(Notice('validation.config_reload.invalid_audio_name_len_or_traditional_locale'))
         if not cfg["language"] or len(cfg["language"]) > 32:
-            raise CandidateError("Invalid language")
+            raise CandidateError(Notice('validation.config_reload.invalid_language'))
         for row in cfg["enter_apps"]:
             if (
                 not isinstance(row, (tuple, list))
@@ -220,7 +223,7 @@ def validate_settings(values, defaults, section):
                 or not math.isfinite(row[1])
                 or row[1] < 0
             ):
-                raise CandidateError("Invalid enter_apps entry")
+                raise CandidateError(Notice('validation.config_reload.invalid_enter_apps_entry'))
         for row in cfg["shortcuts"]:
             if (
                 not isinstance(row, dict)
@@ -228,7 +231,7 @@ def validate_settings(values, defaults, section):
                 or row.get("type") not in {"keyboard", "mouse"}
                 or any(type(row.get(k)) is not bool for k in ("suppress", "hold_mode", "enabled"))
             ):
-                raise CandidateError("Invalid shortcuts entry")
+                raise CandidateError(Notice('validation.config_reload.invalid_shortcuts_entry'))
         for row in cfg["udp_broadcast_targets"]:
             if (
                 not isinstance(row, (tuple, list))
@@ -237,7 +240,7 @@ def validate_settings(values, defaults, section):
                 or type(row[1]) is not int
                 or not 1 <= row[1] <= 65535
             ):
-                raise CandidateError("Invalid UDP target")
+                raise CandidateError(Notice('validation.config_reload.invalid_udp_target'))
     else:
         import ipaddress
 
@@ -249,18 +252,18 @@ def validate_settings(values, defaults, section):
         except ValueError:
             loopback = False
         if mode not in {"local", "lan"} or (mode == "local" and not loopback):
-            raise CandidateError("Invalid network mode/address")
+            raise CandidateError(Notice('validation.config_reload.invalid_network_mode_address'))
         if mode == "lan" and len(cfg["auth_token"].strip()) < 32:
-            raise CandidateError("LAN authentication token is missing or too short")
+            raise CandidateError(Notice('validation.config_reload.lan_authentication_token_is_missing_or_too_short'))
         if bool(cfg["tls_certfile"]) != bool(cfg["tls_keyfile"]):
-            raise CandidateError("TLS requires both certificate and key")
+            raise CandidateError(Notice('validation.config_reload.tls_requires_both_certificate_and_key'))
         if cfg["model_type"] not in {"qwen_asr", "fun_asr_nano", "sensevoice", "paraformer"}:
-            raise CandidateError("Invalid model_type")
+            raise CandidateError(Notice('validation.config_reload.invalid_model_type'))
         if (
             cfg["websocket_max_message_bytes"]
             < (cfg["max_message_audio_bytes"] + 2) // 3 * 4 + 65536
         ):
-            raise CandidateError("WebSocket message limit cannot contain configured audio")
+            raise CandidateError(Notice('validation.config_reload.websocket_message_limit_cannot_contain_configured_audio'))
 
 
 class ConfigReloader:
@@ -315,7 +318,7 @@ class ConfigReloader:
             if self._closed:
                 return
             if len(source) > 1024 * 1024:
-                raise CandidateError("Configuration file too large")
+                raise CandidateError(Notice('validation.config_reload.configuration_file_too_large'))
             digest = hashlib.sha256(source).digest()
             if digest != self.seen:
                 self.seen, self.pending = digest, None
@@ -327,16 +330,16 @@ class ConfigReloader:
             parsed = read_settings(source, self.path)
             for group, fields in self.required.items():
                 if group not in parsed or not fields <= parsed[group].keys():
-                    raise CandidateError("Incomplete configuration: existing fields were removed")
+                    raise CandidateError(Notice('validation.config_reload.incomplete_configuration_existing_fields_were_removed'))
             values = copy.deepcopy(self.defaults)
             for group in values:
                 if group not in parsed:
                     if group in self.required:
-                        raise CandidateError("Incomplete configuration: missing class")
+                        raise CandidateError(Notice('validation.config_reload.incomplete_configuration_missing_class'))
                     continue
                 unknown = parsed[group].keys() - values[group].keys()
                 if unknown:
-                    raise CandidateError("Unknown configuration field; restart required")
+                    raise CandidateError(Notice('validation.config_reload.unknown_configuration_field_restart_required'))
                 values[group].update(parsed[group])
             validate_settings(values, self.defaults, self.section)
             self.last_error = None
@@ -354,23 +357,22 @@ class ConfigReloader:
             restart.extend(key for key, value in self.metadata.items() if parsed.get(key) != value)
             if restart:
                 self.report(
-                    "Restart required (resource settings unchanged): " + ", ".join(sorted(restart))
+                    Notice('config.restart', fields=", ".join(sorted(restart)))
                 )
             if changes:
                 self.pending = changes
                 self.report(
-                    "Configuration validated; waiting for a safe task boundary: "
-                    + ", ".join(sorted(changes))
+                    Notice('config.pending', fields=", ".join(sorted(changes)))
                 )
             self.required = {g: set(f) for g, f in parsed.items() if isinstance(f, dict)}
         except Exception as exc:
             self.pending = None
             if isinstance(exc, OSError):
                 self.seen = self.processed = None
-            message = str(exc) if isinstance(exc, CandidateError) else type(exc).__name__
+            message = exc.args[0] if isinstance(exc, CandidateError) else type(exc).__name__
             if self.last_error != (self.seen, message):
                 self.report(
-                    "Configuration reload rejected; last valid settings retained: " + message
+                    Notice('config.rejected', reason=message)
                 )
                 self.last_error = (self.seen, message)
 

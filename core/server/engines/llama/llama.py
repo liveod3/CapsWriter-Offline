@@ -1,3 +1,5 @@
+
+from core.i18n import Notice
 import sys
 import os
 import ctypes
@@ -169,7 +171,7 @@ def logger_callback(level, message, user_data):
                     3: logging.WARNING, 4: logging.ERROR}.get(level, logging.DEBUG)
         logger.log(severity, '%s', text, extra={'markup': False})
     except Exception as exc:
-        logger.warning('Native log callback failed: error=%s', type(exc).__name__)
+        logger.warning(Notice('diagnostic.llama.native_log_callback_failed_error'), type(exc).__name__)
 
 def configure_logging(logs=True):
     """配置 llama.cpp 日志回调"""
@@ -409,14 +411,14 @@ def init():
     os.environ['PATH'] = os.getcwd() + os.pathsep + os.environ['PATH']
     if hasattr(os, 'add_dll_directory'):
         os.add_dll_directory(os.getcwd())
-    logger.info(f"初始化 llama.cpp，跳转至：{Path.cwd()}")
+    logger.info(Notice('diagnostic.llama.initializing_llama_cpp_switching_directory_to', value0=Path.cwd()))
 
     # 绑定 llama api
     bind_llama_lib()
     
     # 跳回到原来目录
     os.chdir(original_cwd)
-    logger.info(f"恢复至目录：{Path.cwd()}")
+    logger.info(Notice('diagnostic.llama.restoring_directory', value0=Path.cwd()))
     
     return True
 
@@ -465,7 +467,7 @@ class LlamaModel:
         if model:
             return model
         else:
-            logger.error(f"模型加载失败: {model_path}")
+            logger.error(Notice('diagnostic.llama.model_loading_failed', value0=model_path))
             return None
 
     def tokenize(self, text: str, add_special: bool = False, parse_special: bool = True) -> List[int]:
@@ -534,7 +536,7 @@ class LlamaContext:
 
         self.ptr = llama_init_from_model(model.ptr, params)
         if not self.ptr:
-            raise RuntimeError("上下文初始化失败")
+            raise RuntimeError(Notice('validation.llama.context_initialization_failed'))
 
     def decode(self, batch):
         struct = batch.struct if hasattr(batch, 'struct') else batch
@@ -603,7 +605,7 @@ class LlamaBatch:
         """
         n_tokens = data.shape[0]
         if n_tokens > self.n_tokens_max:
-            raise ValueError(f"Batch 空间不足: {n_tokens} > {self.n_tokens_max}")
+            raise ValueError(Notice('validation.llama.insufficient_batch_capacity', value0=n_tokens, value1=self.n_tokens_max))
         
         # 1. 内存移动 (Embedding)
         if not data.flags['C_CONTIGUOUS']:
@@ -627,7 +629,7 @@ class LlamaBatch:
             # self.pos 是 ctypes 指针，可以直接操作
             ctypes.memmove(self.pos, pos.ctypes.data, pos.nbytes)
         else:
-            raise TypeError(f"Unsupported pos type: {type(pos)}")
+            raise TypeError(Notice('validation.llama.unsupported_pos_type', value0=type(pos)))
 
         # 3. 设置其他元数据
         self.n_tokens = n_tokens
@@ -837,7 +839,7 @@ def _skip_gguf_value(mm, offs, v_type):
             if item_len > 0:
                 offs += item_len * alen
             else:
-                raise ValueError("Nested arrays or unknown type not supported in fast skip")
+                raise ValueError(Notice('validation.llama.nested_arrays_or_unknown_type_not_supported_in'))
         return offs
 
 def get_token_embeddings_gguf(model_path, target_tensor="token_embd.weight"):
@@ -910,7 +912,7 @@ def get_token_embeddings_gguf(model_path, target_tensor="token_embd.weight"):
     data_offset = offs
     
     if target_shape is None:
-        logger.error(f"无法在 {model_path} 中找到 {target_tensor}")
+        logger.error(Notice('diagnostic.llama.cannot_find_in', value0=model_path, value1=target_tensor))
         return None
         
     abs_offset = data_offset + target_rel_offset
@@ -928,7 +930,7 @@ def get_token_embeddings_gguf(model_path, target_tensor="token_embd.weight"):
         elif qtype == GGMLQuantizationType.F16:
             bytes_per_row = n_embd * 2
         else:
-            raise ValueError(f"未知的数据格式支持: {qtype.name}")
+            raise ValueError(Notice('validation.llama.unsupported_data_format', value0=qtype.name))
 
     total_bytes = vocab_size * bytes_per_row
     raw_data = mm[abs_offset : abs_offset + total_bytes]
@@ -942,8 +944,8 @@ def get_token_embeddings_gguf(model_path, target_tensor="token_embd.weight"):
         raw_data = raw_data.reshape(vocab_size, bytes_per_row)
         
     total_time = time.time() - t_start
-    logger.info(f"--- [QwenASR] 已极速载入 Embedding 视图 ({total_time*1000:.1f}ms) ---")
-    logger.info(f"    - 量化格式: {qtype.name} ({n_embd} dims, {vocab_size} tokens)")
+    logger.info(Notice('diagnostic.llama.qwenasr_embedding_view_loaded_ms', value0=total_time * 1000))
+    logger.info(Notice('diagnostic.llama.quantization_dims_tokens', value0=qtype.name, value1=n_embd, value2=vocab_size))
     
     return LlamaEmbeddingTable(raw_data, qtype)
 

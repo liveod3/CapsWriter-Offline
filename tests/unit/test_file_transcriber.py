@@ -43,7 +43,7 @@ def test_read_fixed_chunk_rejects_invalid_size():
         try:
             await read_fixed_chunk(reader, 0)
         except ValueError as exc:
-            assert "必须为正数" in str(exc)
+            assert "must be positive" in str(exc)
         else:
             raise AssertionError("无效分块大小应当被拒绝")
 

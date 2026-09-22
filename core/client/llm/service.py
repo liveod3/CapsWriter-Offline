@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import asyncio
 import json
 import time
@@ -13,7 +15,7 @@ from urllib.parse import urlsplit
 from .config import Catalog, load_catalog
 from .settings import llm_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
-from .errors import describe_failure
+from .errors import describe_failure, localized_failure
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ class TextActionService:
 
         try:
             if progress_callback:
-                progress_callback("Preparing LLM…")
+                progress_callback('status.prepare_llm')
             # 每次请求加载静态文件，编辑后下次请求生效；没有文件监控线程。
             catalog = await asyncio.to_thread(load_catalog, self.directory)
             if self._stopped or epoch != self._cancel_epoch:
@@ -114,7 +116,7 @@ class TextActionService:
             selected_id = preset.id
             provider = catalog.providers[preset.provider]
             host = urlsplit(provider.base_url).hostname
-            location = "Local" if host in {"localhost", "127.0.0.1", "::1"} else "Remote"
+            location = tr('llm.local') if host in {"localhost", "127.0.0.1", "::1"} else tr('llm.remote')
             if self.status_callback and not progress_callback:
                 self.status_callback(
                     f"{preset.name} · {provider.model} · {location}", duration_ms=2500
@@ -128,8 +130,8 @@ class TextActionService:
             ]
             phase = "request"
             if progress_callback:
-                progress_callback("Waiting for LLM…")
-            logger.info("LLM request started: request=%s input_chars=%d preparation_ms=%d",
+                progress_callback('status.wait_llm')
+            logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
                         request_id, len(content), int((time.monotonic() - started) * 1000))
             request = asyncio.create_task(
                 self.transport.complete(provider, messages, preset.temperature, preset.max_tokens)
@@ -143,24 +145,28 @@ class TextActionService:
                 self._active.discard(request)
             if self._stopped or epoch != self._cancel_epoch:
                 return TextResult(content, content, selected_id, cancelled=True)
-            logger.info("LLM request completed: request=%s elapsed_ms=%d output_chars=%d",
+            logger.info(Notice('diagnostic.service.llm_request_completed_request_elapsed_ms_output_chars'),
                         request_id, int((time.monotonic() - started) * 1000), len(result))
             return TextResult(result, content, selected_id, processed=True)
         except asyncio.CancelledError:
-            logger.info("LLM request cancelled: request=%s phase=%s elapsed_ms=%d",
+            logger.info(Notice('diagnostic.service.llm_request_cancelled_request_phase_elapsed_ms'),
                         request_id, phase, int((time.monotonic() - started) * 1000))
             return TextResult(content, content, selected_id, cancelled=True)
         except Exception as exc:
             category, detail, fields = describe_failure(exc)
             if isinstance(exc, MissingAPIKeyError):
-                category, detail = "missing_api_key", exc.user_message
+                category, detail = "missing_api_key", tr(exc.message_id, locale="en")
+                user_detail = exc.user_message
             elif phase == "configuration":
-                category, detail = "configuration_error", "LLM configuration could not be loaded. Check Provider and preset settings."
+                category, detail = "configuration_error", tr("llm.configuration_error", locale="en")
+                user_detail = tr("llm.configuration_error")
+            else:
+                user_detail = localized_failure(exc)
             logger.warning(
-                "LLM action failed: request=%s phase=%s type=%s category=%s elapsed_ms=%d details=%s message=%s",
+                Notice('diagnostic.service.llm_action_failed_request_phase_type_category_elapsed'),
                 request_id, phase, type(exc).__name__, category,
                 int((time.monotonic() - started) * 1000), json.dumps(fields, sort_keys=True), detail,
             )
             return TextResult(
-                content, content, selected_id, error=type(exc).__name__, error_message=detail
+                content, content, selected_id, error=type(exc).__name__, error_message=user_detail
             )

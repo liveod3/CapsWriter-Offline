@@ -1,3 +1,5 @@
+
+from core.i18n import Notice
 import onnxruntime
 import numpy as np
 import base64
@@ -85,7 +87,7 @@ class CTCDecoder:
         elif self.onnx_provider == 'CUDA' and 'CUDAExecutionProvider' in available_providers:
             providers.insert(0, 'CUDAExecutionProvider')
             
-        logger.info(f"[CTC] 加载模型: {os.path.basename(self.model_path)} (Providers: {providers})")
+        logger.info(Notice('diagnostic.ctc_decoder.ctc_loading_model_providers', value0=os.path.basename(self.model_path), value1=providers))
         
         self.sess = onnxruntime.InferenceSession(
             self.model_path, 
@@ -118,7 +120,7 @@ class CTCDecoder:
         target_t_lfr = int((self.dml_pad_to * 100 + 5) // 6) + 1
         dummy_enc = np.zeros((1, target_t_lfr, 512), dtype=self.input_dtype)
         in_name = self.sess.get_inputs()[0].name
-        logger.info(f"[CTC] 正在预热 (固定形状: {self.dml_pad_to}s)...")
+        logger.info(Notice('diagnostic.ctc_decoder.ctc_warming_up_fixed_shape_s', value0=self.dml_pad_to))
         self.sess.run(None, {in_name: dummy_enc})
 
     # ================================================================

@@ -1,4 +1,6 @@
 # coding=utf-8
+
+from core.i18n import tr
 import os
 import time
 import re
@@ -28,7 +30,7 @@ class QwenASREngine:
     def __init__(self, config: ASREngineConfig):
         self.config = config
         self.verbose = config.verbose
-        if self.verbose: print(f"--- [QwenASR] 初始化引擎 (Provider: {config.onnx_provider}) ---")
+        if self.verbose: print(tr('terminal.asr.qwenasr_initializing_engine_provider', value0=config.onnx_provider))
         
         # 路径解析
         llm_gguf = os.path.join(config.model_dir, config.llm_fn)
@@ -63,7 +65,7 @@ class QwenASREngine:
         self.ID_ASR_TEXT = self.model.token_to_id("<asr_text>")
 
     def shutdown(self):
-        if self.verbose: print("--- [QwenASR] 引擎已关闭 ---")
+        if self.verbose: print(tr('terminal.asr.qwenasr_engine_closed'))
 
     def _build_prompt_embd(self, audio_embd: np.ndarray, prefix_text: str, context: Optional[str], language: Optional[str]):
         """构造用于 LLM 输入的 Embedding 序列 (区块化打包模式)"""
@@ -195,7 +197,7 @@ class QwenASREngine:
                 break
             temperature += 0.3
             res.text += "====解码有误，强制熔断===="
-            print(f"\n\n[!] 触发重试 (Temp -> {temperature:.1f})\n")
+            print(tr('terminal.asr.retrying_temp', value0=temperature))
         return res 
 
     def _print_stats(self, stats: dict, audio_duration: float, t_total: float):
@@ -204,15 +206,15 @@ class QwenASREngine:
         pre_speed = stats["prefill_tokens"] / stats["prefill_time"] if stats["prefill_time"] > 0 else 0
         gen_speed = stats["decode_tokens"] / stats["decode_time"] if stats["decode_time"] > 0 else 0
         
-        print(f"\n\n📊 性能统计:")
-        print(f"  🔹 RTF (实时率) : {rtf:.3f} (越小越快)")
-        print(f"  🔹 音频时长    : {audio_duration:.2f} 秒")
-        print(f"  🔹 总处理耗时  : {t_total:.2f} 秒")
+        print(tr('terminal.asr.performance_statistics'))
+        print(tr('terminal.asr.rtf_real_time_factor_lower_is_faster', value0=rtf))
+        print(tr('terminal.asr.audio_duration_s', value0=audio_duration))
+        print(tr('terminal.asr.total_processing_time_s', value0=t_total))
         if stats.get("align_time"):
-            print(f"  🔹 对齐耗时    : {stats['align_time']:.3f} 秒")
-        print(f"  🔹 编码耗时    : {stats['encode_time']:.3f} 秒")
-        print(f"  🔹 LLM 预填充  : {stats['prefill_time']:.3f} 秒 ({stats['prefill_tokens']} tokens, {pre_speed:.1f} tokens/s)")
-        print(f"  🔹 LLM 生成    : {stats['decode_time']:.3f} 秒 ({stats['decode_tokens']} tokens, {gen_speed:.1f} tokens/s)")
+            print(tr('terminal.asr.alignment_time_s', value0=stats['align_time']))
+        print(tr('terminal.asr.encoding_time_s', value0=stats['encode_time']))
+        print(tr('terminal.asr.llm_prefill_s_tokens_tokens_s', value0=stats['prefill_time'], value1=stats['prefill_tokens'], value2=pre_speed))
+        print(tr('terminal.asr.llm_generation_s_tokens_tokens_s', value0=stats['decode_time'], value1=stats['decode_tokens'], value2=gen_speed))
 
     def transcribe(
         self, 

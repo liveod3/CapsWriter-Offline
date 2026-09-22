@@ -16,6 +16,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # format_num/format_spell reload for new tasks; model/network/resource changes
 # require restart. See docs/configuration-reload.md.
 class ServerConfig:
+    # Fallback UI language when the local ClientConfig has no ui_language field.
+    # Normally follows config_client.py, including live language-menu changes.
+    # Values: 'auto' (system), 'en', or 'zh-CN'. Independent of ASR language.
+    ui_language = 'auto'
+
     # 网络模式：'local' 仅允许本机访问；'lan' 允许局域网访问并强制令牌认证
     network_mode = 'local'
     addr = '127.0.0.1'

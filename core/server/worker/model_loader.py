@@ -5,6 +5,8 @@
 负责 ASR 引擎和标点模型的实例化，支持多种后端引擎的一致性加载。
 """
 
+from core.i18n import Notice, set_language, tr
+
 import time
 from core.server.state import console
 from config_server import (
@@ -41,18 +43,20 @@ class ModelLoader:
         3. 自适应挂载缺失能力的插件 (Punc, Aligner)
         """
         # 1. 延迟导入通用库
-        with console.status("载入模块中...", spinner="bouncingBall", spinner_style="yellow"):
+        # Spawned workers use the retained server preference, not the module default.
+        set_language(getattr(Config, 'ui_language', 'auto'))
+        with console.status(tr('server.loading_modules'), spinner="bouncingBall", spinner_style="yellow"):
             import sherpa_onnx
         
         t1 = time.time()
         model_type = Config.model_type.lower()
-        logger.info(f"Loader 开始初始化语音系统 (引擎: {model_type})")
+        logger.info(Notice('diagnostic.model_loader.initializing_speech_system_engine', value0=model_type))
 
         try:
             # 2. 通过工厂实例化 ASR 核心引擎
             self.recognizer = EngineFactory.create_asr_engine(model_type)
             caps = self.recognizer.capabilities
-            logger.info(f"引擎加载成功，能力清单: {[c.name for c in caps]}")
+            logger.info(Notice('diagnostic.model_loader.engine_loaded_capabilities', value0=[c.name for c in caps]))
 
             # 3. 智能补丁：如果引擎不自带标点能力，则挂载标点模型
             if EngineCapabilities.PUNC not in caps:
@@ -63,24 +67,24 @@ class ModelLoader:
                 self._load_align_model()
 
 
-            logger.info(f"全系统初始化完成，耗时: {time.time() - t1:.2f}s")
+            logger.info(Notice('diagnostic.model_loader.speech_system_initialized_in_s', value0=time.time() - t1))
             
         except Exception as e:
-            logger.error('Model loading failed: error=%s', type(e).__name__)
+            logger.error(Notice('diagnostic.model_loader.model_loading_failed_error'), type(e).__name__)
             raise e
 
     def _load_punc_model(self):
         """加载标点补足模型插件"""
-        logger.info("引擎不具备标点能力，正在挂载 PuncEngine 补丁...")
+        logger.info(Notice('diagnostic.model_loader.engine_lacks_punctuation_support_attaching_puncengine'))
         self.punc_model = EngineFactory.create_punc_engine()
 
     def _load_align_model(self):
         """挂载独立 Aligner 进程的远程代理。"""
         from ..engines.manager import ProcessAlignerProxy
         if self.align_queue_in is None or self.align_queue_out is None:
-            raise RuntimeError('Aligner 跨进程队列未初始化')
+            raise RuntimeError(Notice('validation.model_loader.aligner_process_queues_are_not_initialized'))
         timeout = getattr(Config, 'aligner_request_timeout', 60)
-        logger.info(f"引擎不具备时间戳能力，已挂载独立 Aligner 进程代理 (请求超时: {timeout}s)")
+        logger.info(Notice('diagnostic.model_loader.engine_lacks_timestamps_attached_separate_aligner_process_proxy', value0=timeout))
         self.aligner = ProcessAlignerProxy(
             self.align_queue_in,
             self.align_queue_out,

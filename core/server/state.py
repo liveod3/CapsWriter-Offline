@@ -6,6 +6,8 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice
 from dataclasses import dataclass, field
 from multiprocessing import Queue, Process
 from multiprocessing.managers import ListProxy
@@ -100,5 +102,5 @@ class WorkerState:
             self.sessions.pop(key, None)
         if stale_keys:
             from . import logger
-            logger.debug(f"Removed {len(stale_keys)} disconnected sessions")
+            logger.debug(Notice('diagnostic.state.removed_disconnected_sessions', value0=len(stale_keys)))
         return len(stale_keys)

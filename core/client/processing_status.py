@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import threading
 import time
 
@@ -22,7 +24,7 @@ class ProcessingStatus:
                 return
             if len(self._tasks) >= 64:
                 self._tasks.pop(next(iter(self._tasks)))
-            self._tasks[task_id] = ("Transcribing…", time.monotonic())
+            self._tasks[task_id] = ('status.transcribing', time.monotonic())
             self._publish()
 
     def update(self, task_id: str, text: str):
@@ -31,7 +33,7 @@ class ProcessingStatus:
                 return
             previous, started = self._tasks[task_id]
             if text != previous:
-                logger.info("Dictation stage: task=%s previous=%s elapsed_ms=%d next=%s",
+                logger.info(Notice('diagnostic.processing_status.dictation_stage_task_previous_elapsed_ms_next'),
                             task_id[:8], previous, int((time.monotonic() - started) * 1000), text)
                 self._tasks[task_id] = (text, time.monotonic())
                 self._publish()
@@ -40,7 +42,7 @@ class ProcessingStatus:
         with self._lock:
             item = self._tasks.pop(task_id, None)
             if item:
-                logger.info("Dictation stage ended: task=%s stage=%s elapsed_ms=%d",
+                logger.info(Notice('diagnostic.processing_status.dictation_stage_ended_task_stage_elapsed_ms'),
                             task_id[:8], item[0], int((time.monotonic() - item[1]) * 1000))
                 self._publish()
 
@@ -60,4 +62,4 @@ class ProcessingStatus:
         text = next(reversed(self._tasks.values()))[0] if self._tasks else ""
         if text != self._displayed:
             self._displayed = text
-            self._render(text)
+            self._render(tr(text) if text.startswith("status.") else text)

@@ -5,6 +5,8 @@ Token 处理工具函数
 提供对识别结果中的 Token 列表进行基础处理的辅助方法。
 """
 
+from core.i18n import Notice
+
 from typing import List, Tuple
 from core.constants import Punctuation
 from . import logger
@@ -62,6 +64,6 @@ def remove_trailing_punctuation(
         (处理后的 tokens, 处理后的 timestamps)
     """
     if tokens and tokens[-1] in Punctuation.ALL:
-        logger.debug('Removed trailing punctuation')
+        logger.debug(Notice('diagnostic.utils.removed_trailing_punctuation'))
         return tokens[:-1], timestamps[:-1] if timestamps else timestamps
     return tokens, timestamps

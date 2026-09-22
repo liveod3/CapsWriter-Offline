@@ -8,7 +8,7 @@ from typing import Callable
 class MenuAction:
     label: str | Callable
     callback: Callable | None = None
-    tooltip: str = ""
+    tooltip: str | Callable = ""
     icon: str | Callable = ""
     enabled: bool | Callable = True
     children: list = field(default_factory=list)

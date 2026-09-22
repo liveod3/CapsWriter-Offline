@@ -13,10 +13,17 @@
     生成正确的 srt 字幕
 """
 
+import sys
+from pathlib import Path
+
+if __package__ in {None, ''}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from core.i18n import tr, initialize_tool_language
+
 
 import json
 from datetime import timedelta
-from pathlib import Path
 from typing import List, Dict, Union
 
 import typer
@@ -139,7 +146,7 @@ def one_task(media_file: Path):
     json_file = media_file.with_suffix('.json')
     srt_file = media_file.with_suffix('.srt')
     if (not txt_file.exists()) or (not json_file.exists()):
-        print(f'无法找到 {media_file}对应的txt、json文件，跳过')
+        print(tr('terminal.srt_from_txt.matching_txt_json_files_not_found_for_skipping', value0=media_file))
         return None
 
     # 获取带有时间戳的分词列表，获取分行稿件，匹配得到 srt 
@@ -151,9 +158,10 @@ def one_task(media_file: Path):
 def main(files: List[Path]):
     for file in files:
         one_task(file)
-        print(f'写入完成：{file}')
+        print(tr('terminal.srt_from_txt.written', value0=file))
 
 if __name__ == '__main__':
+    initialize_tool_language()
     typer.run(main)
         
 

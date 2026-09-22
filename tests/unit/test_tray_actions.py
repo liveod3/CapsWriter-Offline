@@ -58,13 +58,13 @@ def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch
     path.write_text("class ClientConfig:\n    llm_enabled = False\n", encoding="utf-8")
     app = SimpleNamespace(
         base_dir=tmp_path,
-        state=SimpleNamespace(last_recognition_text=""),
+        state=SimpleNamespace(dictation_paused=False, last_recognition_text=""),
         llm=SimpleNamespace(start=Mock(), process=AsyncMock(), directory=tmp_path / "LLM"),
     )
     manager = TrayManager(app)
     manager._schedule = lambda operation: asyncio.run(operation) or True
     monkeypatch.setattr("core.ui.show_status_hint", Mock())
-    modes = next(a for a in manager.menu_actions() if a.label == "LLM actions").children
+    modes = next(a for a in manager.menu_actions() if a.to_item().text == "LLM actions").children
     assert [a.to_item().text for a in modes] == [
         "All LLM actions: Currently off", "Correction: Currently off", "Translation: Currently off"
     ]
@@ -146,10 +146,10 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
         service = TextActionService(config, tmp_path, transport)
         service.start = Mock()
         app = SimpleNamespace(
-            loop=asyncio.get_running_loop(), base_dir=tmp_path, state=SimpleNamespace(), llm=service,
+            loop=asyncio.get_running_loop(), base_dir=tmp_path, state=SimpleNamespace(dictation_paused=False), llm=service,
         )
         manager = TrayManager(app)
-        parent = next(a for a in manager.menu_actions() if a.label == "LLM actions")
+        parent = next(a for a in manager.menu_actions() if a.to_item().text == "LLM actions")
         items = [action.to_item() for action in parent.children]
         icon = SimpleNamespace(update_menu=Mock())
         for index, correction, translation in (

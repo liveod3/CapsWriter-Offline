@@ -11,6 +11,8 @@ UDP 控制模块
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import socket
 import threading
 from typing import TYPE_CHECKING
@@ -45,13 +47,13 @@ class UDPController:
     def start(self) -> None:
         """启动 UDP 监听"""
         if self.running and self._thread and self._thread.is_alive():
-            logger.debug("UDP 控制器已在运行，跳过启动")
+            logger.debug(Notice('diagnostic.udp_control.udp_controller_already_running_startup_skipped'))
             return
         
         self.running = True
         self._thread = threading.Thread(target=self._listen, daemon=True, name="UDPController")
         self._thread.start()
-        logger.info(f"UDP 控制器已启动，监听端口: {Config.udp_control_port}")
+        logger.info(Notice('diagnostic.udp_control.udp_controller_started_on_port', value0=Config.udp_control_port))
     
     def stop(self) -> None:
         """停止 UDP 监听"""
@@ -66,7 +68,7 @@ class UDPController:
                 pass
             finally:
                 self._sock = None
-        logger.info("UDP 控制器已停止")
+        logger.info(Notice('diagnostic.udp_control.udp_controller_stopped'))
     
     def _listen(self) -> None:
         """监听循环"""
@@ -76,7 +78,7 @@ class UDPController:
             self._sock.bind((Config.udp_control_addr, Config.udp_control_port))
             self._sock.settimeout(0.5)
             
-            logger.debug(f"UDP 控制器绑定到 {Config.udp_control_addr}:{Config.udp_control_port}")
+            logger.debug(Notice('diagnostic.udp_control.udp_controller_bound_to', value0=Config.udp_control_addr, value1=Config.udp_control_port))
             
             while self.running:
                 try:
@@ -87,10 +89,10 @@ class UDPController:
                     continue
                 except Exception as e:
                     if self.running:
-                        logger.error(f"UDP 控制器接收错误: {e}")
+                        logger.error(Notice('diagnostic.udp_control.udp_controller_receive_failed', value0=e))
         
         except Exception as e:
-            logger.error(f"UDP 控制器启动失败: {e}")
+            logger.error(Notice('diagnostic.udp_control.udp_controller_startup_failed', value0=e))
         finally:
             if self._sock:
                 self._sock.close()
@@ -107,27 +109,27 @@ class UDPController:
 
         if command == 'START':
             if state.dictation_paused:
-                logger.debug("UDP 控制：忽略 START 命令（听写已暂停）")
+                logger.debug(Notice('diagnostic.udp_control.udp_control_start_ignored_dictation_paused'))
                 return
 
             if not state.recording:
-                logger.info(f"UDP 控制：开始录音 (来自 {addr[0]}:{addr[1]})")
+                logger.info(Notice('diagnostic.udp_control.udp_control_start_recording_from', value0=addr[0], value1=addr[1]))
                 # 使用第一个可用的快捷键任务启动录音
                 if self.manager.tasks:
                     first_task = next(iter(self.manager.tasks.values()))
                     first_task.launch()
             else:
-                logger.debug("UDP 控制：忽略 START 命令（已在录音中）")
+                logger.debug(Notice('diagnostic.udp_control.udp_control_start_ignored_already_recording'))
 
         elif command == 'STOP':
             if state.recording:
-                logger.info(f"UDP 控制：停止录音 (来自 {addr[0]}:{addr[1]})")
+                logger.info(Notice('diagnostic.udp_control.udp_control_stop_recording_from', value0=addr[0], value1=addr[1]))
                 # 停止所有录音任务
                 for task in self.manager.tasks.values():
                     if task.is_recording:
                         task.finish()
             else:
-                logger.debug("UDP 控制：忽略 STOP 命令（未在录音）")
+                logger.debug(Notice('diagnostic.udp_control.udp_control_stop_ignored_not_recording'))
 
         else:
-            logger.warning(f"UDP 控制：未知命令 '{command}' (来自 {addr[0]}:{addr[1]})")
+            logger.warning(Notice('diagnostic.udp_control.udp_control_unknown_command_from', value0=command, value1=addr[0], value2=addr[1]))

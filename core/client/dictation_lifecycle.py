@@ -1,5 +1,7 @@
 """Bound microphone transport cleanup without replacing a newer connection."""
 
+from core.i18n import Notice
+
 import asyncio
 
 from core.client.transcribe.lifecycle import positive_timeout
@@ -41,7 +43,7 @@ async def close_dictation_connection(state, websocket):
             transport.abort()
         raise
     except Exception as exc:
-        logger.warning('Dictation connection cleanup failed: %s', type(exc).__name__)
+        logger.warning(Notice('diagnostic.dictation_lifecycle.dictation_connection_cleanup_failed'), type(exc).__name__)
         transport = getattr(websocket, 'transport', None)
         if transport is not None:
             transport.abort()

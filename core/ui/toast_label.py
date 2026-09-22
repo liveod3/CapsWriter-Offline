@@ -3,6 +3,8 @@ Toast Label 窗口模块
 
 基于 Label 组件的浮动消息窗口，适合普通提示消息。
 """
+
+from core.i18n import Notice
 import logging
 import tkinter as tk
 from tkinter import font
@@ -161,7 +163,7 @@ class ToastWindowLabel(ToastWindowBase):
 
             self.window.geometry(f'{window_width}x{window_height}+{x}+{y}')
         except tk.TclError as e:
-            logger.warning(f"设置窗口位置失败: {e}")
+            logger.warning(Notice('diagnostic.toast_label.window_positioning_failed', value0=e))
 
     def update_text(self, new_text: str) -> None:
         """更新文本内容

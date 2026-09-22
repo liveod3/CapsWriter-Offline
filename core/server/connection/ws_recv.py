@@ -5,6 +5,8 @@ WebSocket 接收处理模块
 处理客户端发送的音频数据，进行分段和缓冲，提交到识别队列。
 """
 
+from core.i18n import Notice, tr
+
 import asyncio
 import json
 import queue
@@ -23,7 +25,7 @@ from .. import logger
 
 
 # 麦克风接收状态指示器
-status_mic = Status('正在接收音频', spinner='point')
+status_mic = Status(message_id='server.receiving_mic', spinner='point')
 
 
 class ClientLimitError(Exception):
@@ -39,7 +41,7 @@ class ServerBusyError(ClientLimitError):
     """推理队列已满，请客户端稍后重试。"""
 
     def __init__(self):
-        super().__init__('服务器繁忙，请稍后重试', close_code=1013)
+        super().__init__(Notice('validation.ws_recv.server_busy_please_retry_later'), close_code=1013)
 
 
 def _positive_limit(name: str, default, cast=int):
@@ -107,12 +109,12 @@ class AudioCache:
             self.supports_task_errors,
         )
         if current != expected:
-            raise ProtocolValidationError('同一 task_id 的元数据不得在会话中途变更')
+            raise ProtocolValidationError(Notice('validation.ws_recv.metadata_for_the_same_task_id_must_not'))
 
     def append(self, data: bytes, max_task_audio_bytes: int) -> None:
         """在累计上限内追加音频。"""
         if self.byte_count + len(data) > max_task_audio_bytes:
-            raise ClientLimitError('单任务累计音频超过服务器上限', close_code=1009)
+            raise ClientLimitError(Notice('validation.ws_recv.total_task_audio_exceeds_server_limit'), close_code=1009)
         self.chunks.extend(data)
         self.byte_count += len(data)
         self.last_activity = time.monotonic()
@@ -143,7 +145,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
     cache.validate_metadata(msg)
     max_task_duration = _positive_limit('max_task_duration', 6 * 60 * 60, float)
     if time.monotonic() - cache.created_at > max_task_duration:
-        raise ClientLimitError('任务已超过最长允许时间')
+        raise ClientLimitError(Notice('validation.ws_recv.task_exceeded_maximum_allowed_duration'))
 
     # 麦克风首次消息 → GPU 加速
     if is_start and msg.source == 'mic' and Config.gpu_boost_enabled:
@@ -158,7 +160,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
             ))
         except ServerBusyError:
             # 加速只是可选优化，不能挤占音频任务容量。
-            logger.debug('推理队列已满，跳过 GPU 预加速命令')
+            logger.debug(Notice('diagnostic.ws_recv.inference_queue_full_gpu_boost_command_skipped'))
 
     # 从消息中获取分段参数
     seg_threshold = msg.seg_duration + msg.seg_overlap * 2
@@ -175,8 +177,8 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
             if msg.source == 'mic':
                 status_mic.start()
             if msg.source == 'file' and is_start:
-                console.print('正在接收音频文件...')
-                logger.info(f"开始接收音频文件，任务ID: {msg.task_id}")
+                console.print(tr('server.receiving'))
+                logger.info(Notice('diagnostic.ws_recv.receiving_audio_file_task', value0=msg.task_id))
 
             # 若缓冲已达到分段阈值，将片段作为任务提交
             segment_bytes = AudioFormat.seconds_to_bytes(msg.seg_duration + msg.seg_overlap)
@@ -204,8 +206,7 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 cache.offset += msg.seg_duration
                 _put_task(queue_in, task)
                 logger.debug(
-                    f"提交音频片段，任务ID: {msg.task_id}, "
-                    f"偏移: {cache.offset}s, 缓冲区: {len(cache.chunks)} bytes"
+                    Notice('diagnostic.ws_recv.submitting_audio_segment_task_offset_s_buffer_bytes', value0=msg.task_id, value1=cache.offset, value2=len(cache.chunks))
                 )
 
         else:  # is_final
@@ -213,8 +214,8 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
             if msg.source == 'mic':
                 status_mic.stop()
             elif msg.source == 'file':
-                print(f'音频文件接收完毕，时长 {cache.total_duration:.2f}s')
-                logger.info(f"音频文件接收完毕，任务ID: {msg.task_id}, 时长: {cache.total_duration:.2f}s")
+                print(tr('terminal.ws_recv.audio_file_received_duration_s', value0=cache.total_duration))
+                logger.info(Notice('diagnostic.ws_recv.audio_file_received_task_duration_s', value0=msg.task_id, value1=cache.total_duration))
 
             # 提交最终片段
             task = Task(
@@ -233,12 +234,12 @@ async def message_handler(websocket, msg: AudioMessage, cache: AudioCache, app) 
                 formatting=cache.formatting,
             )
             _put_task(queue_in, task)
-            logger.debug(f"提交最终片段，任务ID: {msg.task_id}, 数据大小: {len(cache.chunks)} bytes")
+            logger.debug(Notice('diagnostic.ws_recv.submitting_final_segment_task_bytes', value0=msg.task_id, value1=len(cache.chunks)))
 
     except (ClientLimitError, ServerBusyError, ProtocolValidationError, ResultDeliveryError):
         raise
     except Exception as e:
-        logger.error('Audio message processing failed: task=%s error=%s',
+        logger.error(Notice('diagnostic.ws_recv.audio_message_processing_failed_task_error'),
                      msg.task_id[:8], type(e).__name__)
         raise
 
@@ -261,8 +262,8 @@ async def ws_recv(websocket, app) -> None:
     sockets_id.append(socket_id)
     socket_last_activity[socket_id] = time.monotonic()
     remote = websocket.remote_address
-    console.print(f'[bold green]客户端已连接: {remote[0]}:{remote[1]}[/bold green]\n')
-    logger.info(f"新客户端连接: {websocket}, ID: {socket_id}")
+    console.print(tr('server.connected', value0=remote[0], value1=remote[1]))
+    logger.info(Notice('diagnostic.ws_recv.new_client_connected_id', value0=websocket, value1=socket_id))
 
     # 每个 task_id 独立缓存；数量也受限，避免交错任务混音和无限建 task。
     caches = {}
@@ -278,13 +279,13 @@ async def ws_recv(websocket, app) -> None:
         while True:
             if any(time.monotonic() - cache.last_activity >= task_timeout
                    for cache in caches.values()):
-                raise ClientLimitError('Task input timed out; reconnect')
+                raise ClientLimitError(Notice('server.input_timeout'))
             try:
                 raw_message = await asyncio.wait_for(websocket.recv(), timeout=min(idle_timeout, task_timeout))
             except asyncio.TimeoutError:
                 idle_for = time.monotonic() - socket_last_activity.get(socket_id, 0)
                 if idle_for >= idle_timeout:
-                    raise ClientLimitError('连接空闲超时')
+                    raise ClientLimitError(Notice('validation.ws_recv.connection_idle_timeout'))
                 continue
 
             socket_last_activity[socket_id] = time.monotonic()
@@ -295,7 +296,7 @@ async def ws_recv(websocket, app) -> None:
 
             try:
                 if not isinstance(raw_message, str):
-                    raise ProtocolValidationError('仅接受 JSON 文本消息')
+                    raise ProtocolValidationError(Notice('validation.ws_recv.only_json_text_messages_are_accepted'))
                 data = json.loads(raw_message)
                 if isinstance(data, dict) and data.get('type') == 'cancel':
                     cancellation = CancelMessage.from_dict(data)
@@ -316,7 +317,7 @@ async def ws_recv(websocket, app) -> None:
                                for cache in items.values()):
                         status_mic.stop()
                     if close_connection:
-                        raise ClientLimitError('Cancellation limit reached; reconnect')
+                        raise ClientLimitError(Notice('server.cancellation_limit'))
                     continue
                 msg = AudioMessage.from_dict(
                     data,
@@ -328,32 +329,32 @@ async def ws_recv(websocket, app) -> None:
                 cache = caches.get(msg.task_id)
                 if cache is None:
                     if len(caches) >= max_tasks:
-                        raise ClientLimitError('单连接并发任务数超过服务器上限')
+                        raise ClientLimitError(Notice('validation.ws_recv.concurrent_tasks_per_connection_exceed_server_limit'))
                     cache = AudioCache(msg)
                     caches[msg.task_id] = cache
                 await message_handler(websocket, msg, cache, app)
                 if msg.is_final:
                     caches.pop(msg.task_id, None)
             except (json.JSONDecodeError, ProtocolValidationError) as exc:
-                raise ClientLimitError(f'消息格式无效: {exc}') from exc
+                raise ClientLimitError(Notice('validation.ws_recv.invalid_message_format', value0=exc)) from exc
 
     except ResultDeliveryError as exc:
         if state.worker_failed is not None:
             state.worker_failed.set()
-        logger.error('Input channel unavailable: %s', str(exc))
+        logger.error(Notice('diagnostic.ws_recv.input_channel_unavailable'), str(exc))
 
     except ClientLimitError as exc:
-        logger.warning(f"拒绝客户端消息，ID {socket_id}: {exc.reason}")
+        logger.warning(Notice('diagnostic.ws_recv.client_message_rejected_id', value0=socket_id, value1=exc.reason))
         await websocket.close(code=exc.close_code, reason=exc.reason)
 
     except websockets.ConnectionClosed:
-        console.print("ConnectionClosed...")
-        logger.warning(f"客户端连接已关闭: {socket_id}")
+        console.print(tr('server.connection_closed'))
+        logger.warning(Notice('diagnostic.ws_recv.client_connection_closed', value0=socket_id))
     except websockets.InvalidState:
-        console.print("InvalidState...")
-        logger.error(f"WebSocket 状态异常: {socket_id}")
+        console.print(tr('server.invalid_connection'))
+        logger.error(Notice('diagnostic.ws_recv.invalid_websocket_state', value0=socket_id))
     except Exception as e:
-        logger.error('WebSocket receive failed: socket=%s error=%s',
+        logger.error(Notice('diagnostic.ws_recv.websocket_receive_failed_socket_error'),
                      socket_id[:8], type(e).__name__)
     finally:
         # 清理资源
@@ -367,8 +368,8 @@ async def ws_recv(websocket, app) -> None:
         if socket_id in sockets_id:
             sockets_id.remove(socket_id)
 
-        console.print(f'[bold red]客户端已断开: {remote[0]}:{remote[1]}[/bold red]\n')
+        console.print(tr('server.disconnected', value0=remote[0], value1=remote[1]))
 
         # 注意：session 清理由 TaskHandler 在子进程中定期执行
         # （通过检查 sockets_id 判断客户端是否已断开）
-        logger.debug(f"客户端资源已清理: {socket_id}")
+        logger.debug(Notice('diagnostic.ws_recv.client_resources_cleaned_up', value0=socket_id))

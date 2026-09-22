@@ -5,6 +5,8 @@
 检查配置的语音模型文件是否存在，如果不存在则提供下载链接。
 """
 
+from core.i18n import Notice, tr
+
 import sys
 from pathlib import Path
 
@@ -25,7 +27,7 @@ def check_model(*, interactive=True) -> None:
         SystemExit: 当模型类型不支持或模型文件缺失时退出
     """
     model_type = Config.model_type.lower()
-    logger.debug(f"检查模型文件, 类型: {model_type}")
+    logger.debug(Notice('diagnostic.check_model.checking_model_files_type', value0=model_type))
 
     # 根据模型类型确定需要检查的文件
     if model_type == 'fun_asr_nano':
@@ -57,20 +59,10 @@ def check_model(*, interactive=True) -> None:
             ModelPaths.qwen3_asr_gguf_llm_decode,
         ]
     else:
-        error_msg = f"不支持的模型类型: {Config.model_type}"
-        logger.error(error_msg)
-        console.print(f'''
-    [bold red]不支持的模型类型：{Config.model_type}[/bold red]
-
-    请在 config_server.py 中将 ServerConfig.model_type 设置为：
-    - 'fun_asr_nano'
-    - 'sensevoice'
-    - 'paraformer'
-    - 'qwen_asr'
-
-        ''', style='bright_red')
+        logger.error(Notice('engine.unsupported_model', model=Config.model_type))
+        console.print(tr('model.unsupported', value0=Config.model_type), style='bright_red')
         if interactive:
-            input('按回车退出')
+            input(tr('model.exit'))
         sys.exit(1)
 
     # 检查所有必需的文件
@@ -78,34 +70,36 @@ def check_model(*, interactive=True) -> None:
     for file_path in required_files:
         if not file_path.exists():
             missing_files.append(file_path)
-            logger.warning(f"模型文件缺失: [bold yellow]{file_path}[/bold yellow]")
+            logger.warning(Notice('diagnostic.check_model.model_file_missing_bold_yellow_bold_yellow', value0=file_path))
 
     # 如果有缺失的文件，显示错误信息并提供下载链接
     if missing_files:
-        logger.error(f"模型文件检查失败，共 {len(missing_files)} 个文件缺失")
-        error_msg = f'\n[bold red]未能找到模型文件[/bold red]\n\n'
-        error_msg += f'当前配置的模型类型：[bold yellow]{model_type}[/bold yellow]\n\n'
+        logger.error(Notice('diagnostic.check_model.model_file_verification_failed_files_missing', value0=len(missing_files)))
+        error_msg = tr('model.missing')
+        error_msg += tr('model.type', value0=model_type)
         for file_path in missing_files:
-            error_msg += f'未找到：[bold yellow]{file_path.name}[/bold yellow]\n'
+            error_msg += tr('model.file_missing', value0=file_path.name)
 
         # 检查是否有文件被错放到上级目录
         for parent in model_dir.parents:
             if any((parent / fp.name).exists() for fp in missing_files):
-                error_msg += f'\n模型文件似乎错放到了上级目录，请确保放到：[bold yellow]{model_dir}[/bold yellow]\n'
+                error_msg += tr('model.parent_folder', value0=model_dir)
                 break
 
         # 提供统一下载页面链接
-        error_msg += f'\n模型发布页面：\n'
+        error_msg += tr('model.download')
         error_msg += f'[cyan]{ModelDownloadLinks.models_page}[/cyan]\n\n'
 
-        error_msg += f'请根据发布页说明，将模型解压到 [cyan]{ModelPaths.model_dir}[/cyan] 下的正确目录\n'
+        error_msg += tr('model.extract', value0=ModelPaths.model_dir)
         error_msg += '\n'
         
-        logger.error(error_msg)
+        logger.error(Notice('diagnostic.check_model.model_files_are_missing_count'), len(missing_files),
+                     extra={'console_handled': True})
+        console.print(error_msg)
         if interactive:
-            input('按回车退出')
+            input(tr('model.exit'))
         sys.exit(1)
 
     # 所有必需文件检查通过
-    logger.info(f"模型文件检查通过 ({model_type})")
-    console.print(f'[green4]模型文件检查通过 ({model_type})', end='\n\n')
+    logger.info(Notice('diagnostic.check_model.model_files_verified', value0=model_type))
+    console.print(tr('model.checked', value0=model_type), end='\n\n')

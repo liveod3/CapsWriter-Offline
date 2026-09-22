@@ -17,6 +17,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # Supported settings reload after active tasks finish. Resource settings require
 # restart; see docs/configuration-reload.md for the exact policy and feedback.
 class ClientConfig:
+    # Interface language only: 'auto' (system), 'en', or 'zh-CN'. Reloads between tasks.
+    # The server in this installation also follows this saved preference.
+    ui_language = 'auto'
+
     addr = '127.0.0.1'          # Server 地址
     port = '6016'               # Server 端口
 

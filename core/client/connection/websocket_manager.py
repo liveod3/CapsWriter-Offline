@@ -8,6 +8,8 @@ WebSocket 连接管理模块
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import json
 import ssl
 from typing import TYPE_CHECKING, Optional
@@ -101,7 +103,7 @@ class WebSocketManager:
 
         try:
             if not self._connect_fail_logged:
-                logger.debug(f"正在连接服务端 {url}")
+                logger.debug(Notice('diagnostic.websocket_manager.connecting_to_server', value0=url))
 
             kwargs = dict(
                 uri=url,
@@ -139,20 +141,19 @@ class WebSocketManager:
 
             if announce:
                 console.print(
-                    f'[ui.success]●[/] [ui.label]服务端在线[/]  '
-                    f'[ui.value]{Config.addr}:{Config.port}[/]'
+                    tr('connection.online', value0=Config.addr, value1=Config.port)
                 )
-            logger.info(f"WebSocket 建立成功: {url}")
+            logger.info(Notice('diagnostic.websocket_manager.websocket_connected', value0=url))
             self._connect_fail_logged = False
             return True
 
         except (ConnectionRefusedError, TimeoutError):
             if not self._connect_fail_logged:
-                logger.debug(f"连接服务端 {url} 被拒绝或超时")
+                logger.debug(Notice('diagnostic.websocket_manager.connection_to_server_refused_or_timed_out', value0=url))
                 self._connect_fail_logged = True
         except Exception as e:
             if not self._connect_fail_logged:
-                logger.debug('WebSocket connection failed: error=%s', type(e).__name__)
+                logger.debug(Notice('diagnostic.websocket_manager.websocket_connection_failed_error'), type(e).__name__)
                 self._connect_fail_logged = True
         
         return False
@@ -168,7 +169,7 @@ class WebSocketManager:
             发送是否成功
         """
         if not self.is_connected:
-            logger.warning("无法发送消息：WebSocket 未连接")
+            logger.warning(Notice('diagnostic.websocket_manager.cannot_send_message_websocket_is_disconnected'))
             return False
         
         try:
@@ -179,10 +180,10 @@ class WebSocketManager:
             self.state.websocket = None
             close_frame = exc.rcvd or exc.sent
             code = close_frame.code if close_frame else 1006
-            raise CommunicationError(f'Send failed: connection closed (code={code})') from None
+            raise CommunicationError(Notice('validation.websocket_manager.send_failed_connection_closed_code', value0=code)) from None
             
         except Exception as e:
-            raise CommunicationError(f'Send failed: {type(e).__name__}') from None
+            raise CommunicationError(Notice('validation.websocket_manager.send_failed', value0=type(e).__name__)) from None
     
     async def receive(self) -> Optional[RecognitionMessage]:
         """
@@ -199,7 +200,7 @@ class WebSocketManager:
         # recv() 等待期间 stop/reset 可能清空共享引用，保留本次接收的连接。
         websocket = self.state.websocket
         if websocket is None or not self.is_connected:
-            logger.warning("无法接收消息：WebSocket 未连接")
+            logger.warning(Notice('diagnostic.websocket_manager.cannot_receive_message_websocket_is_disconnected'))
             return None
         
         try:
@@ -214,13 +215,13 @@ class WebSocketManager:
                 return None
             close_frame = exc.rcvd or exc.sent
             code = close_frame.code if close_frame else 1006
-            raise CommunicationError(f'Receive failed: connection closed (code={code})') from None
+            raise CommunicationError(Notice('validation.websocket_manager.receive_failed_connection_closed_code', value0=code)) from None
             
         except json.JSONDecodeError:
-            raise CommunicationError('Invalid message JSON') from None
+            raise CommunicationError(Notice('validation.websocket_manager.invalid_message_json')) from None
             
         except Exception as e:
-            raise CommunicationError(f'Receive failed: {type(e).__name__}') from None
+            raise CommunicationError(Notice('validation.websocket_manager.receive_failed', value0=type(e).__name__)) from None
     
     async def close(self) -> None:
         """关闭 WebSocket 连接"""
@@ -229,7 +230,7 @@ class WebSocketManager:
             await websocket.close()
             if self.state.websocket is websocket:
                 self.state.websocket = None
-            logger.info("WebSocket 连接已关闭")
+            logger.info(Notice('diagnostic.websocket_manager.websocket_connection_closed'))
 
     def begin_shutdown(self) -> None:
         """同步发布退出状态，阻止新的连接和自动重连。"""
@@ -255,8 +256,8 @@ class WebSocketManager:
             # 捕获当前连接，避免随后 State.reset() 先清空共享引用，导致实际
             # close 协程执行时找不到需要关闭的连接。
             asyncio.run_coroutine_threadsafe(websocket.close(), loop)
-            logger.debug("已调度 WebSocket 关闭（threadsafe）")
+            logger.debug(Notice('diagnostic.websocket_manager.websocket_closure_scheduled_on_its_event_loop'))
         else:
             # 事件循环已停止，直接清空引用
             self.state.websocket = None
-            logger.debug("事件循环已停，直接置空 WebSocket 引用")
+            logger.debug(Notice('diagnostic.websocket_manager.event_loop_stopped_websocket_reference_cleared'))

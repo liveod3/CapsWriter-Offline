@@ -7,6 +7,8 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice
 import base64
 import binascii
 from dataclasses import dataclass, field, asdict
@@ -35,16 +37,16 @@ def _finite_number(data: dict, field_name: str, *, default=None) -> float:
     elif default is not None:
         value = default
     else:
-        raise ProtocolValidationError(f'缺少字段: {field_name}')
+        raise ProtocolValidationError(Notice('validation.protocol.missing_field', value0=field_name))
 
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ProtocolValidationError(f'{field_name} 必须是数值')
+        raise ProtocolValidationError(Notice('validation.protocol.must_be_numeric', value0=field_name))
     try:
         value = float(value)
     except (OverflowError, ValueError) as exc:
-        raise ProtocolValidationError(f'{field_name} 必须是有限数值') from exc
+        raise ProtocolValidationError(Notice('validation.protocol.must_be_finite', value0=field_name)) from exc
     if not math.isfinite(value):
-        raise ProtocolValidationError(f'{field_name} 必须是有限数值')
+        raise ProtocolValidationError(Notice('validation.protocol.must_be_finite', value0=field_name))
     return value
 
 
@@ -87,72 +89,72 @@ class AudioMessage:
     ) -> AudioMessage:
         """从不可信字典创建实例，并执行协议边界校验。"""
         if not isinstance(data, dict):
-            raise ProtocolValidationError('消息必须是 JSON 对象')
+            raise ProtocolValidationError(Notice('validation.protocol.message_must_be_a_json_object'))
         if (
             isinstance(max_audio_bytes, bool)
             or not isinstance(max_audio_bytes, int)
             or max_audio_bytes <= 0
         ):
-            raise ValueError('max_audio_bytes 必须是正整数')
+            raise ValueError(Notice('validation.protocol.max_audio_bytes_must_be_a_positive_integer'))
         if (
             isinstance(max_context_length, bool)
             or not isinstance(max_context_length, int)
             or max_context_length <= 0
         ):
-            raise ValueError('max_context_length 必须是正整数')
+            raise ValueError(Notice('validation.protocol.max_context_length_must_be_a_positive_integer'))
 
         task_id = data.get('task_id')
         if not isinstance(task_id, str) or not task_id or len(task_id) > MAX_TASK_ID_LENGTH:
             raise ProtocolValidationError(
-                f'task_id 必须是 1-{MAX_TASK_ID_LENGTH} 个字符的字符串'
+                Notice('validation.protocol.task_id_must_be_a_string_of_characters', value0=MAX_TASK_ID_LENGTH)
             )
         if any(ord(char) < 32 for char in task_id):
-            raise ProtocolValidationError('task_id 不得包含控制字符')
+            raise ProtocolValidationError(Notice('validation.protocol.task_id_must_not_contain_control_characters'))
 
         source = data.get('source')
         if not isinstance(source, str) or source not in {'mic', 'file'}:
-            raise ProtocolValidationError("source 必须是 'mic' 或 'file'")
+            raise ProtocolValidationError(Notice('validation.protocol.source_must_be_mic_or_file'))
 
         encoded_audio = data.get('data')
         if not isinstance(encoded_audio, str):
-            raise ProtocolValidationError('data 必须是 Base64 字符串')
+            raise ProtocolValidationError(Notice('validation.protocol.data_must_be_a_base_string'))
         try:
             audio_data = base64.b64decode(encoded_audio, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise ProtocolValidationError('data 不是有效的 Base64') from exc
+            raise ProtocolValidationError(Notice('validation.protocol.data_is_not_valid_base')) from exc
         if len(audio_data) > max_audio_bytes:
             raise ProtocolValidationError(
-                f'单条消息音频超过 {max_audio_bytes} 字节上限'
+                Notice('validation.protocol.audio_message_exceeds_the_byte_limit', value0=max_audio_bytes)
             )
         if len(audio_data) % 4 != 0:
-            raise ProtocolValidationError('音频字节数必须按 float32（4 字节）对齐')
+            raise ProtocolValidationError(Notice('validation.protocol.audio_bytes_must_be_aligned_to_float_bytes'))
 
         is_final = data.get('is_final')
         if not isinstance(is_final, bool):
-            raise ProtocolValidationError('is_final 必须是布尔值')
+            raise ProtocolValidationError(Notice('validation.protocol.is_final_must_be_a_boolean'))
         if not is_final and not audio_data:
-            raise ProtocolValidationError('非最终消息不得包含空音频')
+            raise ProtocolValidationError(Notice('validation.protocol.non_final_messages_must_not_contain_empty_audio'))
 
         time_start = _finite_number(data, 'time_start')
         if time_start < 0:
-            raise ProtocolValidationError('time_start 不得为负数')
+            raise ProtocolValidationError(Notice('validation.protocol.time_start_must_not_be_negative'))
         seg_duration = _finite_number(data, 'seg_duration', default=15.0)
         seg_overlap = _finite_number(data, 'seg_overlap', default=2.0)
         if not MIN_SEG_DURATION <= seg_duration <= MAX_SEG_DURATION:
             raise ProtocolValidationError(
-                f'seg_duration 必须在 {MIN_SEG_DURATION}-{MAX_SEG_DURATION} 秒之间'
+                Notice('validation.protocol.seg_duration_must_be_between_and_seconds', value0=MIN_SEG_DURATION, value1=MAX_SEG_DURATION)
             )
         if not 0 <= seg_overlap <= MAX_SEG_OVERLAP:
             raise ProtocolValidationError(
-                f'seg_overlap 必须在 0-{MAX_SEG_OVERLAP} 秒之间'
+                Notice('validation.protocol.seg_overlap_must_be_between_and_seconds', value0=MAX_SEG_OVERLAP)
             )
         if seg_overlap >= seg_duration:
-            raise ProtocolValidationError('seg_overlap 必须小于 seg_duration')
+            raise ProtocolValidationError(Notice('validation.protocol.seg_overlap_must_be_smaller_than_seg_duration'))
 
         context = data.get('context', '')
         if not isinstance(context, str) or len(context) > max_context_length:
             raise ProtocolValidationError(
-                f'context 必须是至多 {max_context_length} 个字符的字符串'
+                Notice('validation.protocol.context_must_be_a_string_of_at_most', value0=max_context_length)
             )
 
         language = data.get('language', 'auto')
@@ -162,12 +164,12 @@ class AudioMessage:
             or len(language) > MAX_LANGUAGE_LENGTH
         ):
             raise ProtocolValidationError(
-                f'language 必须是 1-{MAX_LANGUAGE_LENGTH} 个字符的字符串'
+                Notice('validation.protocol.language_must_be_a_string_of_characters', value0=MAX_LANGUAGE_LENGTH)
             )
 
         supports_task_errors = data.get('supports_task_errors', False)
         if not isinstance(supports_task_errors, bool):
-            raise ProtocolValidationError('supports_task_errors must be a boolean')
+            raise ProtocolValidationError(Notice('validation.protocol.supports_task_errors_must_be_a_boolean'))
 
         message = cls(
             task_id=task_id,
@@ -193,7 +195,7 @@ class AudioMessage:
         try:
             return base64.b64decode(self.data, validate=True)
         except (binascii.Error, ValueError) as exc:
-            raise ProtocolValidationError('data 不是有效的 Base64') from exc
+            raise ProtocolValidationError(Notice('validation.protocol.data_is_not_valid_base')) from exc
 
 
 @dataclass
@@ -209,12 +211,12 @@ class CancelMessage:
     @classmethod
     def from_dict(cls, data: dict) -> CancelMessage:
         if not isinstance(data, dict):
-            raise ProtocolValidationError('Cancellation must be an object')
+            raise ProtocolValidationError(Notice('validation.protocol.cancellation_must_be_an_object'))
         task_id = data.get('task_id')
         if (data.get('type') != 'cancel' or not isinstance(task_id, str)
                 or not 0 < len(task_id) <= MAX_TASK_ID_LENGTH
                 or any(ord(char) < 32 for char in task_id)):
-            raise ProtocolValidationError('Invalid cancellation identity')
+            raise ProtocolValidationError(Notice('validation.protocol.invalid_cancellation_identity'))
         return cls(task_id)
 
 
@@ -264,23 +266,23 @@ class RecognitionMessage:
     def from_dict(cls, data: dict) -> RecognitionMessage:
         """从字典创建实例"""
         if not isinstance(data, dict):
-            raise ProtocolValidationError('Recognition message must be an object')
+            raise ProtocolValidationError(Notice('validation.protocol.recognition_message_must_be_an_object'))
         error_code = data.get('error_code', '')
         if not isinstance(error_code, str) or error_code not in {'', 'recognition_failed', 'cancelled'}:
-            raise ProtocolValidationError('Unknown task error code')
+            raise ProtocolValidationError(Notice('validation.protocol.unknown_task_error_code'))
         if error_code:
             task_id = data.get('task_id')
             if (not isinstance(task_id, str) or not 0 < len(task_id) <= MAX_TASK_ID_LENGTH
                     or any(ord(char) < 32 for char in task_id)):
-                raise ProtocolValidationError('Invalid error task identity')
+                raise ProtocolValidationError(Notice('validation.protocol.invalid_error_task_identity'))
             if data.get('is_final') is not True:
-                raise ProtocolValidationError('Task errors must be terminal')
+                raise ProtocolValidationError(Notice('validation.protocol.task_errors_must_be_terminal'))
             if (data.get('text') != '' or data.get('text_accu', '') != ''
                     or data.get('tokens', []) != [] or data.get('timestamps', []) != []):
-                raise ProtocolValidationError('Task errors must not contain recognition content')
+                raise ProtocolValidationError(Notice('validation.protocol.task_errors_must_not_contain_recognition_content'))
             for name in ('duration', 'time_start', 'time_submit', 'time_complete'):
                 if _finite_number(data, name) < 0:
-                    raise ProtocolValidationError('Invalid error timing')
+                    raise ProtocolValidationError(Notice('validation.protocol.invalid_error_timing'))
         return cls(
             task_id=data['task_id'],
             is_final=data['is_final'],

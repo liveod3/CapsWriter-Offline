@@ -13,6 +13,8 @@
 """
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import threading
 from typing import Callable, Dict, Optional
 
@@ -54,7 +56,7 @@ class GlobalHotkeyManager:
         self._listener: Optional[keyboard.GlobalHotKeys] = None
         self._running = False
         self._initialized = True
-        logger.debug("GlobalHotkeyManager 初始化完成")
+        logger.debug(Notice('diagnostic.global_hotkey.globalhotkeymanager_initialized'))
 
     def register(self, key_str: str, callback: Callable) -> None:
         """
@@ -65,7 +67,7 @@ class GlobalHotkeyManager:
             callback: 按下快捷键时的回调函数
         """
         self._hotkeys[key_str] = callback
-        logger.debug(f"注册全局快捷键: {key_str}")
+        logger.debug(Notice('diagnostic.global_hotkey.global_hotkey_registered', value0=key_str))
         
         # 如果已经在运行，重启监听器以应用新的快捷键
         if self._running:
@@ -83,7 +85,7 @@ class GlobalHotkeyManager:
         """
         if key_str in self._hotkeys:
             del self._hotkeys[key_str]
-            logger.debug(f"注销全局快捷键: {key_str}")
+            logger.debug(Notice('diagnostic.global_hotkey.global_hotkey_unregistered', value0=key_str))
             
             if self._running:
                 self._restart_listener()
@@ -93,16 +95,16 @@ class GlobalHotkeyManager:
     def start(self) -> None:
         """启动快捷键监听"""
         if self._running:
-            logger.debug("GlobalHotkeyManager 已在运行")
+            logger.debug(Notice('diagnostic.global_hotkey.globalhotkeymanager_already_running'))
             return
         
         if not self._hotkeys:
-            logger.warning("没有注册的快捷键，跳过启动")
+            logger.warning(Notice('diagnostic.global_hotkey.no_hotkeys_registered_startup_skipped'))
             return
         
         self._running = True
         self._start_listener()
-        logger.info(f"GlobalHotkeyManager 已启动，注册了 {len(self._hotkeys)} 个快捷键")
+        logger.info(Notice('diagnostic.global_hotkey.globalhotkeymanager_started_with_hotkeys', value0=len(self._hotkeys)))
 
     def stop(self) -> None:
         """停止快捷键监听"""
@@ -111,9 +113,9 @@ class GlobalHotkeyManager:
             try:
                 self._listener.stop()
             except Exception as e:
-                logger.warning(f"停止 GlobalHotKeys 监听器时出错: {e}")
+                logger.warning(Notice('diagnostic.global_hotkey.failed_to_stop_globalhotkeys_listener', value0=e))
             self._listener = None
-        logger.info("GlobalHotkeyManager 已停止")
+        logger.info(Notice('diagnostic.global_hotkey.globalhotkeymanager_stopped'))
 
     def _start_listener(self) -> None:
         """启动监听器"""
@@ -123,9 +125,9 @@ class GlobalHotkeyManager:
         try:
             self._listener = keyboard.GlobalHotKeys(self._hotkeys)
             self._listener.start()
-            logger.debug(f"GlobalHotKeys 监听器已启动: {list(self._hotkeys.keys())}")
+            logger.debug(Notice('diagnostic.global_hotkey.globalhotkeys_listener_started', value0=list(self._hotkeys.keys())))
         except Exception as e:
-            logger.error(f"启动 GlobalHotKeys 监听器失败: {e}")
+            logger.error(Notice('diagnostic.global_hotkey.failed_to_start_globalhotkeys_listener', value0=e))
             self._listener = None
 
     def _restart_listener(self) -> None:

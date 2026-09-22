@@ -1,4 +1,6 @@
 # coding: utf-8
+
+from core.i18n import Notice
 from typing import Any, Dict, Type, Optional
 from .base import BaseASREngine, BasePuncEngine, BaseAlignEngine
 from config_server import (
@@ -51,7 +53,7 @@ class EngineFactory:
         """创建 ASR 核心引擎"""
         model_type = model_type.lower()
         if model_type not in EngineFactory._ASR_LOADERS:
-            raise ValueError(f"EngineFactory: 不支持的 ASR 类型 '{model_type}'")
+            raise ValueError(Notice('validation.factory.enginefactory_unsupported_asr_type', value0=model_type))
 
         loader = EngineFactory._ASR_LOADERS[model_type]
         EngineClass, ConfigClass, ArgsObj = loader()
@@ -75,7 +77,7 @@ class EngineFactory:
             return CTTransformerPuncEngine(model_path)
         except Exception as e:
             from . import logger
-            logger.warning('Punctuation model unavailable; continuing without punctuation: error=%s', type(e).__name__)
+            logger.warning(Notice('diagnostic.factory.punctuation_model_unavailable_continuing_without_punctuation_error'), type(e).__name__)
             return BasePuncEngine(None)
 
     @staticmethod
@@ -91,7 +93,7 @@ class EngineFactory:
             return QwenForceAligner(config)
         except Exception as e:
             from . import logger
-            msg = f'Alignment model unavailable; continuing without measured timestamps: error={type(e).__name__}\n'
+            logger.warning(Notice('engine.alignment_missing', error=type(e).__name__))
             # 检查模型文件是否错放到上级目录
             aligner_dir = ModelPaths.force_aligner_gguf_dir
             aligner_files = [
@@ -101,7 +103,6 @@ class EngineFactory:
             ]
             for parent in aligner_dir.parents:
                 if any((parent / fp.name).exists() for fp in aligner_files):
-                    msg += f"模型文件似乎错放到了上级目录，应解压到：[bold yellow]{aligner_dir}[/bold yellow]\n\n"
+                    logger.warning(Notice('engine.alignment_directory', directory=aligner_dir))
                     break
-            logger.warning(msg)
             return BaseAlignEngine(None)

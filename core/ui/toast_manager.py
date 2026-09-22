@@ -4,6 +4,8 @@ Toast 消息管理器模块
 
 提供 ToastMessageManager 单例类，管理所有 Toast 窗口的生命周期。
 """
+
+from core.i18n import Notice
 import logging
 import threading
 import tkinter as tk
@@ -182,7 +184,7 @@ class ToastMessageManager:
                 try:
                     callback(self.root)
                 except Exception as exc:
-                    logger.warning("Status UI update failed: %s", type(exc).__name__)
+                    logger.warning(Notice('diagnostic.toast_manager.status_ui_update_failed'), type(exc).__name__)
             if not self.message_queue.empty():
                 msg = self.message_queue.get_nowait()
                 msg_id = getattr(msg, '_id', 'unknown')
@@ -223,7 +225,7 @@ class ToastMessageManager:
             ]
 
         except Exception as e:
-            logger.warning(f"处理队列消息时出错: {e}")
+            logger.warning(Notice('diagnostic.toast_manager.message_queue_processing_failed', value0=e))
 
         # 继续处理队列
         if self.is_running and self.root:
@@ -272,7 +274,7 @@ class ToastMessageManager:
             if getattr(window, '_msg_id', None) == msg_id:
                 window.update_text(new_text)
                 return
-        logger.warning(f"未找到消息 ID: {msg_id[:8]}")
+        logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     def finish_toast(self, msg_id: str) -> None:
         """完成指定 ID 的 Toast 的流式输出
@@ -285,7 +287,7 @@ class ToastMessageManager:
                 if window.streaming:
                     window.finish()
                 return
-        logger.warning(f"未找到消息 ID: {msg_id[:8]}")
+        logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     def close_toast(self, msg_id: str) -> None:
         """关闭指定 ID 的 Toast
@@ -301,7 +303,7 @@ class ToastMessageManager:
                 except (tk.TclError, ValueError):
                     pass
                 return
-        logger.warning(f"未找到消息 ID: {msg_id[:8]}")
+        logger.warning(Notice('diagnostic.toast_manager.message_id_not_found', value0=msg_id[:8]))
 
     async def wait_for_window(self, msg_id: str, timeout: float = 1.0) -> Optional[ToastWindowBase]:
         """异步等待指定 ID 的窗口创建完成
@@ -320,5 +322,5 @@ class ToastMessageManager:
                 if getattr(window, '_msg_id', None) == msg_id:
                     return window
             await asyncio.sleep(0.01)  # 10ms 轮询间隔
-        logger.warning(f"等待窗口超时: {msg_id[:8]}")
+        logger.warning(Notice('diagnostic.toast_manager.timed_out_waiting_for_window', value0=msg_id[:8]))
         return None

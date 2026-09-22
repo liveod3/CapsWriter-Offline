@@ -1,14 +1,23 @@
+
+import sys
+from pathlib import Path
+
+if __package__ in {None, ''}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from core.i18n import tr, initialize_tool_language
+
+if __name__ == '__main__':
+    initialize_tool_language()
 from importlib.util import find_spec
 relies = ['markdown_it', 'rich']
 if not all([find_spec(x) for x in relies]):
-    print('这个脚本需要用到第三方库：markdown_it rich\n请先用 pip 安装后再运行')
-    input('按回车退出')
+    print(tr('terminal.clean_assets.this_script_requires_markdown_it_and_rich_install'))
+    input(tr('terminal.clean_assets.press_enter_to_exit'))
 
 import re
 import os
-import sys
 from os import remove
-from pathlib import Path
 from typing import List
 from pprint import pprint
 from urllib.parse import unquote
@@ -82,16 +91,16 @@ def main():
     if len(sys.argv) > 1:
         p = Path(sys.argv[1])
         if p.exists() and p.is_dir(): root = p
-    console.print(f'[yellow]本脚本的作用是，递归清理所有未被 Markdown 引用的图片、音频附件\n')
-    console.print(f'[green]当前所要清理的根目录是：{root}\n')
-    console.input(f'[green]确认请按回车，接下来将搜索 Markdown 文件\n')
+    console.print(tr('terminal.clean_assets.yellow_this_script_recursively_removes_image_and_audio'))
+    console.print(tr('terminal.clean_assets.green_cleanup_root', value0=root))
+    console.input(tr('terminal.clean_assets.green_press_enter_to_search_for_markdown_files'))
 
     # 收集到所有的 Markdown 文件
     md_files = get_md_files(root)
-    console.print(f'[green]共找到了如下 Markdown 文件：')
+    console.print(tr('terminal.clean_assets.green_markdown_files_found'))
     for f in md_files:console.print(f'    {f}')
     console.line()
-    console.input(f'[green]确认请按回车，接下来将搜索未被引用的附件\n')
+    console.input(tr('terminal.clean_assets.green_press_enter_to_search_for_unreferenced_attachments'))
 
     # 收集到所有被引用的附件
     links_used = []
@@ -114,20 +123,20 @@ def main():
     
     # 得到没有被使用的附件
     links_unused = set(links_all) - set(links_used)
-    console.print('[yellow]共查找到以下没有被引用的附件：')
+    console.print(tr('terminal.clean_assets.yellow_unreferenced_attachments_found'))
     for file in sorted(links_unused):
         console.print(f'    {file}')
     for i in range(3):
-        if console.input(f'[yellow]如果确认删除，请手动输入单词 delete 后回车\n') == 'delete': break
+        if console.input(tr('terminal.clean_assets.yellow_to_confirm_deletion_type_delete_and_press')) == 'delete': break
     else:
-        console.print('[red]三次未输入 delete，判断为不删除，退出')
+        console.print(tr('terminal.clean_assets.red_confirmation_not_received_after_three_attempts_exiting'))
         sys.exit()
     
     # 执行删除
-    console.print('[red]开始删除')
+    console.print(tr('terminal.clean_assets.red_deleting_files'))
     for f in links_unused:
         remove(f); console.print(f'    [red]{f}')
-    console.input(f'[green]清理完成，按回车退出')
+    console.input(tr('terminal.clean_assets.green_cleanup_complete_press_enter_to_exit'))
 
 
 if __name__ == "__main__":

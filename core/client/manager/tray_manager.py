@@ -1,6 +1,9 @@
 """客户端托盘：常用动作、静态配置入口与无会话文本处理。"""
 
 from __future__ import annotations
+
+from core.i18n import LANGUAGES, Notice, lazy, tr
+
 import asyncio
 import os
 import subprocess
@@ -36,38 +39,38 @@ class TrayManager:
             else:
                 os.startfile(str(path))
         except OSError as exc:
-            logger.warning("Cannot open settings or history: %s", type(exc).__name__)
+            logger.warning(Notice('diagnostic.tray_manager.cannot_open_settings_or_history'), type(exc).__name__)
             from core.ui import show_status_hint
 
-            show_status_hint("Could not open this file or folder.", duration_ms=2500)
+            show_status_hint(tr('settings.open_failed'), duration_ms=2500)
 
     def menu_actions(self):
         root = self.app.base_dir
         return [
             MenuAction(
-                lambda _item: "Resume dictation"
+                lambda _item: tr('tray.resume')
                 if self.state.dictation_paused
-                else "Pause dictation",
+                else tr('tray.pause'),
                 self._toggle_pause,
-                "Pause releases the microphone. Resume explicitly to use dictation again.",
+                lazy('tray.pause.tip'),
                 lambda _item: "resume" if self.state.dictation_paused else "pause",
             ),
             MenuAction(
-                "Copy last result",
+                lazy('tray.copy'),
                 self._copy_result,
-                "Copy the most recent output to the clipboard.",
+                lazy('tray.copy.tip'),
                 "copy",
                 enabled=lambda _item: bool(self.state.last_output_text),
             ),
             MenuAction(
-                "LLM actions",
-                tooltip="Enable or disable all LLM actions, or control each action separately.",
+                lazy('tray.llm'),
+                tooltip=lazy('tray.llm.tip'),
                 icon="text",
                 children=[
                     MenuAction(
                         lambda _item: self._llm_toggle_label(),
                         lambda: self._toggle_llm_option(),
-                        "Click to turn all off when all are on; otherwise turn all on. Changes are saved.",
+                        lazy('tray.llm.all.tip'),
                         "pause",
                         enabled=lambda _item: not self._mode_saving,
                         checked=lambda _item: all(llm_options(Config).values()),
@@ -75,7 +78,7 @@ class TrayManager:
                     MenuAction(
                         lambda _item: self._llm_toggle_label("correct_asr"),
                         lambda: self._toggle_llm_option("correct_asr"),
-                        "Click to toggle correction. The label shows its current state. Changes are saved.",
+                        lazy('tray.llm.correction.tip'),
                         "text",
                         enabled=lambda _item: not self._mode_saving,
                         checked=lambda _item: llm_options(Config)["correct_asr"],
@@ -83,7 +86,7 @@ class TrayManager:
                     MenuAction(
                         lambda _item: self._llm_toggle_label("translate"),
                         lambda: self._toggle_llm_option("translate"),
-                        "Click to toggle translation. The label shows its current state. Changes are saved.",
+                        lazy('tray.llm.translation.tip'),
                         "translate",
                         enabled=lambda _item: not self._mode_saving,
                         checked=lambda _item: llm_options(Config)["translate"],
@@ -91,64 +94,75 @@ class TrayManager:
                 ],
             ),
             MenuAction(
-                "Open history",
+                lazy('tray.history'),
                 lambda: self._open(root / getattr(Config, "transcript_dir", "logs/transcripts")),
-                "Open saved transcripts, organized by year and month.",
+                lazy('tray.history.tip'),
                 "history",
             ),
             MenuAction(
-                "Open recordings",
+                lazy('tray.recordings'),
                 self._open_recordings,
-                "Open the configured recording folder. Existing recordings stay in their original folders.",
+                lazy('tray.recordings.tip'),
                 "folder",
             ),
             MenuAction(
-                "Settings",
-                tooltip="Edit client settings and LLM action configuration.",
+                lazy('tray.settings'),
+                tooltip=lazy('tray.settings.tip'),
                 icon="settings",
                 children=[
                     MenuAction(
-                        "Client settings…",
+                        lazy('language.title'), tooltip=lazy('language.tip'), icon='translate',
+                        children=[
+                            MenuAction(
+                                lazy(label), self._language_callback(language),
+                                checked=lambda _item, language=language: getattr(Config, 'ui_language', 'auto') == language,
+                                radio=True, enabled=lambda _item: not self._mode_saving,
+                            )
+                            for language, label in LANGUAGES.items()
+                        ],
+                    ),
+                    MenuAction(
+                        lazy('tray.client_settings'),
                         lambda: self._open(root / "config_client.py"),
-                        "Supported changes apply when tasks finish. Check the console for restart requirements.",
+                        lazy('tray.client_settings.tip'),
                         "settings",
                     ),
                     MenuAction(
-                        "Provider connections…",
+                        lazy('tray.providers'),
                         lambda: self._open(self.app.llm.directory / "providers.toml"),
-                        "Edit local connections and API keys. This file is excluded from Git.",
+                        lazy('tray.providers.tip'),
                         "settings",
                     ),
                     MenuAction(
-                        "LLM presets…",
+                        lazy('tray.presets'),
                         lambda: self._open(self.app.llm.directory / "presets.toml"),
-                        "Edit prompts and voice triggers. Changes apply to the next request.",
+                        lazy('tray.presets.tip'),
                         "text",
                     ),
                 ],
             ),
             MenuAction(
-                "Troubleshooting",
-                tooltip="Reconnect the microphone or inspect diagnostics.",
+                lazy('tray.troubleshoot'),
+                tooltip=lazy('tray.troubleshoot.tip'),
                 icon="tools",
                 children=[
                     MenuAction(
-                        "Reconnect microphone",
+                        lazy('tray.reconnect'),
                         self._reconnect,
-                        "Reopen the microphone. Resume dictation first if paused.",
+                        lazy('tray.reconnect.tip'),
                         "microphone",
                         enabled=lambda _item: not self.state.dictation_paused,
                     ),
                     MenuAction(
-                        "Open diagnostic logs",
+                        lazy('tray.logs'),
                         lambda: self._open(root / "logs" / "diagnostics"),
-                        "Open dated diagnostic logs. These are separate from transcript history.",
+                        lazy('tray.logs.tip'),
                         "folder",
                     ),
                     MenuAction(
-                        "Copy original transcription",
+                        lazy('tray.original'),
                         self._copy_original,
-                        "Copy the last ASR result before any LLM action.",
+                        lazy('tray.original.tip'),
                         "copy",
                         enabled=lambda _item: bool(self.state.last_recognition_text),
                     ),
@@ -187,7 +201,7 @@ class TrayManager:
                 from core.ui import show_status_hint
 
                 show_status_hint(
-                    "Finish recording before reconnecting the microphone.", duration_ms=2000
+                    tr('mic.finish_first'), duration_ms=2000
                 )
                 return
             if not self.state.dictation_paused:
@@ -223,11 +237,34 @@ class TrayManager:
         options = llm_options(Config)
         if preset_id is None:
             active = any(options.values())
-            state = "on" if all(options.values()) else "partly on" if active else "off"
-            return f"All LLM actions: Currently {state}"
+            state = 'on' if all(options.values()) else 'partial' if active else 'off'
+            return tr('llm.toggle.all', state=tr('state.' + state))
         active = options[preset_id]
-        name = {"correct_asr": "Correction", "translate": "Translation"}[preset_id]
-        return f"{name}: Currently {'on' if active else 'off'}"
+        return tr('llm.toggle.' + preset_id, state=tr('state.on' if active else 'state.off'))
+
+    def _language_callback(self, language):
+        return lambda: self._set_language(language)
+
+    def _set_language(self, language):
+        async def save():
+            from core.client.llm.settings import save_ui_language
+            from core.ui import show_status_hint
+
+            if self._mode_saving:
+                return
+            self._mode_saving = True
+            try:
+                await asyncio.to_thread(save_ui_language, self.app.base_dir / 'config_client.py', language)
+                if not getattr(self.app, '_stopping', False):
+                    show_status_hint(tr('language.saved'), duration_ms=2500)
+            except (OSError, ValueError, SyntaxError) as exc:
+                logger.warning(Notice('diagnostic.tray_manager.cannot_save_ui_language'), type(exc).__name__)
+                if not getattr(self.app, '_stopping', False):
+                    show_status_hint(tr('language.failed'), duration_ms=3000)
+            finally:
+                self._mode_saving = False
+
+        self._schedule(save())
 
     def _toggle_llm_option(self, preset_id=None):
         async def save():
@@ -250,17 +287,17 @@ class TrayManager:
                 if getattr(self.app, "_stopping", False):
                     return
                 if hasattr(self.app, 'config_reload'):
-                    show_status_hint("LLM settings saved; apply after current tasks finish.", duration_ms=2500)
+                    show_status_hint(tr('llm.saved_pending'), duration_ms=2500)
                 else:
                     Config.llm_correction_enabled = options["correct_asr"]
                     Config.llm_translation_enabled = options["translate"]
                     Config.llm_enabled = any(options.values())
                     if Config.llm_enabled:
                         self.app.llm.start()
-                    show_status_hint("LLM settings saved.", duration_ms=1600)
+                    show_status_hint(tr('llm.saved'), duration_ms=1600)
             except (OSError, ValueError, SyntaxError) as exc:
-                logger.warning("Cannot save LLM options: %s", type(exc).__name__)
-                show_status_hint("Could not save LLM options. Check client settings.", duration_ms=2500)
+                logger.warning(Notice('diagnostic.tray_manager.cannot_save_llm_options'), type(exc).__name__)
+                show_status_hint(tr('llm.save_failed'), duration_ms=2500)
             finally:
                 self._mode_saving = False
 

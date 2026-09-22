@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import asyncio
 import base64
 import time
@@ -84,11 +86,11 @@ class AudioRecorder:
         except OSError as exc:
             writer, self._writer = self._writer, None
             await writer.close(abort=True)
-            logger.warning('Recording storage unavailable: error=%s', type(exc).__name__,
+            logger.warning(Notice('diagnostic.recorder.recording_storage_unavailable_error'), type(exc).__name__,
                            extra={'console_handled': True})
-            console.print('Recording could not be saved. Check audio_dir and folder permissions; dictation continues.', markup=False)
+            console.print(tr('audio.save_failed'), markup=False)
             from core.ui import show_status_hint
-            show_status_hint('Recording storage unavailable. Dictation continues.', duration_ms=3500)
+            show_status_hint(tr('audio.storage_unavailable'), duration_ms=3500)
             return None
         self.state.register_audio_file(self.task_id, path)
         return path
@@ -132,7 +134,7 @@ class AudioRecorder:
                 raise DictationSendError('PendingDictationLimit')
             self.state.dictation_uploads[self.task_id] = upload_done
             # ID 在创建录音器时固定，快捷键结束录音即可用它显示转写状态。
-            logger.debug(f"创建录音任务，任务ID: {self.task_id}")
+            logger.debug(Notice('diagnostic.recorder.recording_task_created_task', value0=self.task_id))
             
             self._start_time = 0.0
             self._duration = 0.0
@@ -160,7 +162,7 @@ class AudioRecorder:
                     context = await self.app.caret_context.capture(target)
                     self._context = asr_reference(context)
                     self.state.task_contexts[self.task_id] = (context, target)
-                    logger.debug(f"录音开始，时间戳: {self._start_time}")
+                    logger.debug(Notice('diagnostic.recorder.recording_started_timestamp', value0=self._start_time))
                     
                 elif task['type'] == 'data':
                     # 在阈值之前积攒音频数据
@@ -235,12 +237,12 @@ class AudioRecorder:
                     # 完成写入本地文件
                     if self._writer:
                         await self._writer.close()
-                        logger.debug("完成音频文件写入")
+                        logger.debug(Notice('diagnostic.recorder.audio_file_writing_completed'))
                     
                     console.print(
-                        f'[ui.label]录音[/]  [ui.value]{self._duration:.2f}s[/]'
+                        tr('audio.duration', value0=self._duration)
                     )
-                    logger.info(f"录音任务完成，任务ID: {self.task_id}, 时长: {self._duration:.2f}s")
+                    logger.info(Notice('diagnostic.recorder.recording_task_completed_task_duration_s', value0=self.task_id, value1=self._duration))
                     
                     # 告诉服务端音频片段结束了
                     message = AudioMessage(
@@ -265,7 +267,7 @@ class AudioRecorder:
         except Exception as e:
             self.app.progress.finish(self.task_id)
             self.state.task_contexts.pop(self.task_id, None)
-            logger.error('Recording task failed: task=%s error=%s',
+            logger.error(Notice('diagnostic.recorder.recording_task_failed_task_error'),
                          self.task_id[:8], type(e).__name__)
             raise
         finally:

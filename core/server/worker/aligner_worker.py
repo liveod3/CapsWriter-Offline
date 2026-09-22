@@ -1,6 +1,8 @@
 # coding: utf-8
 """独立 Forced Aligner 兄弟进程入口。"""
 
+from core.i18n import Notice, set_language
+
 import os
 import queue
 import time
@@ -38,7 +40,7 @@ def _put_response(queue_out, response: AlignResponse) -> None:
     try:
         queue_out.put(response, timeout=1.0)
     except queue.Full:
-        logger.error(f"Aligner 响应队列已满，丢弃请求 {response.request_id[:8]}")
+        logger.error(Notice('diagnostic.aligner_worker.aligner_response_queue_full_dropping_request', value0=response.request_id[:8]))
 
 
 def start_aligner_worker(queue_in, queue_out):
@@ -48,10 +50,11 @@ def start_aligner_worker(queue_in, queue_out):
     进程启动时不加载模型；首个请求才加载。模型闲置后退出整个进程，
     由主进程监控器补位一个未加载模型的新进程。
     """
+    set_language(getattr(Config, 'ui_language', 'auto'))
     engine = None
     last_active = time.monotonic()
     idle_timeout = _safe_timeout()
-    logger.info(f"Aligner 兄弟进程已拉起 (PID: {os.getpid()})，等待按需加载")
+    logger.info(Notice('diagnostic.aligner_worker.aligner_process_started_pid_waiting_for_on_demand', value0=os.getpid()))
 
     try:
         while True:
@@ -61,7 +64,7 @@ def start_aligner_worker(queue_in, queue_out):
                 if (engine is not None and idle_timeout > 0
                         and time.monotonic() - last_active >= idle_timeout):
                     logger.info(
-                        f"Aligner 已闲置 {idle_timeout:.0f}s，退出独立进程以释放显存"
+                        Notice('diagnostic.aligner_worker.aligner_idle_for_s_exiting_process_to_release', value0=idle_timeout)
                     )
                     return
                 continue
@@ -69,12 +72,12 @@ def start_aligner_worker(queue_in, queue_out):
             if request is None:
                 return
             if not isinstance(request, AlignRequest):
-                logger.warning(f"忽略未知 Aligner 请求: {type(request).__name__}")
+                logger.warning(Notice('diagnostic.aligner_worker.ignoring_unknown_aligner_request', value0=type(request).__name__))
                 continue
 
             if engine is None:
                 logger.info(
-                    f"收到任务 {request.task_id[:8]}，正在按需加载 Forced Aligner..."
+                    Notice('diagnostic.aligner_worker.request_received_loading_forced_aligner_on_demand', value0=request.task_id[:8])
                 )
                 from ..engines.factory import EngineFactory
                 engine = EngineFactory.create_align_engine()
@@ -93,7 +96,7 @@ def start_aligner_worker(queue_in, queue_out):
                 )
             except Exception as exc:
                 logger.error(
-                    'Alignment request failed: task=%s error=%s',
+                    Notice('diagnostic.aligner_worker.alignment_request_failed_task_error'),
                     request.task_id[:8], type(exc).__name__,
                 )
                 response = AlignResponse(
@@ -105,7 +108,7 @@ def start_aligner_worker(queue_in, queue_out):
             last_active = time.monotonic()
             _put_response(queue_out, response)
     except Exception as exc:
-        logger.error('Aligner worker stopped: error=%s', type(exc).__name__)
+        logger.error(Notice('diagnostic.aligner_worker.aligner_worker_stopped_error'), type(exc).__name__)
         # multiprocessing prints uncaught exception chains to stderr by default.
         raise SystemExit(1) from None
     finally:
@@ -113,4 +116,4 @@ def start_aligner_worker(queue_in, queue_out):
             try:
                 engine.cleanup()
             except Exception as exc:
-                logger.warning('Aligner cleanup failed: error=%s', type(exc).__name__)
+                logger.warning(Notice('diagnostic.aligner_worker.aligner_cleanup_failed_error'), type(exc).__name__)

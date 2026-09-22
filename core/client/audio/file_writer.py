@@ -1,5 +1,7 @@
 """Serialize recording file I/O off the event loop, with bounded FFmpeg recovery."""
 
+from core.i18n import Notice
+
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -30,7 +32,7 @@ class AsyncAudioWriter:
             try:
                 await asyncio.wait_for(asyncio.shield(future), self.CLEANUP_TIMEOUT)
             except Exception as exc:
-                logger.warning('Interrupted audio I/O: %s', type(exc).__name__)
+                logger.warning(Notice('diagnostic.file_writer.interrupted_audio_i_o'), type(exc).__name__)
                 # Consume a late exception if the OS operation is still pending.
                 future.add_done_callback(self._consume_exception)
             raise

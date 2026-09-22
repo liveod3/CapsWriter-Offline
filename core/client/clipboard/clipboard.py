@@ -8,6 +8,8 @@
 3. 剪贴板保存/恢复上下文管理器
 4. 粘贴文本（模拟 Ctrl+V）
 """
+
+from core.i18n import Notice
 import asyncio
 import platform
 from contextlib import contextmanager
@@ -40,11 +42,11 @@ def safe_paste() -> str:
                 continue
 
         # 如果所有编码都失败，返回空字符串
-        logger.debug(f"剪贴板解码失败，尝试了编码: {CLIPBOARD_ENCODINGS}")
+        logger.debug(Notice('diagnostic.clipboard.clipboard_decoding_failed_encodings_tried', value0=CLIPBOARD_ENCODINGS))
         return ""
 
     except Exception as e:
-        logger.warning('Clipboard read failed: error=%s', type(e).__name__)
+        logger.warning(Notice('diagnostic.clipboard.clipboard_read_failed_error'), type(e).__name__)
         return ""
 
 
@@ -63,10 +65,10 @@ def safe_copy(content: str) -> bool:
 
     try:
         pyclip.copy(content)
-        logger.debug(f"剪贴板写入成功，长度: {len(content)}")
+        logger.debug(Notice('diagnostic.clipboard.clipboard_write_succeeded_chars', value0=len(content)))
         return True
     except Exception as e:
-        logger.warning('Clipboard write failed: error=%s', type(e).__name__)
+        logger.warning(Notice('diagnostic.clipboard.clipboard_write_failed_error'), type(e).__name__)
         return False
 
 
@@ -97,7 +99,7 @@ def save_and_restore_clipboard():
     finally:
         if original:
             pyclip.copy(original)
-            logger.debug("剪贴板已恢复")
+            logger.debug(Notice('diagnostic.clipboard.clipboard_restored'))
 
 
 async def paste_text(text: str, restore_clipboard: bool = True):
@@ -118,7 +120,7 @@ async def paste_text(text: str, restore_clipboard: bool = True):
 
     # 复制要粘贴的文本
     pyclip.copy(text)
-    logger.debug(f"已复制文本到剪贴板，长度: {len(text)}")
+    logger.debug(Notice('diagnostic.clipboard.text_copied_to_clipboard_chars', value0=len(text)))
 
     # 粘贴结果（使用 pynput 模拟 Ctrl+V）
     controller = keyboard.Controller()
@@ -131,10 +133,10 @@ async def paste_text(text: str, restore_clipboard: bool = True):
         with controller.pressed(keyboard.Key.ctrl):
             controller.tap('v')
     
-    logger.debug("已发送粘贴命令 (Ctrl+V)")
+    logger.debug(Notice('diagnostic.clipboard.paste_command_sent_ctrl_v'))
 
     # 还原剪贴板
     if restore_clipboard and original:
         await asyncio.sleep(0.1)
         pyclip.copy(original)
-        logger.debug("剪贴板已恢复")
+        logger.debug(Notice('diagnostic.clipboard.clipboard_restored'))

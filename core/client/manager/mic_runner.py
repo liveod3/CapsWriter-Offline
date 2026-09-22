@@ -1,4 +1,6 @@
 # coding: utf-8
+
+from core.i18n import Notice
 import asyncio
 from . import logger
 from ..ui import TipsDisplay
@@ -55,8 +57,8 @@ class MicRunner:
         """麦克风模式主入口"""
         
         logger.info("=" * 50)
-        logger.info(f"CapsWriter Offline Client {__version__} (麦克风模式)")
-        logger.info(f"日志级别: {Config.log_level}")
+        logger.info(Notice('diagnostic.mic_runner.capswriter_offline_client_microphone_mode', value0=__version__))
+        logger.info(Notice('diagnostic.mic_runner.log_level', value0=Config.log_level))
         
         # 1. 资源启动
         await self.start_resources()

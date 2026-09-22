@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+from core.i18n import tr, set_language
+from core.i18n.argparse import localize_parser_error
+
 import argparse
 import sys
 from dataclasses import dataclass
@@ -22,6 +25,29 @@ class ClientMode(str, Enum):
 
 
 OUTPUT_FORMATS = frozenset({"srt", "txt", "json", "merge"})
+
+
+class LocalizedHelpFormatter(argparse.HelpFormatter):
+    def start_section(self, heading):
+        heading_id = {'options': 'cli.options', 'positional arguments': 'cli.positionals'}.get(heading)
+        super().start_section(tr(heading_id) if heading_id else heading)
+
+    def add_usage(self, usage, actions, groups, prefix=None):
+        super().add_usage(usage, actions, groups, tr('cli.usage') if prefix is None else prefix)
+
+
+class LocalizedArgumentParser(argparse.ArgumentParser):
+    """Localize product help without changing argparse's process-global gettext."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault('formatter_class', LocalizedHelpFormatter)
+        kwargs['add_help'] = False
+        super().__init__(*args, **kwargs)
+        self.add_argument('-h', '--help', action='help', help=tr('cli.help'))
+
+    def error(self, message):
+        self.print_usage(sys.stderr)
+        self.exit(2, tr('cli.error', prog=self.prog, message=localize_parser_error(message)))
 
 
 @dataclass(frozen=True)
@@ -64,11 +90,10 @@ def _parse_output_formats(values: list[str] | None) -> frozenset[str]:
     invalid = sorted(selected - OUTPUT_FORMATS)
     if invalid:
         raise ValueError(
-            f"不支持的输出格式: {', '.join(invalid)}；"
-            f"可选值: {', '.join(sorted(OUTPUT_FORMATS))}"
+            tr('cli.invalid_formats', value0=', '.join(invalid), value1=', '.join(sorted(OUTPUT_FORMATS)))
         )
     if not selected:
-        raise ValueError("--format 至少需要指定一种输出格式")
+        raise ValueError(tr('cli.empty_formats'))
     return frozenset(selected)
 
 
@@ -81,32 +106,33 @@ def _absolute_path(value: str | Path, cwd: Path) -> Path:
 
 def _require_existing_path(parser: argparse.ArgumentParser, path: Path) -> None:
     if not path.exists():
-        parser.error(f"输入路径不存在: {path}")
+        parser.error(tr('cli.missing_path', value0=path))
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = LocalizedArgumentParser(
         prog="start_client",
-        description="CapsWriter Offline 客户端",
+        description=tr('cli.description'),
     )
     parser.add_argument(
         "--version",
         action="version",
         version=f"%(prog)s {__version__}",
+        help=tr('cli.version_help'),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("mic", help="启动麦克风实时语音输入")
+    subparsers.add_parser("mic", help=tr('cli.mic'))
 
     transcribe = subparsers.add_parser(
         "transcribe",
-        help="转写一个或多个媒体文件、文件夹",
+        help=tr('cli.transcribe'),
     )
     transcribe.add_argument(
         "inputs",
         nargs="+",
         metavar="INPUT",
-        help="媒体文件或文件夹路径",
+        help=tr('cli.inputs'),
     )
     transcribe.add_argument(
         "-f",
@@ -114,40 +140,40 @@ def _build_parser() -> argparse.ArgumentParser:
         action="append",
         dest="formats",
         metavar="FORMAT",
-        help="输出格式，可重复或用逗号分隔: srt,txt,json,merge",
+        help=tr('cli.formats'),
     )
     recursive = transcribe.add_mutually_exclusive_group()
     recursive.add_argument(
         "--recursive",
         action="store_true",
         dest="recursive",
-        help="递归扫描输入文件夹",
+        help=tr('cli.recursive'),
     )
     recursive.add_argument(
         "--no-recursive",
         action="store_false",
         dest="recursive",
-        help="只扫描输入文件夹第一层",
+        help=tr('cli.no_recursive'),
     )
     transcribe.set_defaults(recursive=None)
 
     rebuild = subparsers.add_parser(
         "rebuild-srt",
-        help="使用指定 TXT 和时间戳 JSON 重建 SRT",
+        help=tr('cli.rebuild'),
     )
     rebuild.add_argument(
         "-t",
         "--text",
         required=True,
         metavar="TXT",
-        help="人工校对后的 TXT 文件",
+        help=tr('cli.text'),
     )
     rebuild.add_argument(
         "-j",
         "--json",
         required=True,
         metavar="JSON",
-        help="包含 tokens 和 timestamps 的 JSON 文件",
+        help=tr('cli.json'),
     )
     return parser
 
@@ -194,8 +220,7 @@ def _normalize_compatibility_args(
                 str(json_files[0]),
             ]
         parser.error(
-            "字幕重建必须同时且仅传入一个 TXT 和一个 JSON；"
-            "媒体文件请与字幕重建任务分开处理"
+            tr('cli.rebuild_inputs')
         )
 
     return [ClientMode.TRANSCRIBE.value, *map(str, paths)]
@@ -207,6 +232,7 @@ def parse_client_command(
     cwd: Path | None = None,
 ) -> ClientCommand:
     """解析正式 CLI，并兼容无参数、拖拽和旧式裸路径调用。"""
+    set_language(getattr(Config, "ui_language", "auto"))
     parser = _build_parser()
     arguments = list(sys.argv[1:] if argv is None else argv)
     startup_cwd = (cwd or Path.cwd()).resolve(strict=False)
@@ -229,7 +255,7 @@ def parse_client_command(
             parser.error(str(exc))
         if not output_formats:
             parser.error(
-                "没有启用任何输出格式；请使用 --format，或修改 config_client.py"
+                tr('cli.no_formats')
             )
         configured_recursive = bool(
             getattr(Config, "file_scan_recursive", True)
@@ -251,9 +277,9 @@ def parse_client_command(
     _require_existing_path(parser, text_file)
     _require_existing_path(parser, json_file)
     if text_file.suffix.lower() != ".txt":
-        parser.error(f"--text 必须指向 .txt 文件: {text_file}")
+        parser.error(tr('cli.invalid_text', value0=text_file))
     if json_file.suffix.lower() != ".json":
-        parser.error(f"--json 必须指向 .json 文件: {json_file}")
+        parser.error(tr('cli.invalid_json', value0=json_file))
     return ClientCommand(
         mode=mode,
         text_file=text_file,

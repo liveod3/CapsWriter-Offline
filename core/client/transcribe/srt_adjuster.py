@@ -7,6 +7,8 @@ SRT 调整模块
 
 from __future__ import annotations
 
+from core.i18n import Notice, tr
+
 import json
 import math
 import uuid
@@ -31,14 +33,14 @@ class SrtAdjuster:
         with open(json_file, 'r', encoding='utf-8') as stream:
             payload = json.load(stream)
         if not isinstance(payload, dict):
-            raise ValueError('JSON 顶层必须是对象')
+            raise ValueError(Notice('validation.srt_adjuster.json_top_level_must_be_an_object'))
 
         tokens = payload.get('tokens')
         timestamps = payload.get('timestamps')
         if not isinstance(tokens, list) or not isinstance(timestamps, list):
-            raise ValueError('JSON 必须包含数组 tokens 和 timestamps')
+            raise ValueError(Notice('validation.srt_adjuster.json_must_contain_tokens_and_timestamps_arrays'))
         if not tokens or len(tokens) != len(timestamps):
-            raise ValueError('tokens 和 timestamps 必须非空且长度一致')
+            raise ValueError(Notice('validation.srt_adjuster.tokens_and_timestamps_must_be_nonempty_and_have'))
 
         normalized_timestamps = []
         previous = -1.0
@@ -49,16 +51,16 @@ class SrtAdjuster:
                 or not math.isfinite(timestamp)
                 or timestamp < 0
             ):
-                raise ValueError(f'timestamps[{index}] 不是有限的非负数值')
+                raise ValueError(Notice('validation.srt_adjuster.timestamps_must_be_finite_and_nonnegative', value0=index))
             value = float(timestamp)
             if value < previous:
-                raise ValueError('timestamps 必须按非递减顺序排列')
+                raise ValueError(Notice('validation.srt_adjuster.timestamps_must_be_in_nondecreasing_order'))
             normalized_timestamps.append(value)
             previous = value
 
         for index, token in enumerate(tokens):
             if not isinstance(token, str):
-                raise ValueError(f'tokens[{index}] 必须是字符串')
+                raise ValueError(Notice('validation.srt_adjuster.tokens_must_be_a_string', value0=index))
 
         words = [
             {
@@ -98,30 +100,29 @@ class SrtAdjuster:
             json_file: 包含 tokens 与 timestamps 的 JSON 文件
         """
         task_id = str(uuid.uuid1())
-        console.print('\n[ui.accent]字幕重建[/]')
-        console.print(f'[ui.label]文本[/]  [ui.value]{text_file}[/]')
-        console.print(f'[ui.label]时间戳[/]  [ui.value]{json_file}[/]')
+        console.print(tr('srt.title'))
+        console.print(tr('srt.text', value0=text_file))
+        console.print(tr('srt.timestamps', value0=json_file))
         
-        logger.info('Subtitle rebuild started')
+        logger.info(Notice('diagnostic.srt_adjuster.subtitle_rebuild_started'))
         
         try:
             words = self._load_words(json_file)
             with open(text_file, 'r', encoding='utf-8') as stream:
                 text_lines = stream.readlines()
             if not any(line.strip() for line in text_lines):
-                raise ValueError('TXT 内容为空')
+                raise ValueError(Notice('validation.srt_adjuster.txt_content_is_empty'))
 
             output_file, sequence = self._allocate_output(text_file)
             srt_from_txt.generate_srt_file(words, text_lines, output_file)
             if sequence > 1:
                 console.print(
-                    f'[ui.warning]▲ 同名结果已存在，本次使用编号 '
-                    f'({sequence})，未覆盖既有文件[/]'
+                    tr('srt.numbered_output', value0=sequence)
                 )
-            console.print(f'[ui.success]✓ 重建完成[/]  [ui.value]{output_file}[/]')
-            logger.info('Subtitle rebuild completed')
+            console.print(tr('srt.complete', value0=output_file))
+            logger.info(Notice('diagnostic.srt_adjuster.subtitle_rebuild_completed'))
             return True
         except Exception as e:
-            console.print(f'[ui.error]✗ SRT 重建失败[/]  [ui.value]{type(e).__name__}[/]')
-            logger.error('Subtitle rebuild failed: error=%s', type(e).__name__)
+            console.print(tr('srt.failed', value0=type(e).__name__))
+            logger.error(Notice('diagnostic.srt_adjuster.subtitle_rebuild_failed_error'), type(e).__name__)
             return False

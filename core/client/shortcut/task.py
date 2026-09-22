@@ -6,6 +6,9 @@
 """
 
 from __future__ import annotations
+
+from core.i18n import Notice, tr
+
 import asyncio
 from concurrent.futures import Future
 import time
@@ -75,7 +78,7 @@ class ShortcutTask:
         self.pool = None
 
         # 录音状态动画
-        self._status = Status('开始录音', spinner='point')
+        self._status = Status(message_id='mic.recording', spinner='point')
 
     @property
     def state(self) -> ClientState:
@@ -120,8 +123,8 @@ class ShortcutTask:
             if generation != self._launch_generation or not self.is_recording:
                 return
             self.cancel()
-            logger.warning('Microphone readiness timed out; capture released')
-            show_status_hint('麦克风准备超时，请重试', duration_ms=2200, dot_color='#EF4444')
+            logger.warning(Notice('diagnostic.task.microphone_readiness_timed_out_capture_released'))
+            show_status_hint(tr('mic.ready_timeout'), duration_ms=2200, dot_color='#EF4444')
 
     def launch(self) -> bool:
         """Atomically claim the microphone across all shortcut tasks."""
@@ -130,11 +133,11 @@ class ShortcutTask:
             if getattr(self.app, '_stopping', False) or self.state.recording_owner is not None:
                 return False
             if len(self.state.dictation_uploads) >= MAX_PENDING_DICTATIONS:
-                show_status_hint('Previous recordings are still processing. Please wait.',
+                show_status_hint(tr('mic.processing_pending'),
                                  duration_ms=2200)
                 return False
             if max(len(self.state.recording_futures), len(self.state.recording_tasks)) >= self.MAX_PENDING_RECORDERS:
-                show_status_hint('Previous recordings are still sending. Please wait.',
+                show_status_hint(tr('mic.sending_pending'),
                                  duration_ms=2200)
                 return False
             return self._launch_locked()
@@ -144,7 +147,7 @@ class ShortcutTask:
         generation = self._launch_generation
 
         if getattr(self.state, 'dictation_manually_paused', False):
-            show_status_hint('Dictation is paused. Resume from the tray menu.', duration_ms=2000)
+            show_status_hint(tr('mic.paused_help'), duration_ms=2000)
             return False
         if not self.app.loop.is_running() or self.app.loop.is_closed():
             return False
@@ -178,7 +181,7 @@ class ShortcutTask:
         except Exception as exc:
             if capture is not None and self._capture is capture:
                 self.cancel()
-            logger.error(f'Could not start recording: {type(exc).__name__}')
+            logger.error(Notice('diagnostic.task.could_not_start_recording', value0=type(exc).__name__))
             return False
 
         if not self.is_recording:
@@ -188,8 +191,8 @@ class ShortcutTask:
         if self.app.stream.is_ready(ready_event):
             self._show_recording_ready(generation, clear_preparing_hint=False)
         else:
-            message = '正在准备麦克风，请稍候'
-            logger.info(f"[{self.shortcut.key}] {message}")
+            message = tr('mic.preparing')
+            logger.info(Notice('diagnostic.task.microphone_preparing_shortcut'), self.shortcut.key)
             console.print(f'\n[ui.warning]●[/] [ui.value]{message}[/]')
             show_status_hint(message, duration_ms=5000, dot_color='#F59E0B')
             Thread(
@@ -254,13 +257,13 @@ class ShortcutTask:
                 self._release_capture_locked()
                 self.app.progress.finish(progress_id)
             if error is not None:
-                logger.error(f'Recording worker failed: {type(error).__name__}')
+                logger.error(Notice('diagnostic.task.recording_worker_failed', value0=type(error).__name__))
                 if self.state.recording_owner is None and not getattr(self.app, '_stopping', False):
-                    message = ('Recording stopped: audio buffer is full. Please retry.'
+                    message = (tr('mic.overflow')
                                if str(error) == 'CaptureBufferOverflow' else
-                               'Recording failed. Please retry.')
+                               tr('mic.failed'))
                     if isinstance(error, DictationSendError):
-                        message = '音频发送失败，请检查服务端连接后重试。'
+                        message = tr('mic.send_failed')
                     show_status_hint(message, duration_ms=3500, dot_color='#EF4444')
 
     def cancel(self) -> None:
@@ -305,7 +308,7 @@ class ShortcutTask:
         # 防自捕获：管理器会设置 flag 再发送按键
         manager = self._manager_ref()
         if manager:
-            logger.debug(f"[{self.shortcut.key}] 自动恢复按键状态 (suppress={self.shortcut.suppress})")
+            logger.debug(Notice('diagnostic.task.restoring_key_state_suppress', value0=self.shortcut.key, value1=self.shortcut.suppress))
             manager.schedule_restore(self.shortcut.key)
         else:
-            logger.warning(f"[{self.shortcut.key}] manager 引用丢失，无法 restore")
+            logger.warning(Notice('diagnostic.task.cannot_restore_manager_reference_lost', value0=self.shortcut.key))

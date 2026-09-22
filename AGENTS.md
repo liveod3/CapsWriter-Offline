@@ -33,7 +33,8 @@ CapsWriter-Offline 是 Windows 10/11 优先的语音输入工具，默认识别�
 - `LLM/providers.template.toml`：受版本控制的 Provider 模板，不得包含真实 Key。`LLM/providers.toml` 是被 Git 忽略的本机凭据文件；允许 `api_key` 或显式优先的 `api_key_env`，不得整份输出或提交。`LLM/presets.toml` 为公开静态预设。缺少本机配置时读取模板，首次编辑才创建副本，不覆盖现有凭据。
 - `build_llm.py`：发行包只复制公开 Provider 模板和预设，不得为整个 `LLM` 建立 junction 或打入本机凭据。
 - `core/client/caret_context.py`、`caret_worker.py`：按次、可关闭的 UI Automation 光标参考读取，超时结束隔离子进程。
-- `core/ui/menu_model.py`、`menu_icons.py`、`tray_native.py`：英文菜单动作、统一图标和 Windows Tooltip；原生后端接口按 pystray 0.19.5 隔离。
+- `core/i18n/`: English/Simplified Chinese UI catalogs and process-local language selection; see `docs/interface-language.md`. Keep UI language independent of ASR language, LLM targets and user content.
+- `core/ui/menu_model.py`, `menu_icons.py`, `tray_native.py`: localized menu actions, shared icons and Windows tooltips; native backend integration is isolated for pystray 0.19.5.
 - `core/log_archive.py`、`core/client/diary/diary_writer.py`：按月诊断与文字记录归档，保存开关相互独立。
 - `models/`：模型说明和下载入口；大型模型文件不应提交。
 - `docs/`：用户文档、变更日志和历史审计归档；当前待办统一记录在根目录 `TODO.md`。
@@ -107,7 +108,7 @@ python start_client.py rebuild-srt --text "校对.txt" --json "原始.json"
 1. 先执行 `git status --short`，把已有修改视为用户工作。不要重置、覆盖或顺手格式化无关文件。
 2. 阅读目标模块、它的调用方、状态对象和配置项；跨客户端/服务端的改动还必须阅读 `core/protocol.py`。
 3. 优先做最小、可审查的改动。不要在修复业务问题时批量改写 vendored/export 代码。
-4. Keep UTF-8. Communicate with the user in their preferred language. New or substantially rewritten internal documentation, plans, comments/docstrings, diagnostic terminal output and logs use English. User-facing text follows the multilingual UI plan in `TODO.md`; keep stable IDs separate from translated labels. Migrate existing internal material incrementally, preserving user content, language fixtures, recognition rules, task-specific prompts and upstream attribution. Do not bulk-translate unrelated files or historical records.
+4. Keep UTF-8. Communicate with the user in their preferred language. New or substantially rewritten internal documentation, plans, comments/docstrings and diagnostic file records use English. User-facing text, including project-owned diagnostics displayed in the terminal, follows the multilingual UI plan in `TODO.md`; use `Notice` for diagnostics and `tr` at display boundaries, keeping stable IDs separate from translated labels. Migrate existing internal material incrementally, preserving user content, language fixtures, recognition rules, task-specific prompts and upstream attribution. Do not bulk-translate unrelated files or historical records.
 5. 不得把 API Key、访问令牌、私人音频、识别文本、剪贴板内容、日志或真实模型路径提交到仓库。新增密钥读取时优先使用环境变量或本地未跟踪配置。
 6. 配置兼容性是产品能力。新增配置项应有安全默认值，并用 `getattr(..., default)` 或迁移逻辑兼容旧配置/发行包。
 7. 修改配置字段、默认值、说明或 `__version__` 时，以 `config_templates/` 中的模板为提交对象；若根目录本机配置存在，还应只合并必要的结构变化并保留用户取值。不得只修改被忽略的根配置，因为这类变化不会进入提交。

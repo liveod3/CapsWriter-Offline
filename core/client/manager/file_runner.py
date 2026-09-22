@@ -1,5 +1,8 @@
 # coding: utf-8
 from __future__ import annotations
+
+from core.i18n import Notice, tr
+
 import asyncio
 import logging
 import sys
@@ -62,7 +65,7 @@ class TranscriptionTaskLog:
                 break
         except OSError as exc:
             logger.warning(
-                f'无法创建文件转写独立日志，将继续使用客户端日志: {exc}'
+                Notice('diagnostic.file_runner.cannot_create_file_transcription_log_using_client_log', value0=exc)
             )
             return self.path
 
@@ -75,14 +78,14 @@ class TranscriptionTaskLog:
         ))
         logger.addHandler(handler)
         self._handler = handler
-        logger.info(f'文件转写独立日志已创建: {self.path}')
+        logger.info(Notice('diagnostic.file_runner.file_transcription_log_created', value0=self.path))
         return self.path
 
     def close(self) -> None:
         """停止独立日志记录；可重复调用。"""
         if self._handler is None:
             return
-        logger.info('文件转写独立日志记录结束')
+        logger.info(Notice('diagnostic.file_runner.file_transcription_log_closed'))
         logger.removeHandler(self._handler)
         self._handler.close()
         self._handler = None
@@ -131,14 +134,14 @@ def resolve_input_paths(
                 ),
                 key=lambda candidate: str(candidate).casefold(),
             )
-            logger.info('Media directory scanned: recursive=%s files=%d', recursive, len(matches))
+            logger.info(Notice('diagnostic.file_runner.media_directory_scanned_recursive_files'), recursive, len(matches))
         elif path.is_file():
             matches = [path]
         else:
             console.print(
-                f'[ui.warning]▲ 跳过不存在的路径[/]  [ui.value]{path}[/]'
+                tr('file.skip_path', value0=path)
             )
-            logger.warning('Input path skipped: unavailable')
+            logger.warning(Notice('diagnostic.file_runner.input_path_skipped_unavailable'))
             continue
 
         for candidate in matches:
@@ -214,7 +217,7 @@ class FileRunner:
             )
             for result in results:
                 if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
-                    logger.error('File child task failed: error=%s', type(result).__name__,
+                    logger.error(Notice('diagnostic.file_runner.file_child_task_failed_error'), type(result).__name__,
                                  extra={'console_handled': True})
             if all(result is True for result in results):
                 return transcriber.summary
@@ -252,7 +255,7 @@ class FileRunner:
         summaries = []
         batch_started_at = time.perf_counter()
         log_path = task_log.start()
-        logger.info('File batch started: files=%d formats=%s', total, sorted(self.output_formats))
+        logger.info(Notice('diagnostic.file_runner.file_batch_started_files_formats'), total, sorted(self.output_formats))
         try:
             for index, file in enumerate(self.files, start=1):
                 if hasattr(self.app, 'config_reload'):
@@ -265,8 +268,8 @@ class FileRunner:
                     f'[ui.secondary]{index:02d}[/]  [ui.title]{file.name}[/]  '
                     f'[ui.muted]{index}/{total}[/]'
                 )
-                console.print(f'    [ui.label]来源[/]  [ui.value]{file}[/]')
-                logger.info('File processing started: index=%d total=%d', index, total)
+                console.print(tr('file.source', value0=file))
+                logger.info(Notice('diagnostic.file_runner.file_processing_started_index_total'), index, total)
                 try:
                     summary = await self._process_file(file)
                 except Exception as exc:
@@ -274,7 +277,7 @@ class FileRunner:
                     if self._failure_code is None:
                         self._failure_code = 'timeout' if isinstance(exc, TimeoutError) else 'unexpected'
                     logger.error(
-                        'File processing failed: error=%s', type(exc).__name__,
+                        Notice('diagnostic.file_runner.file_processing_failed_error'), type(exc).__name__,
                         extra={'console_handled': True},
                     )
 
@@ -282,22 +285,26 @@ class FileRunner:
                     succeeded_count += 1
                     summaries.append(summary)
                     speed_style = 'ui.success' if summary.speed_ratio >= 1 else 'ui.warning'
-                    console.print(f'[ui.success]✓ 完成[/]  [ui.value]{file.name}[/]')
+                    console.print(tr('file.done', value0=file.name))
                     console.print(
-                        f'    [ui.label]音频[/] [ui.value]{format_duration(summary.audio_duration)}[/]    '
-                        f'[ui.label]耗时[/] [ui.value]{format_duration(summary.elapsed)}[/]    '
-                        f'[ui.label]速度[/] [{speed_style}]{summary.speed_ratio:.2f}×[/]    '
-                        f'[ui.label]RTF[/] [ui.value]{summary.rtf:.3f}[/]    '
-                        f'[ui.label]文本[/] [ui.value]{summary.text_length} 字[/]'
+                        tr(
+                            'file.metrics',
+                            value0=format_duration(summary.audio_duration),
+                            value1=format_duration(summary.elapsed),
+                            value2=speed_style,
+                            value3=summary.speed_ratio,
+                            value4=summary.rtf,
+                            value5=summary.text_length,
+                        )
                     )
-                    console.print('    [ui.label]输出[/]')
+                    console.print(tr('file.outputs'))
                     for output_path in summary.output_paths:
                         console.print(f'      [ui.accent]•[/] [ui.value]{output_path}[/]')
-                    logger.info('File processing completed: index=%d total=%d', index, total)
+                    logger.info(Notice('diagnostic.file_runner.file_processing_completed_index_total'), index, total)
                 else:
                     failed_count += 1
                     print_file_failure(console, file, self._failure_code, has_next=index < total)
-                    logger.error('File task failed: code=%s', self._failure_code or 'unexpected',
+                    logger.error(Notice('diagnostic.file_runner.file_task_failed_code'), self._failure_code or 'unexpected',
                                  extra={'console_handled': True})
 
             batch_elapsed = time.perf_counter() - batch_started_at
@@ -309,44 +316,43 @@ class FileRunner:
             summary_table.add_column(style='ui.label', no_wrap=True)
             summary_table.add_column(style='ui.value')
             summary_table.add_row(
-                '文件',
-                f'[ui.success]{succeeded_count} 成功[/]  '
-                f'[ui.error]{failed_count} 失败[/]  ·  {total_outputs} 个输出',
+                tr('file.files'),
+                tr('file.summary_counts', value0=succeeded_count, value1=failed_count, value2=total_outputs),
             )
             summary_table.add_row(
-                '性能',
-                f'音频 {format_duration(total_audio)}  ·  '
-                f'耗时 {format_duration(batch_elapsed)}  ·  '
-                f'[ui.accent]{speed_ratio:.2f}× 实时[/]',
+                tr('file.performance'),
+                tr(
+                    'file.summary_metrics',
+                    value0=format_duration(total_audio),
+                    value1=format_duration(batch_elapsed),
+                    value2=speed_ratio,
+                ),
             )
-            summary_table.add_row('日志', str(log_path))
+            summary_table.add_row(tr('file.log'), str(log_path))
             console.print()
             console.print(Panel(
                 summary_table,
-                title='[ui.accent]转写汇总[/]',
+                title=tr('file.summary'),
                 title_align='left',
                 border_style='ui.border',
                 padding=(0, 2),
             ))
             logger.info(
-                f"所有文件已处理完成: 总数={total}, "
-                f"成功={succeeded_count}, 失败={failed_count}, "
-                f"音频总时长={total_audio:.2f}s, 总耗时={batch_elapsed:.2f}s, "
-                f"速度={speed_ratio:.2f}x, 输出文件数={total_outputs}"
+                Notice('diagnostic.file_runner.file_batch_completed_total_succeeded_failed_audio_s', value0=total, value1=succeeded_count, value2=failed_count, value3=total_audio, value4=batch_elapsed, value5=speed_ratio, value6=total_outputs)
             )
             
             # 打包版双击/拖拽启动时保留窗口，便于用户查看结果；
             # conda run、重定向或其他无 stdin 场景应当正常结束，不能把成功任务报成失败。
             if sys.stdin is not None and sys.stdin.isatty():
                 try:
-                    input('\n按回车退出\n')
+                    input(tr('file.exit_prompt'))
                 except EOFError:
-                    logger.debug("标准输入已关闭，文件模式直接退出")
+                    logger.debug(Notice('diagnostic.file_runner.standard_input_closed_exiting_file_mode'))
 
             return failed_count == 0 and succeeded_count == total
 
         except Exception as e:
-            logger.error('File runner failed: error=%s', type(e).__name__)
+            logger.error(Notice('diagnostic.file_runner.file_runner_failed_error'), type(e).__name__)
             return False
         finally:
             task_log.close()

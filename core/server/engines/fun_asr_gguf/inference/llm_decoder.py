@@ -1,3 +1,5 @@
+
+from core.i18n import Notice
 import time
 import re
 import ctypes
@@ -35,7 +37,7 @@ class LLMDecoder:
         batch_embd.struct.token = ctypes.cast(None, ctypes.POINTER(llama.llama_token))
         
         if self.models.ctx.decode(batch_embd) != 0: 
-            raise RuntimeError("Decode failed")
+            raise RuntimeError(Notice('validation.llm_decoder.decode_failed'))
             
         res.t_inject = time.perf_counter() - t_inject_start
 

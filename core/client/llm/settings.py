@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import ast
 import os
 from pathlib import Path
@@ -20,19 +22,31 @@ def llm_options(config) -> dict[str, bool]:
 def save_llm_options(path: Path, *, correction: bool, translation: bool) -> None:
     """保存独立开关及总状态，保留默认路由和其他用户配置。"""
     if not isinstance(correction, bool) or not isinstance(translation, bool):
-        raise ValueError("LLM options must be boolean")
+        raise ValueError(Notice('validation.settings.llm_options_must_be_boolean'))
+    _save_options(path, {
+        "llm_enabled": repr(correction or translation),
+        "llm_correction_enabled": repr(correction),
+        "llm_translation_enabled": repr(translation),
+    })
+
+
+def save_ui_language(path: Path, language: str) -> None:
+    """Save the UI preference without executing or replacing other settings."""
+    from core.i18n import LANGUAGES
+
+    if language not in LANGUAGES:
+        raise ValueError(Notice('validation.settings.unsupported_ui_language'))
+    _save_options(path, {"ui_language": repr(language)})
+
+
+def _save_options(path: Path, values: dict[str, str]) -> None:
     original = path.read_bytes()
     source = original.decode("utf-8-sig")
     tree = ast.parse(source)
     classes = [n for n in tree.body if isinstance(n, ast.ClassDef) and n.name == "ClientConfig"]
     if len(classes) != 1:
-        raise ValueError("Expected one ClientConfig class")
+        raise ValueError(Notice('validation.settings.expected_one_clientconfig_class'))
     config = classes[0]
-    values = {
-        "llm_enabled": repr(correction or translation),
-        "llm_correction_enabled": repr(correction),
-        "llm_translation_enabled": repr(translation),
-    }
     # AST 列偏移以 UTF-8 字节计；保留 BOM、换行、注释和所有无关源码。
     data = source.encode("utf-8")
     lines = data.splitlines(keepends=True)
@@ -49,7 +63,7 @@ def save_llm_options(path: Path, *, correction: bool, translation: bool) -> None
             if not isinstance(target, ast.Name) or target.id not in values:
                 continue
             if target.id in found or len(targets) != 1 or node.value is None:
-                raise ValueError("Ambiguous text mode assignment")
+                raise ValueError(Notice('validation.settings.ambiguous_text_mode_assignment'))
             found.add(target.id)
             value = node.value
             edits.append((
@@ -78,7 +92,7 @@ def save_llm_options(path: Path, *, correction: bool, translation: bool) -> None
             temporary = Path(out.name)
             out.write(data)
         if path.read_bytes() != original:
-            raise OSError("Client settings changed during save")
+            raise OSError(Notice('validation.settings.client_settings_changed_during_save'))
         os.replace(temporary, path)
     finally:
         if temporary is not None:

@@ -1,5 +1,7 @@
 # coding: utf-8
 from __future__ import annotations
+
+from core.i18n import Notice
 import os
 from typing import TYPE_CHECKING
 from config_server import ServerConfig as Config
@@ -24,7 +26,7 @@ class TrayManager:
         try:
             from . import enable_min_to_tray
         except ImportError as e:
-            logger.warning(f"托盘模块导入失败，跳过托盘功能: {e}")
+            logger.warning(Notice('diagnostic.tray_manager.tray_module_import_failed_tray_disabled', value0=e))
             return
 
         # 获取图标路径
@@ -36,11 +38,11 @@ class TrayManager:
             icon_path,
             exit_callback=self._request_exit
         )
-        logger.info("托盘图标已启用")
+        logger.info(Notice('diagnostic.tray_manager.tray_icon_enabled'))
 
     def _request_exit(self, icon=None, item=None):
         """托盘图标引用的退出回调"""
-        logger.info("托盘退出: 用户点击退出菜单，准备清理资源并退出")
+        logger.info(Notice('diagnostic.tray_manager.tray_exit_requested_cleaning_up_resources'))
         self.app.stop()
 
     def stop(self):
@@ -51,6 +53,6 @@ class TrayManager:
         try:
             from core.ui.tray import stop_tray
             stop_tray()
-            logger.info("TrayManager: 托盘图标已卸载")
+            logger.info(Notice('diagnostic.tray_manager.traymanager_tray_icon_removed'))
         except Exception as e:
-            logger.debug(f"TrayManager: 卸载托盘时发生错误: {e}")
+            logger.debug(Notice('diagnostic.tray_manager.traymanager_failed_to_remove_tray_icon', value0=e))

@@ -414,7 +414,10 @@ def test_batch_continues_only_after_failed_file_cleanup(monkeypatch):
     assert events == ['receiver stopped', 'closed bad.wav', 'closed good.wav']
 
 
-def test_invalid_media_has_one_readable_failure_and_retains_diagnostics(factory, monkeypatch):
+@pytest.mark.parametrize('language', ['en', 'zh-CN'])
+def test_invalid_media_has_one_readable_failure_and_retains_diagnostics(factory, monkeypatch, language):
+    from core.i18n import set_language, tr
+    set_language(language)
     async def run():
         process = FakeProcess(exit_code=1)
         transcriber, runner, ws, _ = factory(process)
@@ -442,10 +445,12 @@ def test_invalid_media_has_one_readable_failure_and_retains_diagnostics(factory,
             client_logger.removeHandler(file_sink)
         output = terminal.getvalue()
         assert transcriber.failure_code == 'decode_failed'
-        assert output.count('✗ 无法转写') == 1
-        assert '无法读取有效音轨' in output
-        assert '请确认文件可以正常播放' in output
-        assert '0 成功  1 失败' in output
+        assert output.count(tr('file.failed')) == 1
+        assert tr('file.failure.decode_failed.reason') in output
+        assert tr('file.failure.decode_failed.action') in output
+        summary = tr('file.summary_counts', value0=0, value1=1, value2=0)
+        from rich.text import Text
+        assert Text.from_markup(summary).plain in output
         assert 'ERROR' not in output
         assert 'RuntimeError' not in output
         assert 'File send failed' in diagnostics.getvalue()

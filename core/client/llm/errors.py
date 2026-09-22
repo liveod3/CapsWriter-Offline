@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from core.i18n import tr
+
 import re
 import ssl
 
@@ -9,67 +11,67 @@ import httpx
 
 
 HTTP_REASONS = {
-    400: "Invalid request or unmet account requirements.",
-    401: "API authentication failed. Check the API key.",
-    403: "Access denied. Check API key permissions and region availability.",
-    404: "Model or API endpoint not found.",
-    408: "The provider timed out receiving the request.",
-    429: "Rate limit or quota exceeded. Check usage and billing.",
-    500: "The provider encountered an internal error.",
-    502: "The provider gateway failed.",
-    503: "The provider is unavailable or overloaded.",
-    504: "The provider gateway timed out.",
+    400: "llm.http.400",
+    401: "llm.http.401",
+    403: "llm.http.403",
+    404: "llm.http.404",
+    408: "llm.http.408",
+    429: "llm.http.429",
+    500: "llm.http.500",
+    502: "llm.http.502",
+    503: "llm.http.503",
+    504: "llm.http.504",
 }
 
 REASONS = {
-    "INVALID_ARGUMENT": "Invalid request parameters.",
-    "INVALID_REQUEST": "Invalid request parameters.",
-    "FAILED_PRECONDITION": "Account requirements are not met. Check billing and region availability.",
-    "UNAUTHENTICATED": "API authentication failed. Check the API key.",
-    "AUTHENTICATION": "API authentication failed. Check the API key.",
-    "API_KEY_INVALID": "The API key is invalid.",
-    "INVALID_API_KEY": "The API key is invalid.",
-    "API_KEY_EXPIRED": "The API key has expired.",
-    "API_KEY_LEAKED": "The provider blocked an exposed API key. Replace it.",
-    "PERMISSION_DENIED": "The API key does not have permission for this resource.",
-    "BILLING_DISABLED": "Billing is disabled for this API project.",
-    "SERVICE_DISABLED": "The API service is disabled for this project.",
-    "NOT_FOUND": "Model or API endpoint not found.",
-    "MODEL_NOT_FOUND": "The requested model was not found.",
-    "RESOURCE_EXHAUSTED": "Rate limit or quota exceeded. Check usage and billing.",
-    "QUOTA_EXCEEDED": "API quota exceeded. Check usage and billing.",
-    "INSUFFICIENT_QUOTA": "API quota exceeded. Check usage and billing.",
-    "RATE_LIMIT_EXCEEDED": "API rate limit exceeded. Wait before trying again.",
-    "TOO_MANY_REQUESTS": "API rate limit exceeded. Wait before trying again.",
-    "INTERNAL": "The provider encountered an internal error.",
-    "API_ERROR": "The provider encountered an internal error.",
-    "UNAVAILABLE": "The provider is unavailable or overloaded.",
-    "SERVICE_UNAVAILABLE": "The provider is unavailable or overloaded.",
-    "DEADLINE_EXCEEDED": "The provider could not finish within its deadline.",
-    "SAFETY": "The provider blocked the content for safety reasons.",
-    "CONTENT_FILTER": "The provider filtered the generated content.",
-    "CONTENT_BLOCKED": "The provider blocked the content.",
-    "RECITATION": "The provider stopped generation because of recitation restrictions.",
-    "LANGUAGE": "The provider does not support this language.",
-    "BLOCKLIST": "The provider blocked terms in the content.",
-    "PROHIBITED_CONTENT": "The provider flagged prohibited content.",
-    "SPII": "The provider flagged sensitive personal information.",
-    "MAX_TOKENS": "LLM output reached the token limit and may be incomplete.",
-    "LENGTH": "LLM output reached the token limit and may be incomplete.",
-    "MALFORMED_FUNCTION_CALL": "The provider generated an invalid tool call.",
-    "UNEXPECTED_TOOL_CALL": "The provider generated an unexpected tool call.",
-    "TOOL_CALLS": "The provider returned tool calls instead of transcription text.",
-    "FUNCTION_CALL": "The provider returned a function call instead of transcription text.",
-    "OTHER": "The provider stopped generation for an unspecified reason.",
-    "MALFORMED_RESPONSE": "The provider generated an invalid response.",
-    "MISSING_THOUGHT_SIGNATURE": "The provider requires a missing thought signature.",
-    "TOO_MANY_TOOL_CALLS": "The provider stopped after too many tool calls.",
-    "IMAGE_SAFETY": "The provider blocked image content for safety reasons.",
-    "IMAGE_PROHIBITED_CONTENT": "The provider flagged prohibited image content.",
-    "IMAGE_RECITATION": "The provider stopped image generation because of recitation restrictions.",
-    "IMAGE_OTHER": "The provider stopped image generation for an unspecified reason.",
-    "NO_IMAGE": "The provider returned no required image.",
-    "ESCALATION": "The provider filtered the request through an escalation rule.",
+    "API_ERROR": "llm.reason.api_error",
+    "API_KEY_EXPIRED": "llm.reason.api_key_expired",
+    "API_KEY_INVALID": "llm.reason.api_key_invalid",
+    "API_KEY_LEAKED": "llm.reason.api_key_leaked",
+    "AUTHENTICATION": "llm.reason.authentication",
+    "BILLING_DISABLED": "llm.reason.billing_disabled",
+    "BLOCKLIST": "llm.reason.blocklist",
+    "CONTENT_BLOCKED": "llm.reason.content_blocked",
+    "CONTENT_FILTER": "llm.reason.content_filter",
+    "DEADLINE_EXCEEDED": "llm.reason.deadline_exceeded",
+    "ESCALATION": "llm.reason.escalation",
+    "FAILED_PRECONDITION": "llm.reason.failed_precondition",
+    "FUNCTION_CALL": "llm.reason.function_call",
+    "IMAGE_OTHER": "llm.reason.image_other",
+    "IMAGE_PROHIBITED_CONTENT": "llm.reason.image_prohibited_content",
+    "IMAGE_RECITATION": "llm.reason.image_recitation",
+    "IMAGE_SAFETY": "llm.reason.image_safety",
+    "INSUFFICIENT_QUOTA": "llm.reason.insufficient_quota",
+    "INTERNAL": "llm.reason.internal",
+    "INVALID_API_KEY": "llm.reason.invalid_api_key",
+    "INVALID_ARGUMENT": "llm.reason.invalid_argument",
+    "INVALID_REQUEST": "llm.reason.invalid_request",
+    "LANGUAGE": "llm.reason.language",
+    "LENGTH": "llm.reason.length",
+    "MALFORMED_FUNCTION_CALL": "llm.reason.malformed_function_call",
+    "MALFORMED_RESPONSE": "llm.reason.malformed_response",
+    "MAX_TOKENS": "llm.reason.max_tokens",
+    "MISSING_THOUGHT_SIGNATURE": "llm.reason.missing_thought_signature",
+    "MODEL_NOT_FOUND": "llm.reason.model_not_found",
+    "NOT_FOUND": "llm.reason.not_found",
+    "NO_IMAGE": "llm.reason.no_image",
+    "OTHER": "llm.reason.other",
+    "PERMISSION_DENIED": "llm.reason.permission_denied",
+    "PROHIBITED_CONTENT": "llm.reason.prohibited_content",
+    "QUOTA_EXCEEDED": "llm.reason.quota_exceeded",
+    "RATE_LIMIT_EXCEEDED": "llm.reason.rate_limit_exceeded",
+    "RECITATION": "llm.reason.recitation",
+    "RESOURCE_EXHAUSTED": "llm.reason.resource_exhausted",
+    "SAFETY": "llm.reason.safety",
+    "SERVICE_DISABLED": "llm.reason.service_disabled",
+    "SERVICE_UNAVAILABLE": "llm.reason.service_unavailable",
+    "SPII": "llm.reason.spii",
+    "TOOL_CALLS": "llm.reason.tool_calls",
+    "TOO_MANY_REQUESTS": "llm.reason.too_many_requests",
+    "TOO_MANY_TOOL_CALLS": "llm.reason.too_many_tool_calls",
+    "UNAUTHENTICATED": "llm.reason.unauthenticated",
+    "UNAVAILABLE": "llm.reason.unavailable",
+    "UNEXPECTED_TOOL_CALL": "llm.reason.unexpected_tool_call",
 }
 
 
@@ -79,11 +81,21 @@ def known_reason(value) -> str:
 
 
 class LLMResponseError(ValueError):
-    def __init__(self, category: str, message: str, **fields):
-        super().__init__(message)
+    def __init__(self, category: str, message_id: str, **fields):
         self.category = category
-        self.user_message = message
+        self.message_id = message_id
         self.fields = fields
+        super().__init__(self.describe(locale="en"))
+
+    def describe(self, *, locale=None):
+        text = tr(self.message_id, locale=locale)
+        if self.fields.get("retry_after_s"):
+            text += tr("llm.retry_after", locale=locale, seconds=self.fields["retry_after_s"])
+        return text
+
+    @property
+    def user_message(self):
+        return self.describe()
 
 
 def api_error(status_code: int, body, retry_after: str = "") -> LLMResponseError:
@@ -119,43 +131,48 @@ def api_error(status_code: int, body, retry_after: str = "") -> LLMResponseError
                 reason = reason or diagnosis
                 break
     diagnosis = reason or code or status
-    description = REASONS.get(diagnosis, HTTP_REASONS.get(status_code, "The provider rejected the request."))
-    fields = {"http_status": status_code, "api_status": status or "unknown",
-              "api_code": code or "unknown", "reason": reason or "unknown"}
+    description = REASONS.get(diagnosis, HTTP_REASONS.get(status_code, "llm.rejected"))
+    fields = {
+        "http_status": status_code,
+        "api_status": status or "unknown",
+        "api_code": code or "unknown",
+        "reason": reason or "unknown",
+    }
     numeric_code = error.get("code")
     if type(numeric_code) is int and 100 <= numeric_code <= 599:
         fields["api_numeric_code"] = numeric_code
     if retry:
         fields["retry_after_s"] = retry
-        description += f" Retry after {retry} s."
-    return LLMResponseError("http_error" if status_code >= 300 else "api_error", description, **fields)
+    return LLMResponseError(
+        "http_error" if status_code >= 300 else "api_error", description, **fields
+    )
 
 
 def generation_error(value, field: str) -> LLMResponseError:
     reason = known_reason(value)
     return LLMResponseError(
         "incomplete_output" if reason in {"MAX_TOKENS", "LENGTH"} else "generation_stopped",
-        REASONS.get(reason, "The provider stopped generation without a usable result."),
+        REASONS.get(reason, "llm.no_result"),
         **{field: reason or "unknown"},
     )
 
 
 def describe_failure(exc: Exception) -> tuple[str, str, dict]:
     if isinstance(exc, LLMResponseError):
-        return exc.category, exc.user_message, exc.fields
+        return exc.category, exc.describe(locale="en"), exc.fields
     if isinstance(exc, httpx.HTTPStatusError):
         error = api_error(exc.response.status_code, {})
-        return error.category, error.user_message, error.fields
+        return error.category, error.describe(locale="en"), error.fields
     network = (
-        (httpx.ConnectTimeout, "connect_timeout", "Timed out connecting to the LLM provider."),
-        (httpx.ReadTimeout, "read_timeout", "Timed out waiting for the LLM response."),
-        (httpx.WriteTimeout, "write_timeout", "Timed out sending the LLM request."),
-        (httpx.PoolTimeout, "pool_timeout", "Timed out waiting for an available HTTP connection."),
-        (TimeoutError, "request_timeout", "The LLM request exceeded its total time limit."),
-        (httpx.ConnectError, "connection_failed", "Could not connect to the LLM provider. Check the network."),
-        (httpx.RemoteProtocolError, "remote_protocol_error", "The provider interrupted the HTTP response."),
-        (httpx.NetworkError, "network_error", "The network connection failed during the LLM request."),
-        (httpx.RequestError, "request_error", "The LLM HTTP request failed."),
+        (httpx.ConnectTimeout, "connect_timeout", "llm.connect_timeout"),
+        (httpx.ReadTimeout, "read_timeout", "llm.read_timeout"),
+        (httpx.WriteTimeout, "write_timeout", "llm.write_timeout"),
+        (httpx.PoolTimeout, "pool_timeout", "llm.pool_timeout"),
+        (TimeoutError, "request_timeout", "llm.request_timeout"),
+        (httpx.ConnectError, "connection_failed", "llm.connection_failed"),
+        (httpx.RemoteProtocolError, "remote_protocol_error", "llm.remote_protocol_error"),
+        (httpx.NetworkError, "network_error", "llm.network_error"),
+        (httpx.RequestError, "request_error", "llm.request_error"),
     )
     for kind, category, message in network:
         if isinstance(exc, kind):
@@ -164,12 +181,25 @@ def describe_failure(exc: Exception) -> tuple[str, str, dict]:
             for _ in range(8):
                 if isinstance(cause, ssl.SSLCertVerificationError):
                     fields["network_reason"] = "tls_certificate_verification_failed"
-                    message = "LLM TLS certificate verification failed. Check certificates and network."
+                    message = "llm.tls"
                     break
                 if isinstance(cause, OSError) and isinstance(cause.errno, int):
                     fields["os_errno"] = cause.errno
                 cause = cause.__cause__ or cause.__context__
                 if cause is None:
                     break
-            return category, message, fields
-    return "unexpected_error", "LLM processing failed. Check the diagnostic log.", {}
+            return category, tr(message, locale="en"), fields
+    return "unexpected_error", tr("llm.unexpected_error", locale="en"), {}
+
+
+def localized_failure(exc: Exception) -> str:
+    """Render only controlled categories; never display arbitrary exception text."""
+    if isinstance(exc, LLMResponseError):
+        return exc.user_message
+    if isinstance(exc, httpx.HTTPStatusError):
+        return api_error(exc.response.status_code, {}).user_message
+    category, _, fields = describe_failure(exc)
+    key = (
+        "tls" if fields.get("network_reason") == "tls_certificate_verification_failed" else category
+    )
+    return tr("llm." + key)

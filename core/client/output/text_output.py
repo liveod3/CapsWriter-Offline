@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from core.i18n import Notice
+
 import asyncio
 import platform
 from typing import Optional
@@ -103,7 +105,7 @@ class TextOutput:
         Args:
             text: 要粘贴的文本
         """
-        logger.debug(f"使用粘贴方式输出文本，长度: {len(text)}")
+        logger.debug(Notice('diagnostic.text_output.outputting_text_by_paste_chars', value0=len(text)))
         
         # 保存剪贴板
         try:
@@ -125,13 +127,13 @@ class TextOutput:
             with controller.pressed(pynput_keyboard.Key.ctrl):
                 controller.tap('v')
         
-        logger.debug("已发送粘贴命令 (Ctrl+V)")
+        logger.debug(Notice('diagnostic.clipboard.paste_command_sent_ctrl_v'))
         
         # 还原剪贴板
         if Config.restore_clip:
             await asyncio.sleep(0.1)
             pyclip.copy(temp)
-            logger.debug("剪贴板已恢复")
+            logger.debug(Notice('diagnostic.clipboard.clipboard_restored'))
     
     def _type_text(self, text: str) -> None:
         """
@@ -143,5 +145,5 @@ class TextOutput:
         Args:
             text: 要输出的文本
         """
-        logger.debug(f"使用打字方式输出文本，长度: {len(text)}")
+        logger.debug(Notice('diagnostic.text_output.outputting_text_by_typing_chars', value0=len(text)))
         keyboard.write(text)

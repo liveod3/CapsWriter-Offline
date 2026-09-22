@@ -4,6 +4,8 @@ GPU 加速管理模块
 封装 GPU 显存频率锁定/解锁逻辑，用于减少冷启动延迟。
 """
 
+from core.i18n import Notice
+
 import subprocess
 import time
 import ctypes
@@ -28,13 +30,13 @@ class GpuBoostManager:
         if task.command != 'gpu_boost':
             return
         if not self._check_admin():
-            logger.warning("非管理员权限，无法执行 GPU 加速命令")
+            logger.warning(Notice('diagnostic.gpu_boost.administrator_privileges_required_to_enable_gpu_boost'))
             return
         if self.state.gpu_boosted:
             self.state.gpu_last_active = 0
             return
 
-        logger.info(f"GPU 加速命令: {Config.gpu_boost_cmd}")
+        logger.info(Notice('diagnostic.gpu_boost.gpu_boost_command', value0=Config.gpu_boost_cmd))
         subprocess.run(Config.gpu_boost_cmd, shell=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.state.gpu_boosted = True
@@ -53,10 +55,10 @@ class GpuBoostManager:
             return
 
         if not self._check_admin():
-            logger.warning("非管理员权限，无法执行 GPU 取消加速命令")
+            logger.warning(Notice('diagnostic.gpu_boost.administrator_privileges_required_to_disable_gpu_boost'))
             return
 
-        logger.info(f"GPU 闲置 {idle_time:.0f}s，取消加速: {Config.gpu_unboost_cmd}")
+        logger.info(Notice('diagnostic.gpu_boost.gpu_idle_for_s_disabling_boost', value0=idle_time, value1=Config.gpu_unboost_cmd))
         subprocess.run(Config.gpu_unboost_cmd, shell=True,
                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.state.gpu_boosted = False

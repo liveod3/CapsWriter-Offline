@@ -4,6 +4,8 @@
 Schedule (socket_id, task_id) pairs round-robin, preserving FIFO within each pair.
 """
 
+from core.i18n import Notice
+
 from collections import OrderedDict, deque
 from multiprocessing import Queue
 from multiprocessing.managers import ListProxy
@@ -56,7 +58,7 @@ class TaskBuffer:
         for key in list(self._buffers):
             if key not in self.state.sessions:
                 logger.debug(
-                    f"Removed buffered session: socket={key[0][:8]}, task={key[1][:8]}"
+                    Notice('diagnostic.task_handler.removed_buffered_session_socket_task', value0=key[0][:8], value1=key[1][:8])
                 )
                 del self._buffers[key]
 
@@ -159,7 +161,7 @@ class TaskHandler:
 
             # 跳过已断开连接客户端的任务
             if task.socket_id not in self.sockets_id:
-                logger.debug(f"跳过断连客户端任务: {task.task_id[:8]}")
+                logger.debug(Notice('diagnostic.task_handler.skipping_disconnected_client_task', value0=task.task_id[:8]))
                 continue
 
             if task.type == 'cmd' and task.command == 'cancel':
@@ -225,7 +227,7 @@ class TaskHandler:
                 time_start=task.time_start, time_submit=task.time_submit,
                 time_complete=time.time(),
             )
-            logger.error('Recognition task failed: socket=%s task=%s error=%s',
+            logger.error(Notice('diagnostic.task_handler.recognition_task_failed_socket_task_error'),
                          task.socket_id[:8], task.task_id[:8], type(exc).__name__)
         deadline = time.monotonic() + self.result_queue_timeout
         while task.socket_id in self.sockets_id:
@@ -241,7 +243,7 @@ class TaskHandler:
             except (OSError, EOFError, ValueError) as exc:
                 raise ResultDeliveryError('OutputQueueFailed') from exc
         else:
-            logger.debug(f"客户端已断连，丢弃待发送结果: {task.task_id[:8]}")
+            logger.debug(Notice('diagnostic.task_handler.client_disconnected_dropping_pending_result', value0=task.task_id[:8]))
         if result.is_final:
             self.state.sessions.pop(task.key, None)
         elif task.key in self.state.sessions:
@@ -249,7 +251,7 @@ class TaskHandler:
 
     def loop(self):
         """核心任务循环：drain 队列 → 清理断连 → 轮转执行一个。"""
-        logger.info("TaskHandler 开始工作循环 (公平调度)")
+        logger.info(Notice('diagnostic.task_handler.taskhandler_loop_started_fair_scheduling'))
 
         try:
             while True:
@@ -273,7 +275,7 @@ class TaskHandler:
                     # Signal the parent before potentially blocking backend cleanup.
                     if self.failure_event is not None:
                         self.failure_event.set()
-                    logger.error('Worker task loop stopped: error=%s', type(exc).__name__)
+                    logger.error(Notice('diagnostic.task_handler.worker_task_loop_stopped_error'), type(exc).__name__)
                     raise
         finally:
             self.state.sessions.clear()
@@ -282,4 +284,4 @@ class TaskHandler:
             self.state.failed_tasks.retain([])
             self.gpu_monitor.close()
 
-        logger.info("TaskHandler 工作循环结束")
+        logger.info(Notice('diagnostic.task_handler.taskhandler_loop_ended'))

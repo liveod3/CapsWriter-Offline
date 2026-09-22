@@ -136,6 +136,7 @@ def test_legacy_server_without_unused_engine_classes_can_reload(tmp_path):
     assert config.format_spell is False
 
 
+@pytest.mark.parametrize('setting', ['audio', 'language'])
 @pytest.mark.parametrize(
     "busy",
     [
@@ -147,7 +148,7 @@ def test_legacy_server_without_unused_engine_classes_can_reload(tmp_path):
         "_file_active",
     ],
 )
-def test_client_waits_for_capture_through_final_output(tmp_path, monkeypatch, busy):
+def test_client_waits_for_capture_through_final_output(tmp_path, monkeypatch, busy, setting):
     from core.client.app import CapsWriterClient
     from core.client.state import ClientState
 
@@ -159,15 +160,38 @@ def test_client_waits_for_capture_through_final_output(tmp_path, monkeypatch, bu
     app.config_reload = reload
     app._report_config = Mock()
     app.llm = SimpleNamespace(start=Mock())
-    edit(reload, "save_audio = False", "save_audio = True")
+    refresh = Mock()
+    monkeypatch.setattr('core.ui.tray.refresh_language', refresh)
+    if setting == 'language':
+        edit(reload, "ui_language = 'auto'", "ui_language = 'zh-CN'")
+    else:
+        edit(reload, "save_audio = False", "save_audio = True")
     owner = app if busy == "_file_active" else app.state
     original = getattr(owner, busy)
     setattr(owner, busy, True)
     app.apply_config_reload()
     assert config.save_audio is False
+    assert config.ui_language == 'auto'
     setattr(owner, busy, original)
     app.apply_config_reload()
-    assert config.save_audio is True
+    if setting == 'language':
+        from core.i18n import get_language
+        assert config.ui_language == get_language() == 'zh-CN'
+        refresh.assert_called_once()
+    else:
+        assert config.save_audio is True
+
+
+@pytest.mark.parametrize('server', [False, True])
+def test_language_reload_rejects_invalid_preference(tmp_path, server):
+    reload, config, messages = make_reloader(tmp_path, server=server)
+    edit(reload, "ui_language = 'auto'", "ui_language = 'invalid'")
+    assert reload.pending is None
+    assert 'Invalid ui_language' in messages[-1]
+    assert config.ui_language == 'auto'
+    edit(reload, "ui_language = 'invalid'", "ui_language = 'en'")
+    assert reload.apply() == ('ui_language',)
+    assert config.ui_language == 'en'
 
 
 def test_server_snapshot_survives_reload_and_ipc(tmp_path, monkeypatch):

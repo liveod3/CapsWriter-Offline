@@ -7,6 +7,8 @@ CapsWriter Offline 服务端主程序门面类 (Facade)
 并协调子进程与 WebSocket 服务的启动与退出。
 """
 
+from core.i18n import Notice, tr
+
 import os
 import asyncio
 import queue
@@ -27,9 +29,17 @@ class CapsWriterServer:
     管理的外部接口极其简洁：start()。
     """
     def __init__(self):
+        from core.i18n import set_language
+        from core.i18n.preference import client_language_reloader
+        import config_client
         # 确保正确的工作目录
         self.base_dir = Path(__file__).parents[2]
         os.chdir(self.base_dir)
+        self.client_language_reload = client_language_reloader(
+            self.base_dir / 'config_client.py', config_client, self._report_config,
+        )
+        set_language(getattr(self.client_language_reload.target, 'ui_language',
+                             getattr(Config, 'ui_language', 'auto')))
 
         # 初始化事件循环
         self.loop = asyncio.new_event_loop()
@@ -57,24 +67,38 @@ class CapsWriterServer:
         )
 
     def _report_config(self, message):
+        from core.i18n import localize_notice
         logger.info(message, extra={'console_handled': True})
-        console.print(message, markup=False)
+        console.print(localize_notice(message), markup=False)
 
     def apply_config_reload(self):
         # AudioCache snapshots these settings on the same event loop at admission.
         changed = self.config_reload.apply()
+        follower = getattr(self, 'client_language_reload', None)
+        client_changed = follower.apply() if follower is not None else ()
+        from core.i18n import get_language, set_language
+        previous_language = get_language()
+        fallback = getattr(Config, 'ui_language', 'auto')
+        preference = getattr(follower.target, 'ui_language', fallback) if follower else fallback
+        language = set_language(preference)
+        if language != previous_language:
+            from core.ui.tray import refresh_language
+            self.process_manager.publish_ui_language(language)
+            refresh_language()
+        if client_changed:
+            self._report_config(Notice('language.server_following'))
         if changed:
-            self._report_config('Configuration applied to new tasks: ' + ', '.join(changed))
+            self._report_config(Notice('config.server_applied', fields=', '.join(changed)))
 
 
     def _print_banner(self):
         """打印启动信息"""
         console.line(2)
-        console.rule('[bold #d55252]CapsWriter Offline Server[/]'); console.line()
-        console.print(f'版本：[bold green]{self.version}[/]', end='\n\n')
-        console.print(f'项目地址：[cyan underline]https://github.com/HaujetZhao/CapsWriter-Offline', end='\n\n')
-        console.print(f'当前基文件夹：[cyan underline]{self.base_dir}[/]', end='\n\n')
-        console.print(f'绑定的服务地址：[cyan underline]{Config.addr}:{Config.port}[/]', end='\n\n')
+        console.rule(tr('server.banner')); console.line()
+        console.print(tr('server.version', value0=self.version), end='\n\n')
+        console.print(tr('server.project'), end='\n\n')
+        console.print(tr('server.directory', value0=self.base_dir), end='\n\n')
+        console.print(tr('server.address', value0=Config.addr, value1=Config.port), end='\n\n')
 
     def stop(self):
         """Request shutdown on the loop owner; reap processes after the loop drains."""
@@ -98,12 +122,12 @@ class CapsWriterServer:
         self._cleaned_up = True
 
         logger.info("=" * 50)
-        logger.info("开始清理服务端资源...")
+        logger.info(Notice('diagnostic.app.cleaning_up_server_resources'))
 
         try:
             self.state.queue_out.put_nowait(None)
         except (queue.Full, OSError, EOFError, ValueError) as exc:
-            logger.debug('Result shutdown signal unavailable: %s', type(exc).__name__)
+            logger.debug(Notice('diagnostic.app.result_shutdown_signal_unavailable'), type(exc).__name__)
 
         # A broken queue/component must not skip the remaining cleanup owners.
         for name, component in (('network', self.socket_manager),
@@ -112,10 +136,10 @@ class CapsWriterServer:
             try:
                 component.stop()
             except Exception as exc:
-                logger.error('Server cleanup failed: component=%s error=%s', name, type(exc).__name__)
+                logger.error(Notice('diagnostic.app.server_cleanup_failed_component_error'), name, type(exc).__name__)
 
-        logger.info("服务端资源清理完成")
-        console.print('[green4]再见！')
+        logger.info(Notice('diagnostic.app.server_resource_cleanup_complete'))
+        console.print(tr('server.goodbye'))
 
 
     def start(self):
@@ -134,8 +158,8 @@ class CapsWriterServer:
         try:
             self.socket_manager.prepare()
         except ValueError as exc:
-            logger.critical(f"服务端网络配置无效: {exc}")
-            console.print(f'[bold red]服务端网络配置无效：{exc}[/bold red]')
+            logger.critical(Notice('diagnostic.app.invalid_server_network_configuration', value0=exc))
+            console.print(tr('server.network_error', value0=exc))
             return
 
         self.is_alive = True
@@ -148,13 +172,17 @@ class CapsWriterServer:
             self._print_banner()
             self.process_manager.start()
             if self.is_alive and not self._stop_requested.is_set():
-                if hasattr(self, 'config_reload'):
-                    self.config_reload.task = self.loop.create_task(
-                        self.config_reload.watch(self.apply_config_reload))
+                for name in ('config_reload', 'client_language_reload'):
+                    reloader = getattr(self, name, None)
+                    if reloader is not None:
+                        reloader.task = self.loop.create_task(
+                            reloader.watch(self.apply_config_reload))
                 self.loop.run_until_complete(self.socket_manager.start())
         finally:
-            if hasattr(self, 'config_reload'):
-                self.loop.run_until_complete(self.config_reload.close())
+            for name in ('config_reload', 'client_language_reload'):
+                reloader = getattr(self, name, None)
+                if reloader is not None:
+                    self.loop.run_until_complete(reloader.close())
             # Sender failure ends the listener; release model processes and tray too.
             self._cleanup()
             self.loop.close()
