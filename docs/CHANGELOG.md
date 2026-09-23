@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-23 - Unreleased, caret-context compatibility accepted
+
+- Read nearby text through a guarded `TextPattern` collapsed-selection fallback when Pattern2 is unavailable or reports an inactive caret in a focused editable control. Preserve password, read-only, selection and focus checks; restrict expanded ranges to the focused control's document bounds and retain the isolated helper timeout.
+- Record content-free capture status, method, mismatch reason, lengths and timings, plus the actual context length in each prepared LLM request. Keep surrounding text out of diagnostics and text-action archives.
+- Accepted by the user with commit authorized. Validation: 679 default tests passed, 8 deselected; syntax, Ruff, configured type checks and language/documentation checks passed. Obsidian synthetic capture and user-driven Codex-composer capture-to-LLM forwarding succeeded. Sublime remains unsupported by the generic path; browser coverage and the earlier intermittent Codex mismatch remain limited as described in the [acceptance record](validation/P1-caret-context.md).
+
 ## 2026-09-22 - Unreleased, LLM accounting simplified
 
 - Remove automatic per-request cost summaries, budget alerts and their configuration switches. Write only the current request during accounting; aggregate monthly costs only through `scripts/llm_costs.py`. Preserve pending/terminal records, estimates, existing databases and query/export behavior; ignore retired fields in local settings.

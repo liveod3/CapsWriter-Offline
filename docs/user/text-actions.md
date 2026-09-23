@@ -52,7 +52,18 @@ caret_context_after_chars = 200
 
 设置在安全任务边界生效。每次录音固定一份快照，分片复用它；下一次录音才重新读取。隔离子进程最多等待约 1.5 秒，密码框、选区、焦点改变、不支持的控件或超时均降级为没有参考，不通过模拟复制读取。
 
-当前实现依赖可编辑控件的 `TextPattern2`。仅提供 `TextPattern` 的应用存在已记录的兼容性缺口，见 [TODO](../../TODO.md)。不能把某一应用读取成功视为所有编辑器都支持。
+采集优先使用可编辑控件的 `TextPattern2`；接口不支持，或其光标未激活但编辑控件仍具有键盘焦点时，尝试独立验证基础 `TextPattern` 返回的单个空选区。读取范围限制在当前编辑控件内。密码框、只读或无法确认可编辑的控件、有文字选区的控件仍不会提供参考。Obsidian 已通过一次合成文本读取实测；当前 Sublime Text 安装未暴露可用文本控件，尚不能读取。不能把某一应用读取成功视为所有编辑器都支持，实际验证范围见[兼容性记录](../validation/P1-caret-context.md)。
+
+快照只包含**开始录音时当前输入框或编辑区域内**光标附近的文字，不读取页面上方聊天记录、历史听写或其他文档。空聊天输入框返回空参考是正常现象。
+
+开启诊断日志且日志级别包含 INFO 时，可在 `logs/client_latest.log` 中核对：
+
+- `Caret capture`：`task` 对应录音任务，`status` 为采集结果，`method` 为使用的接口，`before_chars` / `after_chars` 为两侧字符数。
+- `LLM request started`：`context_chars` 为该次请求实际附带的参考字符数（含插入点标记），`context_allowed` 表示预设是否允许参考。采集成功但预设不允许时，仍为 0。
+
+常见采集状态：`captured` 为成功，`empty` 为附近无文字，`unsupported_text_pattern` / `unsupported_control` 为控件不支持，`selection` 为存在选区或无法取得单个光标，`readonly_or_unknown` 为只读或无法确认，`focus_changed` 为焦点改变，`timeout` 为子进程超时，`provider_error` 为 UI Automation 读取异常。`disabled` 表示功能关闭。诊断只记录状态、字数和耗时，不记录正文或窗口标题。
+
+`caret_mismatch` 的 `reason` 进一步区分：`range_not_collapsed` 为光标范围不是单点，`caret_selection_disagree` 为光标与空选区位置不一致，`caret_before_control` / `caret_after_control` 为光标落在控件暴露的文本范围之外，`selection_changed` 为采集前后插入位置发生变化。其他状态的原因为 `none`。这些状态是接口校验结果，不能仅凭它们认定用户移动了光标。
 
 参考通过 ASR `context` 字段发送给配置的服务端，Qwen/Fun-ASR 可使用它，SenseVoice/Paraformer 不使用。若服务端在另一台机器，这也是一次文本外发。
 

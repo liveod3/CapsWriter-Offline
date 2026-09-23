@@ -248,7 +248,7 @@ def test_close_cancels_both_draining_and_current_recorder():
         app = make_app(asyncio.get_running_loop())
         gate = asyncio.Event()
 
-        async def wait_for_context(_):
+        async def wait_for_context(_, **kwargs):
             await gate.wait()
             return ''
 

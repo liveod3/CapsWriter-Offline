@@ -269,6 +269,25 @@ def test_llm_payload_and_response_do_not_enter_diagnostics(
     assert not any(secret in result.error_message for secret in SECRETS)
 
 
+@pytest.mark.parametrize("failure", [False, True])
+def test_caret_capture_metadata_is_safe_in_all_sinks(diagnostics, monkeypatch, failure):
+    from core.client.caret_context import CaretContextCapture
+
+    spawn = Mock()
+    if failure:
+        spawn.side_effect = OSError(CONTEXT + KEY)
+    else:
+        spawn.return_value = Mock(returncode=0)
+        spawn.return_value.communicate.return_value = (json.dumps({
+            "status": "captured", "method": "text_pattern", "before": CONTEXT, "after": "",
+        }).encode(), b"")
+    monkeypatch.setattr("core.client.caret_context.subprocess.Popen", spawn)
+    monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
+    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), ROOT)
+    result = asyncio.run(capture.capture(42, task_id="12345678-abcd"))
+    assert (CONTEXT in result) == (not failure)
+
+
 @pytest.mark.parametrize("transcripts,llm_records", [(False, False), (True, False),
                                                        (False, True), (True, True)])
 def test_content_record_switches_and_product_output_remain_independent(

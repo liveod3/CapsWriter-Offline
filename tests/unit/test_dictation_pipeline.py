@@ -34,8 +34,9 @@ def test_caret_snapshot_is_once_per_recording_and_audio_is_fifo(monkeypatch):
             caret_context=SimpleNamespace(capture=AsyncMock(return_value="surrounding")),
             ws=SimpleNamespace(is_connected=True, send=AsyncMock(return_value=True)),
         )
-        await AudioRecorder(app).record_and_send()
-        app.caret_context.capture.assert_awaited_once_with(42)
+        recorder = AudioRecorder(app)
+        await recorder.record_and_send()
+        app.caret_context.capture.assert_awaited_once_with(42, task_id=recorder.task_id)
         messages = [call.args[0] for call in app.ws.send.call_args_list]
         assert [m.is_final for m in messages] == [False, False, True]
         assert all(m.supports_task_errors for m in messages)

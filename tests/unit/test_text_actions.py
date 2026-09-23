@@ -137,7 +137,9 @@ def test_empty_transcription_never_calls_provider(tmp_path):
 
 
 @pytest.mark.parametrize("use_context", [False, True])
-def test_requests_are_stateless_and_context_is_opt_in(use_context):
+def test_requests_are_stateless_and_context_is_opt_in(use_context, monkeypatch):
+    log = Mock()
+    monkeypatch.setattr("core.client.logger.info", log)
     path = ROOT / "LLM/presets.toml"
     if not use_context:
         path.write_text(path.read_text(encoding="utf-8").replace(
@@ -157,6 +159,12 @@ def test_requests_are_stateless_and_context_is_opt_in(use_context):
             expected["surrounding_text_reference"] = reference
         assert json.loads(first[1]["content"]) == expected
         assert json.loads(second[1]["content"]) == {"transcript": "second"}
+        records = [call.args[0] % call.args[1:] for call in log.call_args_list]
+        starts = [record for record in records if "LLM request started:" in record]
+        assert len(starts) == 2
+        assert f"context_chars={len(reference) if use_context else 0} " in starts[0]
+        assert "context_chars=0 " in starts[1]
+        assert all(reference not in record for record in records)
 
     asyncio.run(run())
 

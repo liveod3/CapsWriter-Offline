@@ -152,7 +152,8 @@ class TextActionService:
             if progress_callback:
                 progress_callback('status.wait_llm')
             logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
-                        request_id, len(content), int((time.monotonic() - started) * 1000))
+                        request_id, len(content), int((time.monotonic() - started) * 1000),
+                        len(payload.get("surrounding_text_reference", "")), preset.use_caret_context)
             async def complete():
                 token = observation.set((observed, ticket[1]['rate'] if ticket else None))
                 try:

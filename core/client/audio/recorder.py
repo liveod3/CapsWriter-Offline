@@ -159,7 +159,7 @@ class AudioRecorder:
                     self._start_time = task['time']
                     from core.client.caret_context import asr_reference
                     target = task.get('target_window', 0)
-                    context = await self.app.caret_context.capture(target)
+                    context = await self.app.caret_context.capture(target, task_id=self.task_id)
                     self._context = asr_reference(context)
                     self.state.task_contexts[self.task_id] = (context, target)
                     logger.debug(Notice('diagnostic.recorder.recording_started_timestamp', value0=self._start_time))

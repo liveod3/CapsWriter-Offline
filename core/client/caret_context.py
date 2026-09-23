@@ -7,6 +7,19 @@ from pathlib import Path
 import subprocess
 import sys
 import threading
+import time
+
+from core.i18n import Notice
+from .caret_worker import CAPTURE_METHODS, CAPTURE_REASONS, CAPTURE_STATUSES
+
+
+def _report(task_id, status, method="none", left=0, right=0, elapsed=0, reason="none"):
+    from core.client import logger
+
+    # Only internal UUID-like identifiers may enter diagnostics, never caller text.
+    task = (task_id[:8] if isinstance(task_id, str) and task_id
+            and len(task_id) <= 64 and all(c in "0123456789abcdef-" for c in task_id) else "-")
+    logger.info(Notice("diagnostic.caret.capture"), task, status, method, left, right, elapsed, reason)
 
 
 def foreground_window() -> int:
@@ -44,20 +57,34 @@ class CaretContextCapture:
         self._process = None
         self._closed = False
 
-    async def capture(self, expected_window: int) -> str:
-        if not getattr(self.config, "caret_context_enabled", False) or not expected_window:
+    async def capture(self, expected_window: int, *, task_id: str = "") -> str:
+        if not getattr(self.config, "caret_context_enabled", False):
+            _report(task_id, "disabled")
             return ""
-        return await asyncio.to_thread(self._capture, expected_window)
+        if not expected_window:
+            _report(task_id, "no_foreground")
+            return ""
+        return await asyncio.to_thread(self._capture, expected_window, task_id)
 
-    def _capture(self, expected_window: int) -> str:
+    def _capture(self, expected_window: int, task_id: str = "") -> str:
         if not self._lock.acquire(blocking=False):
+            _report(task_id, "busy")
             return ""
+        started = time.monotonic()
+        status, method = "helper_error", "none"
+        reason = "none"
+        left_chars = right_chars = 0
         try:
-            if self._closed or foreground_window() != expected_window:
+            if self._closed:
+                status = "closed"
+                return ""
+            if foreground_window() != expected_window:
+                status = "focus_changed"
                 return ""
             before = max(0, min(2000, int(getattr(self.config, "caret_context_before_chars", 800))))
             after = max(0, min(1000, int(getattr(self.config, "caret_context_after_chars", 200))))
             if before + after == 0:
+                status = "zero_limits"
                 return ""
             command = [sys.executable]
             if not getattr(sys, "frozen", False):
@@ -78,23 +105,52 @@ class CaretContextCapture:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.communicate()
+                status = "timeout"
                 return ""
             finally:
                 self._process = None
-            if self._closed or process.returncode or foreground_window() != expected_window:
+            if self._closed:
+                status = "closed"
                 return ""
+            if process.returncode:
+                status = "helper_failed"
+                return ""
+            if foreground_window() != expected_window:
+                status = "focus_changed"
+                return ""
+            status = "invalid_response"
             value = json.loads(output)
             if not isinstance(value, dict):
+                return ""
+            reported, reported_method = value.get("status"), value.get("method")
+            reported_reason = value.get("reason", "none")
+            if (not isinstance(reported, str) or reported not in CAPTURE_STATUSES
+                    or not isinstance(reported_method, str) or reported_method not in CAPTURE_METHODS
+                    or not isinstance(reported_reason, str) or reported_reason not in CAPTURE_REASONS):
+                return ""
+            if reported_reason != "none" and reported != "caret_mismatch":
+                return ""
+            if reported not in {"captured", "empty"}:
+                status, method, reason = reported, reported_method, reported_reason
+                return ""
+            if reported_method == "none":
                 return ""
             left, right = value.get("before", ""), value.get("after", "")
             if not isinstance(left, str) or not isinstance(right, str):
                 return ""
             left = left[-before:] if before else ""
-            return left + "\n[Insertion point]\n" + right[:after] if left or right else ""
+            right = right[:after]
+            if (reported == "empty" and (left or right)) or (reported == "captured" and not (left or right)):
+                return ""
+            status, method = reported, reported_method
+            left_chars, right_chars = len(left), len(right)
+            return left + "\n[Insertion point]\n" + right if left or right else ""
         except Exception:
             return ""
         finally:
             self._lock.release()
+            _report(task_id, status, method, left_chars, right_chars,
+                    int((time.monotonic() - started) * 1000), reason)
 
     def close(self):
         self._closed = True

@@ -14,6 +14,7 @@ Use these records to distinguish implementation checks from user acceptance. Res
 | Diagnostic privacy | [P0-04](P0-04-diagnostic-privacy.md) |
 | Recording storage and configuration reload | [P1 storage/reload](P1-recording-storage-config-reload.md) |
 | Multilingual interface | [P1 localization](P1-multilingual-interface.md) |
+| Caret-context compatibility at the validated scope | [P1 caret context](P1-caret-context.md) |
 
 ## Supporting historical stages
 
