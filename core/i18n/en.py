@@ -652,6 +652,8 @@ MESSAGES = {
     'terminal.ws_recv.audio_file_received_duration_s': 'Audio file received, duration {value0:.2f}s',
     'diagnostic.ws_recv.audio_file_received_task_duration_s': 'Audio file received: task={value0}, duration={value1:.2f}s',
     'diagnostic.ws_send.result_sender_started': 'Result sender started',
+    'diagnostic.ws_send.result_read_resume_grace': 'Result reader scheduling gap: %.1fs; allowing %.1fs for the pending read to resume',
+    'diagnostic.process_manager.worker_resume_grace': 'Worker monitor scheduling gap: %.1fs; allowing %.1fs for progress to resume',
     'diagnostic.ws_send.result_delivered_task_chars_final': 'Result delivered: task=%s chars=%d final=%s',
     'diagnostic.ws_send.result_connection_cleanup_failed': 'Result connection cleanup failed: %s',
     'diagnostic.ws_send.task_failure_delivered_socket_task_code': 'Task failure delivered: socket=%s task=%s code=%s',

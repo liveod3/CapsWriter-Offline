@@ -3,6 +3,9 @@
 import math
 
 
+SCHEDULING_RESUME_GRACE = 5.0
+
+
 class ResultDeliveryError(RuntimeError):
     """The shared recognition channel cannot safely continue; restart is required."""
 

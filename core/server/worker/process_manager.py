@@ -22,7 +22,7 @@ from config_server import ServerConfig as Config
 from ..state import console
 from .check_model import check_model
 from . import logger
-from ..delivery import ResultDeliveryError, positive_timeout
+from ..delivery import ResultDeliveryError, SCHEDULING_RESUME_GRACE, positive_timeout
 from .supervision import progress
 from core.tools.daemon_executor import SimpleDaemonExecutor
 from core.worker_bootstrap import configuration_snapshot, start_configured_worker
@@ -45,6 +45,9 @@ class ProcessManager:
         self._aligner_idle_exits = deque()
         self._last_aligner_churn_warning = 0.0
         self._manager = None
+        self._runtime_last_check = time.monotonic()
+        self._runtime_last_progress = None
+        self._runtime_resume_deadline = None
         self.app = app
         self.is_alive = False
         import config_client
@@ -174,7 +177,22 @@ class ProcessManager:
         if self._process is not None and not self._process.is_alive():
             raise ResultDeliveryError('WorkerExited')
         timeout = positive_timeout(Config, 'worker_stall_timeout', 600.0)
-        if time.monotonic() - progress(state.worker_progress) >= timeout:
+        heartbeat = progress(state.worker_progress)
+        now = time.monotonic()
+        gap = now - self._runtime_last_check
+        self._runtime_last_check = now
+        if heartbeat != self._runtime_last_progress:
+            self._runtime_last_progress = heartbeat
+            self._runtime_resume_deadline = None
+        grace = min(timeout, SCHEDULING_RESUME_GRACE)
+        stalled = now - heartbeat >= timeout
+        if stalled and gap >= grace and self._runtime_resume_deadline is None:
+            # Do not overwrite the worker's heartbeat or grant repeated extensions
+            # without actual progress. Death/failure checks above remain immediate.
+            self._runtime_resume_deadline = now + grace
+            logger.info(Notice('diagnostic.process_manager.worker_resume_grace'), gap, grace)
+        if (stalled
+                and (self._runtime_resume_deadline is None or now >= self._runtime_resume_deadline)):
             raise ResultDeliveryError('WorkerStalled')
         with self._align_lock:
             process = self._align_process

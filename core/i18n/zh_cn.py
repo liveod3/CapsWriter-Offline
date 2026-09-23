@@ -630,6 +630,8 @@ MESSAGES = {
     'terminal.ws_recv.audio_file_received_duration_s': '音频文件接收完毕，时长 {value0:.2f}s',
     'diagnostic.ws_recv.audio_file_received_task_duration_s': '音频文件接收完毕，任务ID: {value0}, 时长: {value1:.2f}s',
     'diagnostic.ws_send.result_sender_started': '结果发送器已启动',
+    'diagnostic.ws_send.result_read_resume_grace': '结果读取调度中断 %.1f 秒；给予当前读取 %.1f 秒恢复时间',
+    'diagnostic.process_manager.worker_resume_grace': '识别进程监控调度中断 %.1f 秒；给予进度更新 %.1f 秒恢复时间',
     'diagnostic.ws_send.result_delivered_task_chars_final': '结果已发送：任务=%s 字符数=%d 最终结果=%s',
     'diagnostic.ws_send.result_connection_cleanup_failed': '结果连接清理失败：%s',
     'diagnostic.ws_send.task_failure_delivered_socket_task_code': '任务失败通知已发送：连接=%s 任务=%s 代码=%s',

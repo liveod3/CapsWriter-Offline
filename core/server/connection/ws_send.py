@@ -11,7 +11,7 @@ from core.protocol import RecognitionMessage
 from core.tools.asyncio_to_thread import to_thread
 from ..state import console
 from ..schema import Result
-from ..delivery import ResultDeliveryError, positive_timeout
+from ..delivery import ResultDeliveryError, SCHEDULING_RESUME_GRACE, positive_timeout
 from .. import logger
 
 
@@ -68,16 +68,28 @@ async def _next_result(app, timeout):
     """Own one read even if a damaged IPC pipe ignores its queue timeout."""
     state = app.state
     operation = asyncio.create_task(to_thread(state.queue_out.get, timeout=RESULT_QUEUE_POLL))
-    deadline = time.monotonic() + timeout
+    last_check = time.monotonic()
+    deadline = last_check + timeout
+    resume_granted = False
+    grace = min(timeout, SCHEDULING_RESUME_GRACE)
     try:
         while True:
-            done, _ = await asyncio.wait({operation}, timeout=RESULT_QUEUE_POLL)
+            await asyncio.wait({operation}, timeout=RESULT_QUEUE_POLL)
             if getattr(app, 'is_alive', True) is False:
                 return None
             _check_worker(state)
-            if done:
+            if operation.done():
                 return operation.result()
-            if time.monotonic() >= deadline:
+            now = time.monotonic()
+            gap = now - last_check
+            last_check = now
+            # Suspend can expire the watchdog before the reader gets CPU time.
+            # Keep ownership of this read and allow only one bounded recovery.
+            if gap >= grace and not resume_granted:
+                deadline = max(deadline, now + grace)
+                resume_granted = True
+                logger.info(Notice('diagnostic.ws_send.result_read_resume_grace'), gap, grace)
+            if now >= deadline:
                 raise ResultDeliveryError('ResultQueueReadTimeout')
     finally:
         if not operation.done():
