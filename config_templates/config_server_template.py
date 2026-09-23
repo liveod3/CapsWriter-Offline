@@ -1,3 +1,11 @@
+"""CapsWriter server settings.
+
+Quick guide (Chinese): docs/user/logs-and-records.md
+Exact logging/record contract: docs/reference/logging-and-records.md
+Edit the root config copy. Keep assignments inside their classes.
+Comments describe defaults; preserve your own values when upgrading.
+"""
+
 import os
 from pathlib import Path
 
@@ -6,7 +14,7 @@ from pathlib import Path
 # Keep local settings in that copy. Do not move or edit this template for local use.
 
 # Configuration version.
-__version__ = '2.6'
+__version__ = '2.7'
 
 # Application directory when copied to the repository root.
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,14 +24,77 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # format_num/format_spell reload for new tasks; model/network/resource changes
 # require restart. See docs/reference/configuration.md.
 class ServerConfig:
+
+    # ----------------------------------------------------------------------------
+    # 01  Interface and recognition
+    # Language/format switches reload for new tasks; engine and tray require restart.
+    # ----------------------------------------------------------------------------
+
     # Fallback UI language when the local ClientConfig has no ui_language field.
     # Normally follows config_client.py, including live language-menu changes.
     # Values: 'auto' (system), 'en', or 'zh-CN'. Independent of ASR language.
     ui_language = 'auto'
 
+    # Enable the tray icon.
+    enable_tray = True
+
+    # ASR engine: 'qwen_asr', 'fun_asr_nano', 'sensevoice', or 'paraformer'.
+    model_type = 'qwen_asr'
+
+    # Convert Chinese number words to Arabic numerals in output.
+    format_num = True
+
+    # Adjust spacing between Chinese and English text.
+    format_spell = True
+
+    # ----------------------------------------------------------------------------
+    # 02  Diagnostic logs
+    # Restart required. Server owns these settings; client diagnostic switches do not control this
+    # server.
+    # ----------------------------------------------------------------------------
+
+    # Save runtime diagnostics. False disables ALL application diagnostic files; console feedback
+    # remains.
+    save_diagnostic_logs = True
+
+    # Root directory; client/ and server/ are created below it. Relative to the application folder.
+    diagnostic_log_dir = 'logs'
+
+    # DEBUG: detailed; INFO: milestones; WARNING: degraded; ERROR: failed; CRITICAL: service
+    # unusable.
+    log_level = 'DEBUG'
+
+    # Sensitive: also save ASR text, LLM input/prompt/reply and final text. Independent of user
+    # records.
+    diagnostic_include_text = False
+
+    # Per text field, 1..65536 characters; longer text is explicitly marked truncated. INFO/DEBUG
+    # only.
+    diagnostic_text_max_chars = 16000
+
+    # Delete inactive diagnostic sessions older than this many days; 0 disables AGE expiry only.
+    diagnostic_log_retention_days = 30
+
+    # Rotate each process file at approximately this many MiB; positive integer.
+    diagnostic_log_file_mb = 10
+
+    # Keep this many rotated files per process session; positive integer.
+    diagnostic_log_backups = 5
+
+    # Soft MiB budget PER client/server directory; oldest inactive sessions go first. Active files
+    # stay.
+    diagnostic_log_budget_mb = 200
+
+    # ----------------------------------------------------------------------------
+    # 03  Listener and transport security
+    # Restart required. local binds to loopback; lan requires a shared Bearer token.
+    # ----------------------------------------------------------------------------
+
     # Network mode: 'local' restricts access to loopback; 'lan' requires token authentication.
     network_mode = 'local'
+
     addr = '127.0.0.1'
+
     port = '6016'
 
     # Read the LAN token from the environment; clients must use the same token.
@@ -32,68 +103,107 @@ class ServerConfig:
 
     # Optional TLS: configure certificate and key, and enable client TLS on untrusted networks.
     tls_certfile = ''
+
     tls_keyfile = ''
+
+    # ----------------------------------------------------------------------------
+    # 04  Resource limits
+    # Restart required. Limits bound untrusted requests and queued work.
+    # ----------------------------------------------------------------------------
 
     # Input and resource limits accommodate roughly one minute of float32 audio per message.
     websocket_max_message_bytes = 6 * 1024 * 1024
+
     websocket_max_queue = 16
+
     max_connections = 8
+
     connection_idle_timeout = 300
 
     # Bound per-task audio and inference queues to limit memory and compute use.
     max_message_audio_bytes = 4 * 1024 * 1024
-    max_task_audio_bytes = 4 * 60 * 60 * 16000 * 4  # At most four hours of audio.
-    max_task_duration = 6 * 60 * 60                  # Keep a task for at most six hours.
+
+    # At most four hours of audio.
+    max_task_audio_bytes = 4 * 60 * 60 * 16000 * 4
+
+    # Keep a task for at most six hours.
+    max_task_duration = 6 * 60 * 60
+
     max_context_length = 4096
+
     max_tasks_per_connection = 4
+
     queue_in_maxsize = 32
+
     queue_out_maxsize = 32
+
     align_queue_in_maxsize = 4
+
     align_queue_out_maxsize = 4
+
     worker_buffer_max_tasks = 64
+
+    # ----------------------------------------------------------------------------
+    # 05  Timeouts and worker lifetime
+    # Restart required. Values are seconds; idle timeout 0 keeps the aligner resident.
+    # ----------------------------------------------------------------------------
 
     # Bound each result send; a stalled client is disconnected without retrying.
     result_send_timeout = 10.0
+
     # Maximum IPC read stall / worker output-capacity wait before stopping service.
     result_queue_timeout = 60.0
+
     # Stop the service if model startup stalls. Slow machines may need longer limits.
     model_startup_timeout = 300.0
+
     # Maximum worker-loop stall or task inactivity (including queued partial tasks).
     worker_stall_timeout = 600.0
 
-    # ASR engine: 'qwen_asr', 'fun_asr_nano', 'sensevoice', or 'paraformer'.
-    model_type = 'qwen_asr'
-
-    format_num = True       # Convert Chinese number words to Arabic numerals in output.
-    format_spell = True     # Adjust spacing between Chinese and English text.
-
-    enable_tray = True        # Enable the tray icon.
-
-    # Logging settings.
-    log_level = 'DEBUG'        # Log level: 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'.
     # Load the forced aligner on demand in a sibling process; exit it when idle instead
     # of unloading shared GPU backends inside ASR. Use 0 to keep the process resident.
-    aligner_idle_timeout = 1   # Release GPU memory promptly; the supervisor replaces the idle process.
-    aligner_request_timeout = 60  # Request deadline; stop service on timeout to reap a wedged aligner.
+    # Release GPU memory promptly; the supervisor replaces the idle process.
+    aligner_idle_timeout = 1
+
+    # Request deadline; stop service on timeout to reap a wedged aligner.
+    aligner_request_timeout = 60
+
+    # ----------------------------------------------------------------------------
+    # 06  GPU management
+    # Restart required. Hardware-dependent options; do not enable boost commands without checking
+    # the GPU.
+    # ----------------------------------------------------------------------------
 
     # Raise GPU memory clocks before recognition to reduce latency; requires administrator rights.
-    gpu_boost_enabled = False                   # Master switch; disabled by default.
-    gpu_boost_cmd = 'nvidia-smi -lmc 9000'      # Lock GPU memory to 9000 MHz; adjust for the installed GPU.
-    gpu_unboost_cmd = 'nvidia-smi -rmc'         # Restore default GPU memory clocks.
-    gpu_unboost_timeout = 1                     # Idle seconds before restoring default clocks.
+    # Master switch; disabled by default.
+    gpu_boost_enabled = False
+
+    # Lock GPU memory to 9000 MHz; adjust for the installed GPU.
+    gpu_boost_cmd = 'nvidia-smi -lmc 9000'
+
+    # Restore default GPU memory clocks.
+    gpu_unboost_cmd = 'nvidia-smi -rmc'
+
+    # Idle seconds before restoring default clocks.
+    gpu_unboost_timeout = 1
 
     # Sample NVIDIA dedicated memory during inference for advisory warnings only.
     # Disable silently when nvidia-smi is unavailable, including AMD/Intel systems.
     gpu_memory_warning_enabled = True
-    gpu_memory_warning_interval = 1.0           # Sampling interval in seconds; minimum 0.5.
-    gpu_memory_warning_threshold = 0.90         # Dedicated memory usage threshold.
-    gpu_memory_warning_consecutive_samples = 3  # Require consecutive samples to ignore transient peaks.
+
+    # Sampling interval in seconds; minimum 0.5.
+    gpu_memory_warning_interval = 1.0
+
+    # Dedicated memory usage threshold.
+    gpu_memory_warning_threshold = 0.90
+
+    # Require consecutive samples to ignore transient peaks.
+    gpu_memory_warning_consecutive_samples = 3
 
     # Integrated GPU compatibility workarounds.
     # os.environ["GGML_VK_DISABLE_COOPMAT"] = "1"   # Try if AMD integrated GPUs cannot load GGUF.
-    # os.environ["GGML_VK_DISABLE_F16"] = "1"       # Try for decode errors or forced circuit breaks.
-
-
+    # os.environ["GGML_VK_DISABLE_F16"] = "1"       # Try for decode errors or forced circuit
+    # breaks.
 
 
 class ModelDownloadLinks:
@@ -143,7 +253,6 @@ class ModelPaths:
     force_aligner_gguf_llm_decode = force_aligner_gguf_dir / 'qwen3_aligner_llm.q5_k.gguf'
 
 
-
 class ParaformerArgs:
     """Paraformer model arguments."""
 
@@ -163,9 +272,12 @@ class SenseVoiceArgs:
     encoder_path = ModelPaths.sensevoice_encoder.as_posix()
     decoder_path = ModelPaths.sensevoice_decoder.as_posix()
     tokenizer_path = ModelPaths.sensevoice_tokenizer.as_posix()
-    itn = True                  # Produce Arabic numerals natively.
-    onnx_provider = 'CPU'       # ONNX execution provider: CPU or DML.
-    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
+    # Produce Arabic numerals natively.
+    itn = True
+    # ONNX execution provider: CPU or DML.
+    onnx_provider = 'CPU'
+    # Pad short audio to this duration for DirectML execution.
+    dml_pad_to = 30
 
 
 class FunASRNanoGGUFArgs:
@@ -178,15 +290,22 @@ class FunASRNanoGGUFArgs:
     tokens_path = ModelPaths.fun_asr_nano_gguf_token.as_posix()
 
     # GPU acceleration.
-    onnx_provider = 'CPU'       # ONNX execution provider: CPU or DML.
-    llm_use_gpu = True          # Enable GPU acceleration for GGUF.
-    vulkan_force_fp32 = False   # Force FP32; try for precision overflow on Intel integrated GPUs.
+    # ONNX execution provider: CPU or DML.
+    onnx_provider = 'CPU'
+    # Enable GPU acceleration for GGUF.
+    llm_use_gpu = True
+    # Force FP32; try for precision overflow on Intel integrated GPUs.
+    vulkan_force_fp32 = False
     
     # Model parameters.
-    enable_ctc = True           # Enable CTC timestamp alignment.
-    n_predict = 512             # Maximum generated tokens.
-    n_threads = None            # Thread count; None selects automatically.
-    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
+    # Enable CTC timestamp alignment.
+    enable_ctc = True
+    # Maximum generated tokens.
+    n_predict = 512
+    # Thread count; None selects automatically.
+    n_threads = None
+    # Pad short audio to this duration for DirectML execution.
+    dml_pad_to = 30
     verbose = False
 
 class Qwen3ASRGGUFArgs:
@@ -199,14 +318,20 @@ class Qwen3ASRGGUFArgs:
     llm_fn = ModelPaths.qwen3_asr_gguf_llm_decode.name
 
     # GPU acceleration.
-    onnx_provider = 'DML'       # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
-    llm_use_gpu = True          # Enable GPU acceleration for GGUF.
+    # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
+    onnx_provider = 'DML'
+    # Enable GPU acceleration for GGUF.
+    llm_use_gpu = True
     
     # Model parameters.
-    n_ctx = 2048                # Context window size.
-    chunk_size = 80.0           # Segment duration in seconds.
-    memory_num = 1              # Number of remembered segments.
-    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
+    # Context window size.
+    n_ctx = 2048
+    # Segment duration in seconds.
+    chunk_size = 80.0
+    # Number of remembered segments.
+    memory_num = 1
+    # Pad short audio to this duration for DirectML execution.
+    dml_pad_to = 30
     verbose = False
 
 
@@ -220,9 +345,13 @@ class ForceAlignerGGUFArgs:
     llm_fn = ModelPaths.force_aligner_gguf_llm_decode.name
 
     # GPU acceleration.
-    onnx_provider = 'DML'       # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
-    llm_use_gpu = True          # Offload GGUF decoder layers to the GPU.
+    # Use DirectML for the ONNX encoder; fall back to CPU if unavailable.
+    onnx_provider = 'DML'
+    # Offload GGUF decoder layers to the GPU.
+    llm_use_gpu = True
     
     # Alignment parameters.
-    n_ctx = 3072                # Context window size.
-    dml_pad_to = 30             # Pad short audio to this duration for DirectML execution.
+    # Context window size.
+    n_ctx = 3072
+    # Pad short audio to this duration for DirectML execution.
+    dml_pad_to = 30

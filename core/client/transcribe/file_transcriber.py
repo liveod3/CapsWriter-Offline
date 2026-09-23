@@ -8,6 +8,7 @@ Use FileTranscriber to produce subtitles from media files.
 from __future__ import annotations
 
 from core.i18n import Notice, tr
+from core.logger import log_content
 
 import asyncio
 import base64
@@ -494,6 +495,7 @@ class FileTranscriber:
         if message is None:
             return False
 
+        log_content(logger, 'file.final_text', task_id=self.task_id, final_text=message.text)
         # Format and save through the result handler.
         try:
             text_display, sequence, output_paths = ResultHandler.save_results(

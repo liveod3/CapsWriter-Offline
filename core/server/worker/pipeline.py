@@ -8,6 +8,7 @@ Recognize, deduplicate, and merge audio segments using two strategies:
 """
 
 from core.i18n import Notice
+from core.logger import log_content, diagnostic_event
 
 import re
 import time
@@ -64,6 +65,8 @@ class TaskPipeline:
         """
         try:
             logger.info(Notice('diagnostic.pipeline.recognition_started_task_source'), task.task_id[:8], task.type)
+            diagnostic_event(logger, 'asr.segment_started', task_id=task.task_id,
+                             socket_id=task.socket_id, source=task.type, offset=task.offset)
             is_first_segment = task.key not in self.state.sessions
             session = self.state.get_session(task.task_id, task.socket_id, task.type)
             result = session.result
@@ -94,6 +97,8 @@ class TaskPipeline:
             # 4. Path A: merge text for primary output.
             asr_raw_text = stream.result.text
             logger.info(Notice('diagnostic.pipeline.recognition_decoded_task_chars'), task.task_id[:8], len(asr_raw_text))
+            log_content(logger, 'asr.decoded_text', task_id=task.task_id,
+                        socket_id=task.socket_id, asr_text=asr_raw_text)
             self._process_simple_merge(result, asr_raw_text)
 
             # 5. Path B: optional alignment for file tasks only.
@@ -159,6 +164,10 @@ class TaskPipeline:
                     t_per_char = result.duration / len(chars)
                     result.tokens, result.timestamps = chars, [i * t_per_char for i in range(len(chars))]
             
+            log_content(logger, 'asr.final_text', task_id=task.task_id,
+                        socket_id=task.socket_id, asr_text=raw_text, final_text=result.text)
+            diagnostic_event(logger, 'asr.task_finished', task_id=task.task_id,
+                             socket_id=task.socket_id, chars=len(result.text))
             result.is_final = True
             
             # Display statistics.

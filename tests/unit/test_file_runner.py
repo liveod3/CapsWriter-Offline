@@ -67,47 +67,23 @@ def test_failed_preflight_is_not_treated_as_a_completed_summary():
     assert result is None
 
 
-def test_transcription_task_log_uses_year_and_month_directories(tmp_path: Path):
-    task_log = TranscriptionTaskLog(tmp_path)
-    client_logger = logging.getLogger('client')
-    previous_level = client_logger.level
-    client_logger.setLevel(logging.INFO)
-
-    path = task_log.start(now=datetime(2026, 9, 2, 14, 5, 6))
-    try:
-        assert path == (
-            tmp_path / 'logs' / 'transcribe' / '2026' / '09'
-            / 'transcribe_20260902-140506.log'
-        )
-        logging.getLogger('client').info('独立日志测试')
-    finally:
-        task_log.close()
-        client_logger.setLevel(previous_level)
-
-    assert '独立日志测试' in path.read_text(encoding='utf-8')
-
-
-def test_transcription_task_log_does_not_overwrite_same_second(tmp_path: Path):
-    now = datetime(2026, 9, 2, 14, 5, 6)
-    first = TranscriptionTaskLog(tmp_path)
-    second = TranscriptionTaskLog(tmp_path)
-
-    first_path = first.start(now=now)
+def test_file_batches_reuse_the_client_sink_without_extra_files(tmp_path, monkeypatch):
+    logger = logging.getLogger('client')
+    existing = tmp_path / 'client.jsonl'
+    monkeypatch.setattr(logger, 'diagnostic_path', existing, raising=False)
+    handlers = list(logger.handlers)
+    first, second = TranscriptionTaskLog(tmp_path), TranscriptionTaskLog(tmp_path)
+    assert first.start() == second.start() == existing
+    assert first.batch_id != second.batch_id
     first.close()
-    second_path = second.start(now=now)
     second.close()
+    assert logger.handlers == handlers
+    assert not (tmp_path / 'logs').exists()
 
-    assert first_path.name == 'transcribe_20260902-140506.log'
-    assert second_path.name == 'transcribe_20260902-140506 (2).log'
 
-
-def test_transcription_task_log_falls_back_when_directory_is_unavailable(
-    tmp_path: Path,
-):
-    task_log = TranscriptionTaskLog(tmp_path)
-
-    with patch.object(Path, 'mkdir', side_effect=OSError('只读目录')):
-        path = task_log.start(now=datetime(2026, 9, 2, 14, 5, 6))
-
-    assert path == tmp_path / 'logs' / 'client_latest.log'
+def test_file_batch_cannot_override_disabled_diagnostic_persistence(tmp_path, monkeypatch):
+    monkeypatch.setattr(logging.getLogger('client'), 'diagnostic_path', None, raising=False)
+    task_log = TranscriptionTaskLog(tmp_path, enabled=True)
+    assert task_log.start() is None
     task_log.close()
+    assert not list(tmp_path.iterdir())

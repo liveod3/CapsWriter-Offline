@@ -18,7 +18,7 @@ from rich.logging import RichHandler
 
 from core import get_logger
 from core.log_archive import DiagnosticArchiveHandler
-from core.logger import TruncatingFileHandler
+from core.logger import ConsoleFeedbackFilter
 
 
 TRANSCRIPT = "SYNTHETIC_PRIVATE_TRANSCRIPT"
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 @pytest.fixture
 def diagnostics(tmp_path, monkeypatch):
-    """Exercise the actual four sink types, isolated from the user's log files."""
+    """Exercise metadata-only diagnostic files and console, independent of local opt-ins."""
     from core.client.manager.file_runner import TranscriptionTaskLog
 
     log_root = tmp_path / "logs"
@@ -42,10 +42,12 @@ def diagnostics(tmp_path, monkeypatch):
     for name in ("client", "server"):
         logger = get_logger(name)
         sinks = [
-            TruncatingFileHandler(log_root / f"{name}_latest.log", encoding="utf-8"),
             DiagnosticArchiveHandler(log_root, name, retention_days=0),
             RichHandler(console=Console(file=console_text, width=200), rich_tracebacks=True),
         ]
+        sinks[-1].addFilter(ConsoleFeedbackFilter())
+        monkeypatch.setattr(logger, 'diagnostic_include_text', False, raising=False)
+        monkeypatch.setattr(logger, 'diagnostic_include_context', False, raising=False)
         monkeypatch.setattr(logger, "handlers", sinks)
         monkeypatch.setattr(logger, "level", logging.DEBUG)
         monkeypatch.setattr(logger, "_cache", {})
@@ -61,8 +63,8 @@ def diagnostics(tmp_path, monkeypatch):
             handler.flush()
             handler.close()
         texts = [console_text.getvalue()]
-        texts.extend(path.read_text(encoding="utf-8") for path in log_root.rglob("*.log"))
-        assert len(texts) >= 6  # console, two latest, two archives, one run log
+        texts.extend(path.read_text(encoding="utf-8") for path in log_root.rglob("*.jsonl"))
+        assert len(texts) >= 3  # console and two independent diagnostic sinks
         for text in texts:
             for secret in SECRETS:
                 assert secret not in text
@@ -323,7 +325,7 @@ def test_content_record_switches_and_product_output_remain_independent(
     asyncio.run(run())
     assert app.output.output.call_args.args[0] == OUTPUT
     assert TRANSCRIPT in preview.getvalue() and OUTPUT in preview.getvalue()
-    for folder, enabled in [("transcripts", transcripts), ("actions", llm_records)]:
+    for folder, enabled in [("transcripts", transcripts or llm_records), ("actions", False)]:
         paths = list((tmp_path / folder).rglob("*.md"))
         assert bool(paths) == enabled
         if paths:

@@ -22,7 +22,7 @@ CLIENT_LIVE = frozenset(
     """save_audio audio_dir audio_name_len language ui_language
 paste restore_clip paste_apps enter_apps trash_punc trash_punc_thresh trash_punc_apps
 traditional_convert traditional_locale save_transcripts transcript_dir
-transcript_save_original save_llm_records caret_context_enabled
+transcript_save_original save_llm_records save_llm_context caret_context_enabled
 caret_context_before_chars caret_context_after_chars llm_enabled
 llm_correction_enabled llm_translation_enabled llm_default_preset llm_cost_tracking
 mic_seg_duration mic_seg_overlap mic_io_timeout mic_result_timeout
@@ -184,6 +184,18 @@ def validate_settings(values, defaults, section):
         raise CandidateError(Notice('validation.config_reload.invalid_port'))
     if cfg["log_level"] not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
         raise CandidateError(Notice('validation.config_reload.invalid_log_level'))
+    for name in ('diagnostic_log_file_mb', 'diagnostic_log_backups', 'diagnostic_log_budget_mb'):
+        if cfg.get(name, 1) <= 0:
+            raise CandidateError(Notice('validation.config_reload.expected_positive_value', value0=name))
+    if not 1 <= cfg.get('diagnostic_text_max_chars', 16000) <= 65536:
+        raise CandidateError(Notice('validation.config_reload.invalid_type_or_range',
+                                    value0=section, value1='diagnostic_text_max_chars'))
+    diagnostic_path = cfg.get('diagnostic_log_dir', 'logs')
+    if not diagnostic_path.strip() or '\0' in diagnostic_path:
+        raise CandidateError(Notice('validation.config_reload.invalid_directory', value0='diagnostic_log_dir'))
+    expanded = Path(os.path.expandvars(diagnostic_path)).expanduser()
+    if expanded.drive and not expanded.is_absolute():
+        raise CandidateError(Notice('validation.config_reload.invalid_directory', value0='diagnostic_log_dir'))
     for name, value in cfg.items():
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             if (

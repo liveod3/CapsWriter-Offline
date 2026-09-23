@@ -17,7 +17,7 @@ against the application folder, not the shell's working directory. If
 The new layout is `<audio_dir>/<YYYY>/<MM>/<recording>.mp3` (WAV without FFmpeg).
 The date comes from the start of the recording. The default stays writable for a
 normal Windows user even when the application is installed in a protected folder.
-Other application data and configuration locations are unchanged.
+Schema 2.7 templates default to `audio_dir='records/audio'`; existing empty/custom values keep their meaning. See the [logging and record contract](logging-and-records.md) for the new diagnostic and transcript defaults.
 
 Choose a writable folder yourself for portable installations. An explicit path
 does not silently fall back to another location. If directory/file creation fails,
@@ -84,7 +84,7 @@ and reports the restart subset explicitly. Restart-required values stay on disk.
 | --- | --- |
 | Interface | `ui_language` (`auto`, `en`, `zh-CN`); see [interface language](../development/localization.md) |
 | Audio archive | `save_audio`, `audio_dir`, `audio_name_len` |
-| Transcripts and action records | `save_transcripts`, `transcript_dir`, `transcript_save_original`, `save_llm_records` |
+| Transcripts and action records | `save_transcripts`, `transcript_dir`, `transcript_save_original`, `save_llm_records`, `save_llm_context` |
 | Recognition | `language`, `mic_seg_duration`, `mic_seg_overlap`, `file_seg_duration`, `file_seg_overlap` |
 | Task deadlines and file window | `mic_io_timeout`, `mic_result_timeout`, `file_io_timeout`, `file_result_timeout`, `file_max_inflight_chunks` |
 | Text output | `paste`, `restore_clip`, `paste_apps`, `enter_apps`, `trash_punc`, `trash_punc_thresh`, `trash_punc_apps`, `traditional_convert`, `traditional_locale` |
@@ -100,7 +100,7 @@ formats and input scanning remain fixed for the current invocation.
 All other client settings require restart: shortcut bindings/thresholds, input
 device, idle suspension, ASR connection/TLS/authentication, WebSocket limits,
 UDP controls/output, tray/logging resources, LLM directory/cancel key, file
-discovery/output defaults and per-run logging. These are resource recreation or
+discovery/output defaults and diagnostic logging. `file_separate_log` is retained as an ignored compatibility field. These are resource recreation or
 invocation settings; the watcher reports their names and leaves resources intact.
 
 Tray LLM toggles save to the same local configuration and follow the same task

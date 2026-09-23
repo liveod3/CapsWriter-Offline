@@ -27,68 +27,28 @@ DEFAULT_MEDIA_EXTENSIONS = frozenset({
 
 
 class TranscriptionTaskLog:
-    """Attach a per-run transcription log and remove it when the run ends."""
+    """Mark a batch in the existing client sink; never create a duplicate file.
+
+    The legacy enabled argument is accepted but has no persistence authority.
+    """
 
     def __init__(self, base_dir: Path, *, enabled: bool = True):
-        self.base_dir = Path(base_dir)
-        self.enabled = enabled
-        self.path = self.base_dir / 'logs' / 'client_latest.log'
-        self._handler: logging.FileHandler | None = None
+        import uuid
+        self.batch_id = uuid.uuid4().hex
+        self.path = getattr(logger, 'diagnostic_path', None)
+        self._started = False
 
-    def start(self, *, now: datetime | None = None) -> Path:
-        """Start a unique log archived under YYYY/MM."""
-        if not self.enabled or self._handler is not None:
-            return self.path
-
-        now = now or datetime.now()
-        log_dir = (
-            self.base_dir / 'logs' / 'transcribe'
-            / now.strftime('%Y') / now.strftime('%m')
-        )
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-            stem = f'transcribe_{now:%Y%m%d-%H%M%S}'
-            sequence = 1
-            while True:
-                suffix = '' if sequence == 1 else f' ({sequence})'
-                candidate = log_dir / f'{stem}{suffix}.log'
-                try:
-                    handler = logging.FileHandler(
-                        candidate,
-                        mode='x',
-                        encoding='utf-8',
-                    )
-                except FileExistsError:
-                    sequence += 1
-                    continue
-                self.path = candidate
-                break
-        except OSError as exc:
-            logger.warning(
-                Notice('diagnostic.file_runner.cannot_create_file_transcription_log_using_client_log', value0=exc)
-            )
-            return self.path
-
-        handler.setFormatter(logging.Formatter(
-            fmt=(
-                '%(asctime)s.%(msecs)03d %(levelname)-5s '
-                '[%(filename)20s:%(lineno)-3d] %(message)s'
-            ),
-            datefmt='%Y-%m-%d %H:%M:%S',
-        ))
-        logger.addHandler(handler)
-        self._handler = handler
-        logger.info(Notice('diagnostic.file_runner.file_transcription_log_created', value0=self.path))
+    def start(self, *, now=None):
+        from core.logger import diagnostic_event
+        self._started = True
+        diagnostic_event(logger, 'file.batch_started', batch_id=self.batch_id)
         return self.path
 
-    def close(self) -> None:
-        """Stop per-run logging idempotently."""
-        if self._handler is None:
-            return
-        logger.info(Notice('diagnostic.file_runner.file_transcription_log_closed'))
-        logger.removeHandler(self._handler)
-        self._handler.close()
-        self._handler = None
+    def close(self):
+        from core.logger import diagnostic_event
+        if self._started:
+            diagnostic_event(logger, 'file.batch_finished', batch_id=self.batch_id)
+            self._started = False
 
 
 def _configured_media_extensions() -> frozenset[str]:
@@ -243,7 +203,7 @@ class FileRunner:
         base_dir = Path(getattr(self.app, 'base_dir', BASE_DIR))
         task_log = TranscriptionTaskLog(
             base_dir,
-            enabled=bool(getattr(Config, 'file_separate_log', True)),
+            enabled=True,
         )
         total = len(self.files)
         formats = ' / '.join(name.upper() for name in sorted(self.output_formats))
@@ -328,7 +288,8 @@ class FileRunner:
                     value2=speed_ratio,
                 ),
             )
-            summary_table.add_row(tr('file.log'), str(log_path))
+            if log_path is not None:
+                summary_table.add_row(tr('file.log'), str(log_path))
             console.print()
             console.print(Panel(
                 summary_table,

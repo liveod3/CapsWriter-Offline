@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.i18n import Notice, tr
+from core.logger import log_content, diagnostic_event
 
 import asyncio
 import json
@@ -29,6 +30,9 @@ class TextResult:
     cancelled: bool = False
     error: str = ""
     error_message: str = ""
+    request_id: str = ""
+    system_prompt: str = ""
+    reference_text: str = ""
 
 
 class TextActionService:
@@ -147,13 +151,18 @@ class TextActionService:
             if self._stopped or epoch != self._cancel_epoch:
                 outcome = 'not_sent'
                 failure_category = 'cancelled_before_dispatch'
-                return TextResult(content, content, selected_id, cancelled=True)
+                return TextResult(content, content, selected_id, cancelled=True, request_id=request_id)
             phase = "request"
             if progress_callback:
                 progress_callback('status.wait_llm')
             logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
                         request_id, len(content), int((time.monotonic() - started) * 1000),
                         len(payload.get("surrounding_text_reference", "")), preset.use_caret_context)
+            diagnostic_event(logger, 'llm.request_started', request_id=request_id,
+                             preset=preset.id, provider=provider.id, model=provider.model,
+                             input_chars=len(content), context_chars=len(payload.get('surrounding_text_reference', '')))
+            log_content(logger, 'llm.request_text', request_id=request_id, input_text=content,
+                        system_prompt=preset.system_prompt, context=payload.get('surrounding_text_reference', ''))
             async def complete():
                 token = observation.set((observed, ticket[1]['rate'] if ticket else None))
                 try:
@@ -175,17 +184,24 @@ class TextActionService:
                 self._active.discard(request)
             if self._stopped or epoch != self._cancel_epoch:
                 outcome = 'cancelled'
-                return TextResult(content, content, selected_id, cancelled=True)
+                return TextResult(content, content, selected_id, cancelled=True, request_id=request_id)
             outcome = 'completed'
             observed.output_estimate = estimate_tokens(result)
             logger.info(Notice('diagnostic.service.llm_request_completed_request_elapsed_ms_output_chars'),
                         request_id, int((time.monotonic() - started) * 1000), len(result))
-            return TextResult(result, content, selected_id, processed=True)
+            log_content(logger, 'llm.response_text', request_id=request_id, output_text=result)
+            save_action = getattr(self.config, 'save_llm_records', False)
+            return TextResult(
+                result, content, selected_id, processed=True, request_id=request_id,
+                system_prompt=preset.system_prompt if save_action else '',
+                reference_text=payload.get('surrounding_text_reference', '')
+                if save_action and getattr(self.config, 'save_llm_context', False) else '',
+            )
         except asyncio.CancelledError:
             outcome = 'cancelled'
             logger.info(Notice('diagnostic.service.llm_request_cancelled_request_phase_elapsed_ms'),
                         request_id, phase, int((time.monotonic() - started) * 1000))
-            return TextResult(content, content, selected_id, cancelled=True)
+            return TextResult(content, content, selected_id, cancelled=True, request_id=request_id)
         except Exception as exc:
             category, detail, fields = describe_failure(exc)
             if isinstance(exc, MissingAPIKeyError):
@@ -204,7 +220,8 @@ class TextActionService:
                 int((time.monotonic() - started) * 1000), json.dumps(fields, sort_keys=True), detail,
             )
             return TextResult(
-                content, content, selected_id, error=type(exc).__name__, error_message=user_detail
+                content, content, selected_id, error=type(exc).__name__, error_message=user_detail,
+                request_id=request_id,
             )
         finally:
             if ticket:

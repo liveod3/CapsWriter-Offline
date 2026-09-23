@@ -47,43 +47,13 @@ def test_storage_switches_are_independent(text_enabled, audio_enabled, action_en
                 "结果",
                 TextResult("结果", "原文", "correct_asr", processed=True),
             )
-        assert app.diary.write.called == text_enabled
-        assert app.action_records.write.called == action_enabled
+        assert app.diary.write.called == (text_enabled or action_enabled)
+        assert not app.action_records.write.called
+        if text_enabled or action_enabled:
+            assert app.diary.write.call_count == 1
+            assert (app.diary.write.call_args.kwargs['action_input'] is not None) == action_enabled
 
     asyncio.run(run())
-
-
-def test_diagnostic_archive_changes_day_and_does_not_touch_transcripts(tmp_path):
-    transcript = tmp_path / "transcripts/old.md"
-    transcript.parent.mkdir()
-    transcript.write_text("keep", encoding="utf-8")
-    handler = DiagnosticArchiveHandler(tmp_path, "client", retention_days=0)
-    first = logging.LogRecord("test", logging.INFO, "test", 1, "first", (), None)
-    first.created = datetime(2026, 9, 30, 23, 59).timestamp()
-    second = logging.LogRecord("test", logging.INFO, "test", 1, "second", (), None)
-    second.created = datetime(2026, 10, 1, 0, 0).timestamp()
-    handler.handle(first)
-    handler.handle(second)
-    handler.close()
-    assert len(list((tmp_path / "diagnostics/2026/09").glob("*.log"))) == 1
-    assert len(list((tmp_path / "diagnostics/2026/10").glob("*.log"))) == 1
-    assert transcript.read_text(encoding="utf-8") == "keep"
-
-
-def test_diagnostic_cleanup_only_removes_own_expired_files(tmp_path):
-    import os
-
-    folder = tmp_path / "diagnostics/2020/01"
-    folder.mkdir(parents=True)
-    expired = folder / "client_20200101-120000-1.log"
-    other = folder / "server_20200101-120000-1.log"
-    for path in (expired, other):
-        path.write_text("synthetic", encoding="utf-8")
-        os.utime(path, (1, 1))
-    handler = DiagnosticArchiveHandler(tmp_path, "client", 30)
-    handler.close()
-    assert not expired.exists()
-    assert other.exists()
 
 
 def test_diagnostic_disabled_does_not_create_files(tmp_path, monkeypatch):

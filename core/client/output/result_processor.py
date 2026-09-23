@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.i18n import Notice, tr
+from core.logger import log_content
 
 import asyncio
 import time
@@ -211,6 +212,7 @@ class ResultProcessor:
         self.app.progress.update(message.task_id, 'status.prepare_text')
         original = message.text
         text = original
+        log_content(logger, 'dictation.asr_text', task_id=message.task_id, asr_text=original)
         if Config.traditional_convert:
             from core.tools.zhconv import convert
 
@@ -225,6 +227,10 @@ class ResultProcessor:
         )
         self.app.progress.finish(message.task_id)
         final_text = result.text
+        log_content(logger, 'dictation.final_text', task_id=message.task_id,
+                    request_id=getattr(result, 'request_id', None), final_text=final_text)
+        # Archive before external text insertion/UDP can fail. No extra UI reads.
+        await asyncio.to_thread(self._save, message, original, final_text, result)
         # Keep text available in the menu after failure or cancellation; cancellation skips insertion.
         self.state.set_output_text(final_text)
         console.print(tr('result.transcription'), original, markup=False)
@@ -262,7 +268,6 @@ class ResultProcessor:
 
                         keyboard.press_and_release("enter")
                     break
-        await asyncio.to_thread(self._save, message, original, final_text, result)
 
     def _save(self, message, original: str, final_text: str, result):
         audio_path = self.state.pop_audio_file(message.task_id)
@@ -270,22 +275,22 @@ class ResultProcessor:
             manager = AudioFileManager()
             manager.file_path = Path(audio_path)
             audio_path = manager.rename(original, message.time_start)
-        if getattr(Config, "save_transcripts", False):
+        save_text = getattr(Config, "save_transcripts", False)
+        save_action = result.processed and getattr(Config, "save_llm_records", False)
+        if save_text or save_action:
             try:
                 self.app.diary.write(
-                    final_text,
-                    message.time_start,
-                    audio_path,
-                    original=original
-                    if getattr(Config, "transcript_save_original", False)
-                    else None,
+                    final_text, message.time_start, audio_path,
+                    task_id=message.task_id,
+                    original=original if save_text and getattr(Config, "transcript_save_original", False) else None,
+                    action_input=result.input_text if save_action else None,
+                    action_output=result.text if save_action else None,
+                    preset_id=result.preset_id if save_action else None,
+                    request_id=getattr(result, 'request_id', '') if save_action else '',
+                    system_prompt=getattr(result, 'system_prompt', '') if save_action else '',
+                    reference_text=getattr(result, 'reference_text', '')
+                    if save_action and getattr(Config, 'save_llm_context', False) else '',
+                    outcome='cancelled' if result.cancelled else 'fallback' if result.error else 'completed',
                 )
             except OSError as exc:
                 logger.error(Notice('diagnostic.result_processor.transcript_archive_failed'), type(exc).__name__)
-        if result.processed and getattr(Config, "save_llm_records", False):
-            try:
-                self.app.action_records.write(
-                    final_text, message.time_start, audio_path, action_input=result.input_text
-                )
-            except OSError as exc:
-                logger.error(Notice('diagnostic.result_processor.text_action_archive_failed'), type(exc).__name__)

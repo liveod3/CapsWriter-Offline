@@ -36,6 +36,7 @@ from .llm.service import TextActionService
 from .caret_context import CaretContextCapture
 from .output.text_output import TextOutput
 from .diary.diary_writer import DiaryWriter
+from core.diagnostics import storage_path
 from core.tools.empty_working_set import empty_current_working_set
 from platform import system
 from core.ui import set_dictation_paused, show_status_hint
@@ -71,8 +72,7 @@ class CapsWriterClient:
         self.caret_context = CaretContextCapture(Config, self.base_dir)
         
         self.output = TextOutput()
-        self.diary = DiaryWriter(base_path=self.base_dir / getattr(Config, 'transcript_dir', 'logs/transcripts'))
-        self.action_records = DiaryWriter(base_path=self.base_dir / 'logs' / 'text-actions')
+        self.diary = DiaryWriter(base_path=storage_path(self.base_dir, getattr(Config, 'transcript_dir', 'records/transcripts')))
 
         # Initialize managers.
         self.ws = WebSocketManager(self)
@@ -122,7 +122,7 @@ class CapsWriterClient:
                 from core.i18n import set_language
                 set_language(Config.ui_language)
             if 'transcript_dir' in changed:
-                self.diary.base_path = self.base_dir / Config.transcript_dir
+                self.diary.base_path = storage_path(self.base_dir, Config.transcript_dir)
         if changed:
             if 'ui_language' in changed:
                 from core.ui.tray import refresh_language

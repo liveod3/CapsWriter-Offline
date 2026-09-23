@@ -10,7 +10,7 @@ CapsWriter-Offline targets 64-bit Windows 10/11. A client captures microphone au
 
 The default ASR path can run offline. Cloud LLM, remote ASR, and UDP have separate network boundaries; there is no application-wide strict offline switch. UI language, ASR language, LLM translation targets, and user content are independent.
 
-The tracked [client](config_templates/config_client_template.py) and [server](config_templates/config_server_template.py) templates define current fields, defaults, and `__version__` (currently `2.6`). Actual execution uses ignored root copies. Current template shortcuts are right Ctrl (`ctrl_r`) and mouse X2 in toggle mode (`hold_mode=False`). Never infer local settings from older documentation or overwrite them with defaults.
+The tracked [client](config_templates/config_client_template.py) and [server](config_templates/config_server_template.py) templates define current fields, defaults, and `__version__` (currently `2.7`). Actual execution uses ignored root copies. Current template shortcuts are right Ctrl (`ctrl_r`) and mouse X2 in toggle mode (`hold_mode=False`). Never infer local settings from older documentation or overwrite them with defaults.
 
 ## Prepare the environment
 
@@ -58,7 +58,7 @@ Use [source setup](docs/development/setup.md) for launch commands. `start_capswr
 | Caret reference | `core/client/caret_context.py`, `caret_worker.py` |
 | Localization | `core/i18n/`; [localization design](docs/development/localization.md) |
 | Shared UI and native tray | `core/ui/`; native pystray 0.19.5 integration is isolated in `tray_native.py` |
-| Archives | `core/log_archive.py`, `core/client/diary/diary_writer.py` |
+| Archives | `core/diagnostics.py`, `core/logger.py`, `core/client/diary/diary_writer.py` |
 | Shared text tools | `core/tools/`; [merge behavior](docs/development/text-merging.md) |
 | Packaging | `build.spec`, `build-client.spec`, `build_hook.py`, `build_llm.py`, `zip_release.py` |
 | Quality gates | `tests/`, `pyproject.toml`, `.pre-commit-config.yaml`, `.github/workflows/` |
@@ -106,7 +106,7 @@ Templates enable transcripts but disable audio saving, LLM, and caret reference.
 
 LLM requests contain the current transcription and, only when enabled by both client and preset, the current caret reference. Do not add history or selection reads. Local ASR binding does not prevent cloud LLM or UDP traffic. Check actual endpoints even for providers named Ollama or LMStudio. Verify claimed offline boundaries with mocks.
 
-Keep diagnostics content-free at project-owned logging sources. Prefer lengths, short task IDs, timings, and error types over prompts, selections, transcripts, or credentials. Preserve readable native diagnostics. Old logs and explicit content archives can still contain private data.
+Keep ordinary diagnostic events content-free. Explicit diagnostic text copies are allowed only through the bounded `log_content` API when `diagnostic_include_text` is enabled; caret references additionally require `diagnostic_include_context`. User authorization for these opt-ins does not enable extra UI reads or network requests. Never log configured credentials or authentication headers. Keep metadata useful when content is disabled, preserve readable native diagnostics, and treat enabled text copies and old archives as private user content. See [logging contract](docs/reference/logging-and-records.md).
 
 ### Packaging and generated data
 

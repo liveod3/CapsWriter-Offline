@@ -56,7 +56,7 @@ caret_context_after_chars = 200
 
 快照只包含**开始录音时当前输入框或编辑区域内**光标附近的文字，不读取页面上方聊天记录、历史听写或其他文档。空聊天输入框返回空参考是正常现象。
 
-开启诊断日志且日志级别包含 INFO 时，可在 `logs/client_latest.log` 中核对：
+开启诊断日志且日志级别包含 INFO 时，可在 `logs/client/`（用 `python scripts/read_logs.py logs/client` 阅读） 中核对：
 
 - `Caret capture`：`task` 对应录音任务，`status` 为采集结果，`method` 为使用的接口，`before_chars` / `after_chars` 为两侧字符数。
 - `LLM request started`：`context_chars` 为该次请求实际附带的参考字符数（含插入点标记），`context_allowed` 表示预设是否允许参考。采集成功但预设不允许时，仍为 0。

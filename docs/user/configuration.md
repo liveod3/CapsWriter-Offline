@@ -28,6 +28,7 @@
 
 | 值 | 位置 |
 | --- | --- |
+| `'records/audio'` | 新模板默认值，应用目录内的 `records/audio` |
 | `''` | Windows 的 `%LOCALAPPDATA%/CapsWriter-Offline/audio` |
 | `'audio-data'` | 应用目录中的 `audio-data`，适合便携使用 |
 | `r'D:\DictationAudio'` | 指定绝对目录，也可在其他磁盘 |
@@ -40,15 +41,8 @@
 
 ## 区分保存内容
 
-| 数据 | 开关 | 默认位置与行为 |
-| --- | --- | --- |
-| 听写文字 | `save_transcripts`，模板开启 | `logs/transcripts/YYYY/MM/DD.md` |
-| ASR 原文对照 | `transcript_save_original`，默认关闭 | 启用文字记录且原文不同于最终结果时附加 |
-| 麦克风音频 | `save_audio`，默认关闭 | 由 `audio_dir` 决定 |
-| 成功文本动作的输入/输出 | `save_llm_records`，默认关闭 | `logs/text-actions/YYYY/MM/DD.md`；不保存提示词、密钥或光标参考 |
-| 诊断归档 | `save_diagnostic_logs` | `logs/diagnostics/YYYY/MM/`；最新日志仍是独立入口 |
-| 文件转录日志 | `file_separate_log` | `logs/transcribe/YYYY/MM/` |
+诊断放在 `logs/client`、`logs/server`；新模板中的文字和录音放在 `records/transcripts`、`records/audio`。已有自定义目录继续生效。
 
-只保存文字、不保存音频时，设置 `save_transcripts=True`、`save_audio=False` 即可。
+正文可以同时保存在用户历史和诊断中，两边独立控制。正文诊断与光标参考诊断都需要显式开启，DEBUG 本身不授予内容保存权限。诊断自动轮转清理，用户记录不自动删除。
 
-`diagnostic_log_retention_days=30` 控制诊断归档过期清理；`0` 禁用自动清理。它不删除文字、音频或动作记录。诊断文件保持英文，显式内容记录保留用户语言。旧日志和原生后端输出仍应在分享前检查；不要上传私人录音或完整转写来代替最小故障说明。
+完整的四类记录、开关后果、推荐用法和阅读命令见[选择日志和内容记录](logs-and-records.md)。

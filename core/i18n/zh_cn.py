@@ -1,6 +1,8 @@
 """UI messages keyed by stable product IDs."""
 
 MESSAGES = {
+    'logging.directory_unavailable': '诊断目录不可用，将继续运行但不保存诊断文件。',
+    'logging.file_unavailable': '诊断文件暂时无法写入，录音继续运行。',
     'diagnostic.status_host.failed': '状态界面宿主运行失败：%s',
     'diagnostic.status_host.update_failed': '状态界面更新失败：%s',
     "cost.invalid_config": "LLM 费用配置无效。",

@@ -37,7 +37,7 @@
 
 ## 查找记录与日志
 
-保存位置见[记录表](configuration.md#区分保存内容)。最新诊断入口为 `logs/client_latest.log` 和 `logs/server_latest.log`；文件转录完成汇总还会显示本次任务日志位置。
+保存位置见[记录表](configuration.md#区分保存内容)。诊断入口为 `logs/client/` 和 `logs/server/`；文件转录完成汇总显示当前客户端诊断路径。使用 `python scripts/read_logs.py logs/client` 阅读，完整用法见[日志指南](logs-and-records.md)。
 
 旧录音仍在原来的年份目录；托盘打开的是当前新录音目录。更改 `audio_dir` 不会搬移旧文件。
 

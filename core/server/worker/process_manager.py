@@ -52,7 +52,7 @@ class ProcessManager:
         self.is_alive = False
         import config_client
         import config_server
-        # Includes client-owned logger defaults until logging ownership is split.
+        # Preserve the local UI-language fallback; server logging uses ServerConfig only.
         self._child_config = configuration_snapshot(config_server, config_client)
         from core.i18n import get_language
         self._ui_language = Value('i', int(get_language() == 'zh-CN'))

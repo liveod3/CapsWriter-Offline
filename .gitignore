@@ -154,6 +154,9 @@ models/*.py
 
 # Diagnostic and content logs
 logs/
+/old-logs-*/
+/records/
+/.work-logging/
 
 # Optional portable recording storage
 /audio-data/
@@ -180,6 +183,7 @@ logs/
 .agent
 
 diag*.py
+!/core/diagnostics.py
 test_*.py 
 test_*.ipynb 
 test_*.md 

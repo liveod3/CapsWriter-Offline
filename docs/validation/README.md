@@ -15,6 +15,7 @@ Use these records to distinguish implementation checks from user acceptance. Res
 | Recording storage and configuration reload | [P1 storage/reload](P1-recording-storage-config-reload.md) |
 | Multilingual interface | [P1 localization](P1-multilingual-interface.md) |
 | Caret-context compatibility at the validated scope | [P1 caret context](P1-caret-context.md) |
+| Logging and record management | [P1 logging and records](P1-logging-records.md) |
 
 ## Supporting historical stages
 

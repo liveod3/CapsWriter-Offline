@@ -1,6 +1,8 @@
 """UI messages keyed by stable product IDs."""
 
 MESSAGES = {
+    'logging.directory_unavailable': 'Diagnostic directory unavailable; continuing without file logs.',
+    'logging.file_unavailable': 'Diagnostic file unavailable; recording continues.',
     'diagnostic.status_host.failed': 'Status UI host failed: %s',
     'diagnostic.status_host.update_failed': 'Status UI update failed: %s',
     "cost.invalid_config": "Invalid LLM cost configuration.",

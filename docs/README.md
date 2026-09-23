@@ -13,6 +13,7 @@
 | [转录文件](user/transcription.md) | 命令行、批量输入、输出和字幕重建 |
 | [使用文本动作](user/text-actions.md) | Provider、预设、取消和光标参考 |
 | [管理配置与记录](user/configuration.md) | 保存位置、热重载、旧文件保留策略 |
+| [选择日志和内容记录](user/logs-and-records.md) | 四类记录、详细程度、正文副本、清理与阅读 |
 | [连接局域网服务端](user/network.md) | 令牌、TLS 和重启要求 |
 | [排查故障](user/troubleshooting.md) | 输入、麦克风、模型和诊断路径 |
 
@@ -21,6 +22,7 @@
 LLM 用量与费用：[查询费用记录](user/llm-costs.md)。
 
 - [Configuration reference](reference/configuration.md): reload field matrix and storage semantics.
+- [Logging and records](reference/logging-and-records.md): settings, event fields, content permissions and retention.
 - [Development setup](development/setup.md): source environment and entry points.
 - [Architecture](development/architecture.md): component ownership and task flow.
 - [Localization](development/localization.md): catalogs, stable IDs, console/file language boundaries.

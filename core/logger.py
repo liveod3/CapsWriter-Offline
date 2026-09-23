@@ -1,172 +1,110 @@
-# coding: utf-8
+"""Configure independent client/server diagnostics and localized console output."""
 
-import os
 import logging
 from pathlib import Path
-from datetime import datetime
-from logging.handlers import RotatingFileHandler
+import re
+
 from rich.logging import RichHandler
+from core.diagnostics import BufferedDiagnosticHandler, DiagnosticFileHandler, storage_path
 from core.i18n.logging import LocalizedFormatter
 
 
 class ConsoleFeedbackFilter(logging.Filter):
-    """Keep diagnostics in file sinks when a task supplies its own terminal UI."""
-
     def filter(self, record):
-        return not getattr(record, 'console_handled', False)
-
-
-class TruncatingFileHandler(RotatingFileHandler):
-    """Truncate oversized files without creating rotated backups."""
-
-    _TAIL_LINES = 10  # Number of trailing lines retained during truncation.
-
-    def doRollover(self):
-        # Read the trailing lines before truncating.
-        tail = ''
-        try:
-            with open(self.baseFilename, 'r', encoding=self.encoding) as f:
-                lines = f.readlines()
-                tail = ''.join(lines[-self._TAIL_LINES:]).rstrip()
-        except Exception:
-            pass
-
-        if self.stream:
-            self.stream.close()
-            self.stream = None
-        # Reopen in write mode to truncate the existing file.
-        self.stream = open(self.baseFilename, 'w', encoding=self.encoding)
-        self.stream.write(f'--- Log truncated at {datetime.now()}\n')
-        if tail:
-            self.stream.write(f'--- Last {self._TAIL_LINES} lines of previous entries:\n{tail}\n\n')
-        self.stream.flush()
+        return not getattr(record, 'console_handled', False) and not hasattr(record, 'content')
 
 
 class Logger:
-    """Configure application logging."""
-
     _loggers = {}
 
     @classmethod
-    def setup(cls, name: str, log_dir: str = None, level: str = 'INFO', max_bytes: int = 10 * 1024 * 1024, log_filename: str = None):
-        """
-        Configure and return a logger.
-
-        Args:
-            name: Logger name, usually 'server' or 'client'.
-            log_dir: Log directory; defaults to logs under the application root.
-            level: 'DEBUG', 'INFO', 'WARNING', 'ERROR', or 'CRITICAL'.
-            max_bytes: Maximum latest-log size in bytes; default 10 MB.
-            backup_count: Legacy compatibility argument.
-            log_filename: Optional filename prefix; defaults to name or 'root'.
-
-        Returns:
-            logging.Logger: Configured logger.
-        """
-        # Set the log level.
-        file_log_level = getattr(logging, level.upper(), logging.INFO)
-        console_log_level = logging.WARNING  # Limit console output to WARNING and above.
-
-        # Update and return an existing logger.
+    def setup(cls, name, log_dir=None, level='INFO', max_bytes=None, log_filename=None):
+        file_level = getattr(logging, level.upper(), logging.INFO)
         if name in cls._loggers:
             logger = cls._loggers[name]
-            logger.setLevel(min(file_log_level, console_log_level))
+            logger.setLevel(min(file_level, logging.WARNING))
             for handler in logger.handlers:
-                if isinstance(handler, RotatingFileHandler):
-                    handler.setLevel(file_log_level)
-                elif isinstance(handler, logging.StreamHandler):
-                    handler.setLevel(console_log_level)
+                if isinstance(handler, BufferedDiagnosticHandler):
+                    handler.setLevel(file_level)
             return logger
 
-        # Create the logger.
-        logger = logging.getLogger(name if name else None)
-        logger.setLevel(min(file_log_level, console_log_level))
-
-        # Do not propagate records to the root logger.
-        if name:
-            logger.propagate = False
-
-        # Resolve the log directory.
-        if log_dir is None:
-            from config_client import BASE_DIR
-            log_dir = os.path.join(BASE_DIR, 'logs')
-
-        from config_client import ClientConfig
-        if getattr(ClientConfig, 'save_diagnostic_logs', True):
-            # Create the log directory.
-            Path(log_dir).mkdir(parents=True, exist_ok=True)
-
-
-            # 1. File handler uses the requested level.
-            file_name_prefix = log_filename or name or 'root'
-            log_file = os.path.join(log_dir, f'{file_name_prefix}_latest.log')
-            formatter = logging.Formatter(
-                fmt='%(asctime)s.%(msecs)03d %(levelname)-5s [%(filename)20s:%(lineno)-3d] %(message)s',
-                datefmt='%H:%M:%S'
-            )
-            file_handler = TruncatingFileHandler(
-                log_file,
-                maxBytes=max_bytes,
-                encoding='utf-8'
-            )
-            file_handler.setLevel(file_log_level)
-            file_handler.setFormatter(formatter)
-            logger.addHandler(file_handler)
-
-            # Keep latest logs for quick diagnosis and separate year/month archives without audio.
-            from core.log_archive import DiagnosticArchiveHandler
+        if name == 'server':
+            from config_server import BASE_DIR, ServerConfig as config
+        else:
+            from config_client import BASE_DIR, ClientConfig as config
+        logger = logging.getLogger(name or 'client')
+        logger.setLevel(min(file_level, logging.WARNING))
+        logger.propagate = False
+        logger.diagnostic_path = None
+        logger.diagnostic_include_text = bool(getattr(config, 'diagnostic_include_text', False))
+        logger.diagnostic_include_context = bool(getattr(config, 'diagnostic_include_context', False))
+        logger.diagnostic_text_max_chars = int(getattr(config, 'diagnostic_text_max_chars', 16000))
+        root = Path(log_dir) if log_dir is not None else storage_path(BASE_DIR, getattr(config, 'diagnostic_log_dir', 'logs'))
+        if getattr(config, 'save_diagnostic_logs', True):
+            component = re.sub(r'[^a-zA-Z0-9_-]', '_', log_filename or name or 'client')
             try:
-                archive = DiagnosticArchiveHandler(
-                    Path(log_dir), file_name_prefix,
-                    getattr(ClientConfig, 'diagnostic_log_retention_days', 30))
-                archive.setFormatter(logging.Formatter(
-                    '%(asctime)s %(levelname)s [%(name)s] %(message)s'))
-                archive.setLevel(file_log_level)
-                logger.addHandler(archive)
+                sink = DiagnosticFileHandler(
+                    root, component,
+                    retention_days=getattr(config, 'diagnostic_log_retention_days', 30),
+                    max_bytes=max_bytes or int(getattr(config, 'diagnostic_log_file_mb', 10)) * 1024 * 1024,
+                    backup_count=getattr(config, 'diagnostic_log_backups', 5),
+                    budget_mb=getattr(config, 'diagnostic_log_budget_mb', 200),
+                )
+                handler = BufferedDiagnosticHandler(sink)
+                handler.setLevel(file_level)
+                logger.addHandler(handler)
+                logger.diagnostic_path = sink.path
             except (OSError, ValueError):
-                # Archive failure must not block recording or latest logs; avoid recursive configuration.
-                pass
-
-        # 2. Rich console handler uses WARNING and above.
-        stream_handler = RichHandler(
-            level=console_log_level,
-            rich_tracebacks=True,
-            markup=True,
-            show_path=False
-        )
-        stream_handler.addFilter(ConsoleFeedbackFilter())
-        stream_handler.setFormatter(LocalizedFormatter())
-        logger.addHandler(stream_handler)
-
-        # Cache the logger.
+                import sys
+                from core.i18n import tr
+                try:
+                    sys.stderr.write(tr('logging.directory_unavailable') + '\n')
+                except Exception:
+                    pass
+        console = RichHandler(level=logging.WARNING, rich_tracebacks=True, markup=True, show_path=False)
+        console.addFilter(ConsoleFeedbackFilter())
+        console.setFormatter(LocalizedFormatter())
+        logger.addHandler(console)
         cls._loggers[name] = logger
-
         return logger
 
     @classmethod
-    def get_logger(cls, name: str):
-        """
-        Return an existing logger, or create a default logger.
-
-        Args:
-            name: Logger name.
-
-        Returns:
-            logging.Logger: Logger instance.
-        """
-        if name not in cls._loggers:
-            # Create a default INFO logger if initialization has not run yet.
-            # Client/server startup later applies the configured level.
-            return cls.setup(name, level='INFO')
-        return cls._loggers[name]
+    def get_logger(cls, name):
+        return cls._loggers[name] if name in cls._loggers else cls.setup(name)
 
 
-# Convenience functions.
-def setup_logger(name: str, log_dir: str = None, level: str = 'INFO', **kwargs):
-    """Configure a logger through the shared manager."""
+def setup_logger(name, log_dir=None, level='INFO', **kwargs):
     return Logger.setup(name, log_dir, level, **kwargs)
 
 
-def get_logger(name: str):
-    """Get a logger through the shared manager."""
+def get_logger(name):
     return Logger.get_logger(name)
+
+
+def diagnostic_event(logger, event, *, level=logging.INFO, **fields):
+    """Emit a structured event; callers pass only approved metadata fields."""
+    identity = {key: fields.pop(key) for key in ('task_id', 'socket_id', 'request_id', 'batch_id') if key in fields}
+    logger.log(level, event, extra={'event': event, 'data': fields, 'console_handled': True, **identity})
+
+
+def log_content(logger, event, *, task_id=None, socket_id=None, request_id=None,
+                context=None, **texts):
+    """Write explicit text copies only to diagnostic files, never console handlers.
+
+    Text and reference capture have separate switches. Keys, headers and URLs are
+    never accepted here. Truncation is explicit, and each field has a hard bound.
+    """
+    if not getattr(logger, 'diagnostic_path', None) or not getattr(logger, 'diagnostic_include_text', False):
+        return
+    if not logger.isEnabledFor(logging.INFO):
+        return
+    allowed = {'asr_text', 'input_text', 'output_text', 'final_text', 'system_prompt', 'formatted_text'}
+    content = {}
+    limit = min(65536, max(1, getattr(logger, 'diagnostic_text_max_chars', 16000)))
+    for key, value in texts.items():
+        if key in allowed and isinstance(value, str):
+            content[key] = {'text': value[:limit], 'chars': len(value), 'truncated': len(value) > limit}
+    if isinstance(context, str) and getattr(logger, 'diagnostic_include_context', False):
+        content['context'] = {'text': context[:limit], 'chars': len(context), 'truncated': len(context) > limit}
+    logger.info(event, extra={'event': event, 'task_id': task_id, 'socket_id': socket_id,
+                             'request_id': request_id, 'content': content, 'console_handled': True})

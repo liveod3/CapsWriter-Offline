@@ -12,6 +12,7 @@ from pathlib import Path
 from config_client import ClientConfig as Config
 from core.client.llm.settings import llm_options, save_llm_options
 from core.ui.menu_model import MenuAction
+from core.diagnostics import storage_path
 from . import logger
 
 
@@ -95,7 +96,7 @@ class TrayManager:
             ),
             MenuAction(
                 lazy('tray.history'),
-                lambda: self._open(root / getattr(Config, "transcript_dir", "logs/transcripts")),
+                lambda: self._open(storage_path(root, getattr(Config, "transcript_dir", "records/transcripts"))),
                 lazy('tray.history.tip'),
                 "history",
             ),
@@ -155,7 +156,8 @@ class TrayManager:
                     ),
                     MenuAction(
                         lazy('tray.logs'),
-                        lambda: self._open(root / "logs" / "diagnostics"),
+                        lambda: self._open(storage_path(
+                            root, getattr(Config, "diagnostic_log_dir", "logs")) / "client"),
                         lazy('tray.logs.tip'),
                         "folder",
                     ),

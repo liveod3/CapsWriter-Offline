@@ -50,7 +50,7 @@ python start_client.py transcribe --no-recursive "D:\Videos"
 
 结果保存在输入文件旁。若任一启用格式已有同名文件，程序会为整组结果选择相同编号，例如 `lecture (2).srt`、`lecture (2).txt`。检查完成提示中的实际路径；输出失败时，不要只凭目录里已有同名文件判断本次成功。
 
-每次运行默认另建一份 `logs/transcribe/YYYY/MM/` 任务日志，批量输入共享它。`file_separate_log` 控制此记录；它与麦克风文字记录独立。
+文件任务写入同一份客户端诊断，完成汇总显示当前文件路径；不再创建 `transcribe` 副本。`file_separate_log` 是已停用的兼容字段。诊断开关、正文副本和阅读方法见[日志指南](logs-and-records.md)。
 
 ## 校对后重建 SRT
 
