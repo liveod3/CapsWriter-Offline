@@ -6,6 +6,7 @@ from core.i18n import tr
 
 import re
 import ssl
+import socket
 
 import httpx
 
@@ -13,6 +14,7 @@ import httpx
 HTTP_REASONS = {
     400: "llm.http.400",
     401: "llm.http.401",
+    402: "llm.http.402",
     403: "llm.http.403",
     404: "llm.http.404",
     408: "llm.http.408",
@@ -42,6 +44,9 @@ REASONS = {
     "IMAGE_RECITATION": "llm.reason.image_recitation",
     "IMAGE_SAFETY": "llm.reason.image_safety",
     "INSUFFICIENT_QUOTA": "llm.reason.insufficient_quota",
+    "INSUFFICIENT_BALANCE": "llm.reason.insufficient_balance",
+    "BALANCE_NOT_ENOUGH": "llm.reason.insufficient_balance",
+    "CREDIT_BALANCE_TOO_LOW": "llm.reason.insufficient_balance",
     "INTERNAL": "llm.reason.internal",
     "INVALID_API_KEY": "llm.reason.invalid_api_key",
     "INVALID_ARGUMENT": "llm.reason.invalid_argument",
@@ -124,6 +129,8 @@ def api_error(status_code: int, body, retry_after: str = "") -> LLMResponseError
             ("api key not valid", "API_KEY_INVALID"),
             ("api key expired", "API_KEY_EXPIRED"),
             ("billing is disabled", "BILLING_DISABLED"),
+            ("insufficient balance", "INSUFFICIENT_BALANCE"),
+            ("credit balance is too low", "CREDIT_BALANCE_TOO_LOW"),
             ("quota exceeded", "QUOTA_EXCEEDED"),
             ("exceeded your current quota", "QUOTA_EXCEEDED"),
         ):
@@ -183,6 +190,12 @@ def describe_failure(exc: Exception) -> tuple[str, str, dict]:
                     fields["network_reason"] = "tls_certificate_verification_failed"
                     message = "llm.tls"
                     break
+                if isinstance(cause, socket.gaierror):
+                    fields["network_reason"] = "dns_resolution_failed"
+                    message = "llm.dns"
+                elif isinstance(cause, ConnectionRefusedError):
+                    fields["network_reason"] = "connection_refused"
+                    message = "llm.connection_refused"
                 if isinstance(cause, OSError) and isinstance(cause.errno, int):
                     fields["os_errno"] = cause.errno
                 cause = cause.__cause__ or cause.__context__
@@ -199,7 +212,6 @@ def localized_failure(exc: Exception) -> str:
     if isinstance(exc, httpx.HTTPStatusError):
         return api_error(exc.response.status_code, {}).user_message
     category, _, fields = describe_failure(exc)
-    key = (
-        "tls" if fields.get("network_reason") == "tls_certificate_verification_failed" else category
-    )
+    key = {'tls_certificate_verification_failed': 'tls', 'dns_resolution_failed': 'dns',
+           'connection_refused': 'connection_refused'}.get(fields.get('network_reason'), category)
     return tr("llm." + key)

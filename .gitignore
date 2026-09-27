@@ -184,6 +184,7 @@ logs/
 
 diag*.py
 !/core/diagnostics.py
+!/core/client/llm/diagnostics.py
 test_*.py 
 test_*.ipynb 
 test_*.md 

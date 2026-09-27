@@ -89,12 +89,12 @@ class ClientConfig:
     # unusable.
     log_level = 'DEBUG'
 
-    # Sensitive: also save ASR text, LLM input/prompt/reply and final text. Independent of user
-    # records.
+    # Sensitive: also save ASR text, LLM input/prompt/reply, sanitized error detail and final text.
+    # Independent of user records. Error details may echo input; credentials remain excluded.
     diagnostic_include_text = False
 
-    # Sensitive: also save the caret reference actually sent to LLM. Requires include_text; client
-    # only.
+    # Sensitive: also save the caret reference actually sent to LLM. Requires include_text.
+    # When a request contains reference text, its error excerpts also require this switch.
     diagnostic_include_context = False
 
     # Per text field, 1..65536 characters; longer text is explicitly marked truncated. INFO/DEBUG

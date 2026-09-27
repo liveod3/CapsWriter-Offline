@@ -28,8 +28,8 @@ Both `ClientConfig` and `ServerConfig` own these fields, except the client-only 
 | `save_diagnostic_logs` | `True` | Gate all project diagnostic file sinks for that side; console/product output remains |
 | `diagnostic_log_dir` | `'logs'` | Root; append `client` or `server`; application-relative, absolute, environment and home expansion supported |
 | `log_level` | `'DEBUG'` | Minimum file severity; DEBUG/INFO/WARNING/ERROR/CRITICAL |
-| `diagnostic_include_text` | `False` | Include explicit ASR/LLM/final-text copies in INFO content events; independent of user history |
-| `diagnostic_include_context` | `False` | Client only: include the actual LLM caret reference; requires text diagnostics and no additional capture |
+| `diagnostic_include_text` | `False` | Include explicit ASR/LLM/final-text copies and sanitized LLM error excerpts in INFO content events; independent of user history |
+| `diagnostic_include_context` | `False` | Client only: include the actual LLM caret reference; requires text diagnostics and no additional capture. Error excerpts for requests containing reference text also require this switch |
 | `diagnostic_text_max_chars` | `16000` | Per field; integer 1..65536; retain original character count and truncation flag |
 | `diagnostic_log_retention_days` | `30` | Age of inactive session families based on last file modification; 0 disables age expiry only |
 | `diagnostic_log_file_mb` | `10` | Positive integer MiB rotation target per process file; a large individual record may exceed it |
@@ -63,7 +63,7 @@ Console diagnostics normally start at WARNING. `console_handled` prevents duplic
 | `file.batch_started`, `file.batch_finished` | Client | `batch_id`; same sink as all client events |
 | `asr.segment_started` | Server | `task_id`, `socket_id`; source and offset in `data` |
 | `asr.task_finished` | Server | `task_id`, `socket_id`; final character count |
-| `llm.request_started` | Client | `request_id`; preset, provider ID, model, input/reference character counts |
+| `llm.request_started` | Client | `request_id`, available `task_id`; preset, provider ID, model, configuration revision, input/reference character counts |
 | `asr.decoded_text` | Server, text opt-in | Raw decoded segment text |
 | `asr.final_text` | Server, text opt-in | Merged ASR text before formatting and final formatted text |
 | `dictation.asr_text` | Client, text opt-in | Received ASR text and `task_id` |
@@ -77,6 +77,74 @@ Each `content` field has `{text, chars, truncated}`. JSON escaping prevents embe
 Request-preparation events do not prove the HTTP request reached a provider: local credential checks can still reject it. The input is the selected/trigger-stripped transcript and constructed system prompt. Context is the reference included in that request payload (currently bounded to 3500 characters). Capture permissions do not enable reference retrieval, LLM routing or extra network calls. No clipboard, selection, history or additional UI reads are introduced.
 
 The server has ASR data but not client LLM messages. A client copy does not suppress a server copy. Correlate client/server by task, server connections by socket/task, and LLM stages by request ID; not all old event messages carry structured IDs. The final client content event connects task and request IDs when text diagnostics are enabled.
+
+## LLM diagnostic fields and granularity
+
+The LLM observation schema is version 1, independent of configuration schema 2.7 and cost accounting. No new setting is required. Code changes require a client restart. Metadata is collected even when cost accounting and text diagnostics are disabled. Disabled/empty LLM invocations do not create a request or diagnostic action. An eligible invocation emits one start and one terminal event, including configuration failures, cancellation before dispatch and routing with no selected preset. These are best-effort queued events, not a durable exactly-once delivery guarantee.
+
+### Pipeline coverage
+
+| Boundary | Current correlation and coverage |
+| --- | --- |
+| Capture and ASR submission | Existing task lifecycle notices; not converted into a new uniform schema in this change |
+| Server recognition | Existing `asr.segment_started` and `asr.task_finished`, keyed by socket/task |
+| Client ASR to LLM handoff | Caller passes task ID to all new LLM observations; metadata correlation no longer depends on text opt-in |
+| LLM preparation, transport and validation | Structured stages, observed transport timings, response metadata and terminal outcome below |
+| Final text and external insertion | Existing final-text content event and output notices; LLM completion does not prove text insertion succeeded |
+
+### Events
+
+| Event | Level | Meaning |
+| --- | --- | --- |
+| `llm.action_started` | INFO | Eligible action entered configuration preparation; does not prove a request was sent |
+| `llm.stage` | DEBUG | `previous`, `stage`, `previous_elapsed_ms`; transition on the request's monotonic clock |
+| `llm.request_started` | INFO | Selected action prepared for dispatch; credentials can still fail locally |
+| `llm.transport_stage` | DEBUG | Allowlisted HTTPX trace operation, `state` and available `elapsed_ms`; never the trace callback's raw arguments |
+| `llm.response_headers` | INFO | HTTP status and selected response metadata immediately after headers arrive, before reading the body |
+| `llm.error_detail` | INFO, content opt-in | Bounded sanitized error fields, non-JSON error response or exception-chain messages, under `content.error_detail` |
+| `llm.action_finished` | WARNING on failure/not-sent, otherwise INFO | One terminal observation with identity, timings, response/parse state, failure structure and text outcome |
+
+Every new event carries `request_id` and `task_id` (null when the caller has no task). After catalog selection, `data` includes `provider`, `model`, `preset` and `config_revision`. Identifiers are credential/URL-redacted and bounded to 128 characters. Configuration failures may have no provider identity. `config_revision` is a 24-hex process-scoped keyed digest of effective provider/preset fields, including credentials and prompt; it publishes neither the secret nor a reusable plaintext hash. Compare revisions only within one process. Transcript and reference content are not part of the digest.
+
+### Terminal data
+
+| Fields | Type and semantics |
+| --- | --- |
+| `schema_version` | Integer, currently 1 |
+| `outcome` | `completed`, `failed`, `cancelled`, `not_sent` (missing key/pre-dispatch cancellation), or `skipped` (no selected preset) |
+| `text_outcome` | `processed` or `original_retained`; cancellation still skips insertion under existing policy |
+| `failure_category`, `failure` | Controlled category or null, plus existing safe HTTP/API reason fields; generic 429 does not prove insufficient balance |
+| `elapsed_ms`, `stage_ms`, `last_stage` | Nonnegative monotonic milliseconds, duration map and last application stage; excludes subsequent accounting completion and text insertion |
+| `input_chars`, `context_chars`, `output_chars` | Character counts; output is null unless usable generated output was observed |
+| `timeout_s`, `max_tokens`, `temperature`, `provider_kind` | Selected request parameters; no full provider configuration object |
+| `usage`, `usage_invalid`, `usage_state` | Validated token counters, consistency flag and `reported`/`not_reported`/`not_observed`; available independently of saving cost records. No raw usage object or inferred charge |
+| `environment_proxy`, `follow_redirects` | Both false for the built-in HTTP provider; describe current request policy, not an automatic diagnosis of connectivity |
+| `dispatch_attempted` | Boolean; invoking transport is not proof that a provider received the request |
+| `response_state` | `not_started`, `awaiting_headers`, `headers_received`, `body_partial`, `body_complete`; `not_observed` for an injected non-HTTP transport |
+| `http_status` | Integer when headers arrive, otherwise null |
+| `http_version`, `content_type`, `content_length`, `response_headers` | Bounded field observations: `{state: present, value: ...}`, `{state: absent}` or `{state: filtered}`. These groups are absent until headers are received |
+| `body_bytes_observed`, `body_bytes_retained`, `body_truncated` | Decompressed byte counts and size-limit rejection flag. Observed includes the chunk crossing the limit; retained counts bytes accepted into the parser buffer, not bytes saved to disk. Interruptions leave `body_partial` or `headers_received` and are distinct from size truncation |
+| `parse_state` | `not_attempted`, `succeeded`, `invalid`, `skipped_size`; successful JSON parsing does not imply usable output |
+| `error_body_type`, `error_fields`, `error_details_count` | JSON error shape, states for status/code/type/message/details, and available detail-list length. Field states distinguish absent, known, numeric, present, unrecognized and invalid type |
+| `exception_chain`, `exception_chain_truncated` | Up to 8 exception types with available integer `errno`, `winerror`, `verify_code` and controlled DNS/TLS/refusal reasons. Cycle/depth limits are explicit; arbitrary messages are excluded |
+| `transport_state`, `transport`, `transport_events_omitted` | Whether supported trace events were observed, last state/available duration per operation and count omitted after the 32-event cap |
+| `error_detail_state`, `error_detail_source` | Excerpt availability and attempted source; see the content policy below |
+| `error_structure_truncated`, `error_detail_truncated` | Structural limit and saved-text limit, respectively, where applicable |
+| `observation_errors` | Count present if best-effort observation failed; such failures must not replace request results |
+
+Application stages are configuration, preparation, credentials, client setup, awaiting headers, body read, JSON parse and response validation. Injected transports use `custom_transport`. `stage_ms` measures application phases; HTTPX trace timings can overlap them and must not be added to the application total. No DNS duration is fabricated: DNS is included in connection establishment by the transport, while a native DNS exception identifies failure cause. Trace support varies by transport/version; `not_observed` is not evidence that no connection occurred. No per-chunk events or raw trace payloads are logged. The callback uses the [documented HTTPX trace extension](https://www.python-httpx.org/advanced/extensions/#trace), ignores unsupported event names, and observes only TCP connect, TLS setup, request header/body send and response-header receive operations.
+
+Selected response headers are `x-request-id`, `request-id`, `x-goog-request-id`, `cf-ray`, `retry-after`, and `x-ratelimit-{limit,remaining,reset}-{requests,tokens}`. Request IDs require bounded token syntax; retry/limit/reset fields accept bounded numeric values with optional time units. Unsupported formats, including HTTP-date Retry-After values, are marked filtered. Content length is a decimal string, not assumed equal to the decompressed body length. No authentication, cookies, arbitrary headers, endpoint URLs or raw headers are stored. Known configured credentials and exact input/reference/prompt matches are excluded from selected metadata.
+
+### Error content policy and limits
+
+Structured error messages and unknown codes remain available in the opt-in excerpt instead of being silently lost when the controlled Toast classifier does not recognize them. `error_detail_state` distinguishes `not_available`, `disabled`, `context_disabled`, `sink_disabled`, `omitted_size` and `captured`. `error_detail_source` identifies `provider_error`, `non_json_response` or `exception_chain` when capture was attempted. Configuration failures do not capture arbitrary exception text because credential resolution may not have completed.
+
+Error excerpts use the existing `log_content` API and require file persistence, INFO/DEBUG and `diagnostic_include_text`. If the request contains caret reference, `diagnostic_include_context` is also required: a provider may echo only a fragment, which cannot safely be removed by exact-string matching. This does not enable additional reference reads. Content remains hidden by `read_logs.py` unless `--content` is supplied. Ordinary terminal metadata remains useful with both content switches off.
+
+Configured local/effective environment credentials, Bearer values, credential assignments and URLs are redacted before truncation. JSON error trees omit credential-like keys and headers/request/messages objects; traversal is limited to depth 4, 128 nodes and 20 entries per container, with explicit truncation metadata. Excerpts over 65,536 characters are omitted before storage; otherwise the existing per-field `diagnostic_text_max_chars` applies to sanitized text. Redaction is not a promise that arbitrary user text is non-sensitive: opt-in error excerpts can contain submitted text and should be treated like other private content copies. No full successful HTTP response is archived; successful output and accounting usage retain their existing independent paths.
+
+The built-in response limits remain 64 KiB for HTTP error bodies and 2 MiB otherwise. Error observation adds no retry, provider request, UI read or connection reuse. Original-text fallback, cancellation and request deadlines remain unchanged. Validation and manual limits: [LLM diagnostic granularity](../validation/P1-llm-diagnostics.md).
 
 ## User records and switches
 

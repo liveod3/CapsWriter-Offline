@@ -222,7 +222,7 @@ class ResultProcessor:
         context, target_window = self.state.task_contexts.pop(message.task_id, ("", 0))
         logger.info(Notice('diagnostic.result_processor.final_transcription_task_chars'), message.task_id[:8], len(original))
         result = await self.app.llm.process(
-            text, context=context,
+            text, context=context, task_id=message.task_id,
             progress_callback=lambda stage: self.app.progress.update(message.task_id, stage),
         )
         self.app.progress.finish(message.task_id)

@@ -58,6 +58,21 @@ python scripts/read_logs.py logs/client --level ERROR --json
 
 JSONL 表示每行一个 JSON 对象，适合程序解析。阅读命令不生成另一份永久日志，也不改变原文件。跨进程文件按路径逐个读取，不保证全局时间排序；需要精确对齐时按记录中的时间和任务标识判断。
 
+## 查看 LLM 故障细节
+
+更新客户端代码并重启客户端后，`llm.action_finished` 会记录一次文本动作的最终结果。它包含任务和请求标识、各阶段耗时、HTTP 状态、响应读取与解析状态、服务商错误分类，以及底层异常链。费用统计关闭时，这些诊断仍然可用。
+
+- `response_state=awaiting_headers` 且 `http_status=null`：尚未获得 HTTP 响应，不能据此认定余额不足。
+- `response_state=body_partial`：已经收到部分响应，但未完整读完；可结合超时或网络异常判断。
+- `parse_state=invalid`：响应读取完成，但无法按 JSON 解析。
+- 响应字段的 `absent` 表示服务商未提供，`filtered` 表示格式不支持或因内容边界被过滤。
+- `exception_chain` 保留底层异常类型和可用的系统错误码，帮助区分 DNS、证书验证、连接拒绝等故障。
+- `transport_state=not_observed` 表示当前传输没有提供支持的底层事件，不等于没有进行连接。
+
+`diagnostic_include_text=True` 还允许保存经过脱敏的服务商错误详情和异常说明，事件名为 `llm.error_detail`。若请求包含光标参考，这类错误摘录同时要求 `diagnostic_include_context=True`，因为服务商可能在错误中回显参考文字。使用上面的 `--request REQUEST_ID --content` 命令查看。未识别的服务商错误代码也可在摘录中保留，Toast 仍只显示受控的错误说明。
+
+`error_detail_state` 会说明摘录是否因开关、上下文权限、日志级别或大小限制而未保存；截断也会单独标记。密钥、认证信息和 URL 会经过过滤，不保存全部响应头或成功响应的完整 JSON。详细字段与限制见[诊断技术参考](../reference/logging-and-records.md#llm-diagnostic-fields-and-granularity)。
+
 ## 级别怎样选择
 
 | 级别 | 意思 | 例子 |

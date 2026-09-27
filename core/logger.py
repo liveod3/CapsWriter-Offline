@@ -98,7 +98,8 @@ def log_content(logger, event, *, task_id=None, socket_id=None, request_id=None,
         return
     if not logger.isEnabledFor(logging.INFO):
         return
-    allowed = {'asr_text', 'input_text', 'output_text', 'final_text', 'system_prompt', 'formatted_text'}
+    allowed = {'asr_text', 'input_text', 'output_text', 'final_text', 'system_prompt', 'formatted_text',
+               'error_detail'}
     content = {}
     limit = min(65536, max(1, getattr(logger, 'diagnostic_text_max_chars', 16000)))
     for key, value in texts.items():

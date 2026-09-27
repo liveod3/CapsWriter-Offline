@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-09-27 - Unreleased, LLM diagnostic granularity accepted
+
+- Correlate LLM actions with dictation tasks and record request stages, available transport timings, configuration revisions, selected response headers, byte/parse states, token usage and terminal outcomes independently of cost tracking.
+- Preserve bounded native exception chains and opt-in sanitized error details, including unknown provider codes. Distinguish unavailable, filtered and truncated fields; retain credential exclusions and text/context permissions. Add localized payment/balance, DNS and connection-refusal feedback while preserving one-request behavior, cancellation and original-text fallback.
+- Accepted by the user with commit authorized after inspection of a user-driven real-provider success. Validation: 727 default tests passed, 8 deselected; syntax, Ruff, configured mypy and language/documentation checks passed. Broader live failure/desktop checks remain pending; placeholder references and coarse Windows stage timing are separate TODO items. See the [acceptance record](validation/P1-llm-diagnostics.md).
+- Record the agreed implementation order for shared settings, composable prompts, a settings GUI, desktop startup and compatible rebranding. Those later features remain planned.
+
 ## 2026-09-23 - Unreleased, caret-context compatibility accepted
 
 - Read nearby text through a guarded `TextPattern` collapsed-selection fallback when Pattern2 is unavailable or reports an inactive caret in a focused editable control. Preserve password, read-only, selection and focus checks; restrict expanded ranges to the focused control's document bounds and retain the isolated helper timeout.

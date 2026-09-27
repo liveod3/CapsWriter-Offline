@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from core.i18n import Notice, tr
-from core.logger import log_content, diagnostic_event
+from core.logger import log_content
 
 import asyncio
 import json
@@ -17,6 +17,7 @@ from .config import Catalog, load_catalog
 from .settings import llm_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
 from .errors import describe_failure, localized_failure
+from .diagnostics import RequestDiagnostics, current_request
 from core.llm_accounting.ledger import CostLedger
 from core.llm_accounting.usage import UsageObservation, observation, estimate_tokens
 
@@ -78,7 +79,7 @@ class TextActionService:
 
     async def process(
         self, text: str, *, context: str = "", preset_id: str | None = None,
-        progress_callback=None,
+        progress_callback=None, task_id: str | None = None,
     ) -> TextResult:
         if self._stopped or not getattr(self.config, "llm_enabled", False) or not text.strip():
             return TextResult(text, text)
@@ -100,13 +101,17 @@ class TextActionService:
         failure_category = None
         from core.client import logger
 
+        diagnostic = RequestDiagnostics(logger, request_id, task_id)
+        failure_fields = {}
+        failure_exception = None
         try:
             if progress_callback:
                 progress_callback('status.prepare_llm')
             # Reload static files per request; no file-watching thread is needed.
             catalog = await asyncio.to_thread(load_catalog, self.directory)
             if self._stopped or epoch != self._cancel_epoch:
-                return TextResult(text, text, cancelled=True)
+                outcome = 'cancelled'
+                return TextResult(text, text, cancelled=True, request_id=request_id)
             # Exclude disabled capabilities from matching so triggers cannot bypass switches.
             catalog = Catalog(catalog.providers, {
                 key: preset for key, preset in catalog.presets.items()
@@ -123,7 +128,8 @@ class TextActionService:
                     text, default_preset
                 )
             if preset is None:
-                return TextResult(text, text)
+                outcome = 'skipped'
+                return TextResult(text, text, request_id=request_id)
             selected_id = preset.id
             provider = catalog.providers[preset.provider]
             host = urlsplit(provider.base_url).hostname
@@ -139,6 +145,8 @@ class TextActionService:
                 {"role": "system", "content": preset.system_prompt},
                 {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
             ]
+            diagnostic.configure(provider, preset, content, payload.get('surrounding_text_reference', ''))
+            diagnostic.stage('preparation')
             if getattr(self.config, 'llm_cost_tracking', True):
                 try:
                     ticket, invalid_config = await asyncio.to_thread(
@@ -158,20 +166,24 @@ class TextActionService:
             logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
                         request_id, len(content), int((time.monotonic() - started) * 1000),
                         len(payload.get("surrounding_text_reference", "")), preset.use_caret_context)
-            diagnostic_event(logger, 'llm.request_started', request_id=request_id,
-                             preset=preset.id, provider=provider.id, model=provider.model,
-                             input_chars=len(content), context_chars=len(payload.get('surrounding_text_reference', '')))
-            log_content(logger, 'llm.request_text', request_id=request_id, input_text=content,
+            diagnostic.emit('llm.request_started', input_chars=len(content),
+                            context_chars=len(payload.get('surrounding_text_reference', '')))
+            log_content(logger, 'llm.request_text', request_id=request_id, task_id=task_id, input_text=content,
                         system_prompt=preset.system_prompt, context=payload.get('surrounding_text_reference', ''))
             async def complete():
                 token = observation.set((observed, ticket[1]['rate'] if ticket else None))
+                diagnostic_token = current_request.set(diagnostic)
                 try:
                     if not isinstance(self.transport, HTTPTextProvider):
                         observed.sent = True
+                        diagnostic.stage('custom_transport')
+                        diagnostic.data['dispatch_attempted'] = True
+                        diagnostic.data['response_state'] = 'not_observed'
                     return await self.transport.complete(
                         provider, messages, preset.temperature, preset.max_tokens
                     )
                 finally:
+                    current_request.reset(diagnostic_token)
                     observation.reset(token)
 
             request = asyncio.create_task(complete())
@@ -186,10 +198,11 @@ class TextActionService:
                 outcome = 'cancelled'
                 return TextResult(content, content, selected_id, cancelled=True, request_id=request_id)
             outcome = 'completed'
+            diagnostic.data['output_chars'] = len(result)
             observed.output_estimate = estimate_tokens(result)
             logger.info(Notice('diagnostic.service.llm_request_completed_request_elapsed_ms_output_chars'),
                         request_id, int((time.monotonic() - started) * 1000), len(result))
-            log_content(logger, 'llm.response_text', request_id=request_id, output_text=result)
+            log_content(logger, 'llm.response_text', request_id=request_id, task_id=task_id, output_text=result)
             save_action = getattr(self.config, 'save_llm_records', False)
             return TextResult(
                 result, content, selected_id, processed=True, request_id=request_id,
@@ -214,6 +227,8 @@ class TextActionService:
             else:
                 user_detail = localized_failure(exc)
             failure_category = category
+            failure_fields = fields
+            failure_exception = exc
             logger.warning(
                 Notice('diagnostic.service.llm_action_failed_request_phase_type_category_elapsed'),
                 request_id, phase, type(exc).__name__, category,
@@ -224,6 +239,12 @@ class TextActionService:
                 request_id=request_id,
             )
         finally:
+            diagnostic.data.update(
+                usage=dict(observed.usage), usage_invalid=observed.invalid_usage,
+                usage_state='reported' if observed.usage else 'not_reported'
+                if diagnostic.data['parse_state'] == 'succeeded' else 'not_observed',
+            )
+            diagnostic.finish(outcome, failure_category, failure_fields, failure_exception)
             if ticket:
                 try:
                     await asyncio.to_thread(

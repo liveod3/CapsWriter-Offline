@@ -11,6 +11,7 @@ from typing import Protocol
 
 from .config import Provider
 from .errors import LLMResponseError, api_error, generation_error
+from .diagnostics import current_request
 from core.llm_accounting.usage import observation
 
 
@@ -40,11 +41,16 @@ class HTTPTextProvider:
     ) -> str:
         import httpx
 
+        diagnostic = current_request.get()
+        if diagnostic:
+            diagnostic.stage('credentials')
         key = (
             os.environ.get(provider.api_key_env, "")
             if provider.api_key_env
             else (provider.api_key or "")
         ).strip()
+        if diagnostic and key and key not in diagnostic.secrets:
+            diagnostic.secrets.append(key)
         if (provider.api_key_env or provider.api_key is not None) and not key:
             raise MissingAPIKeyError(from_environment=bool(provider.api_key_env))
         headers = {"Authorization": f"Bearer {key}"} if key else {}
@@ -66,32 +72,60 @@ class HTTPTextProvider:
                 "max_tokens": max_tokens,
             }
         # Do not retry auth/configuration failures or redirect credentials and text elsewhere.
+        if diagnostic:
+            diagnostic.stage('client_setup')
         async with httpx.AsyncClient(
             timeout=provider.timeout, follow_redirects=False, trust_env=False
         ) as client:
             accounting = observation.get()
             if accounting:
                 accounting[0].sent = True
-            async with client.stream("POST", url, json=payload, headers=headers) as response:
+            if diagnostic:
+                diagnostic.stage('awaiting_headers')
+                diagnostic.data.update(dispatch_attempted=True, response_state='awaiting_headers')
+            extensions = {'trace': diagnostic.trace} if diagnostic else {}
+            async with client.stream("POST", url, json=payload, headers=headers, extensions=extensions) as response:
                 if accounting:
                     accounting[0].http_status = response.status_code
+                if diagnostic:
+                    diagnostic.headers(response)
+                    diagnostic.stage('body_read')
                 data = bytearray()
                 limit = 64 * 1024 if response.is_error else 2 * 1024 * 1024
                 async for chunk in response.aiter_bytes():
+                    if diagnostic:
+                        diagnostic.data['body_bytes_observed'] += len(chunk)
+                        diagnostic.data['response_state'] = 'body_partial'
                     if len(data) + len(chunk) > limit:
+                        if diagnostic:
+                            diagnostic.data.update(body_truncated=True, parse_state='skipped_size')
                         if not response.is_success:
                             raise api_error(response.status_code, {})
                         raise LLMResponseError("response_too_large", "llm.response_too_large")
                     data.extend(chunk)
+                    if diagnostic:
+                        diagnostic.data['body_bytes_retained'] = len(data)
+                if diagnostic:
+                    diagnostic.data['response_state'] = 'body_complete'
+                    diagnostic.stage('json_parse')
                 try:
                     result = json.loads(data, parse_float=Decimal)
                 except (ValueError, UnicodeError):
+                    if diagnostic:
+                        diagnostic.data['parse_state'] = 'invalid'
+                        if not response.is_success:
+                            diagnostic.excerpt(data.decode('utf-8', errors='replace'), source='non_json_response')
                     if not response.is_success:
                         raise api_error(response.status_code, {}) from None
                     raise LLMResponseError("invalid_json", "llm.invalid_json") from None
+                if diagnostic:
+                    diagnostic.data['parse_state'] = 'succeeded'
+                    diagnostic.stage('response_validation')
                 if accounting:
                     accounting[0].capture(result, provider, accounting[1])
                 if not response.is_success or (isinstance(result, dict) and "error" in result):
+                    if diagnostic:
+                        diagnostic.error_body(result.get('error', result) if isinstance(result, dict) else result)
                     raise api_error(response.status_code, result, response.headers.get("retry-after", ""))
 
         if not isinstance(result, dict):
@@ -130,4 +164,6 @@ class HTTPTextProvider:
         text = message.get("content")
         if not isinstance(text, str) or not text.strip():
             raise LLMResponseError("empty_output", "llm.empty_output")
+        if diagnostic:
+            diagnostic.data['output_chars'] = len(text.strip())
         return text.strip()
