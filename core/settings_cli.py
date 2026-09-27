@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from dataclasses import asdict
 
 from core.config_reload import CandidateError
 from core.i18n import Notice, localize_notice, set_language, tr
@@ -17,6 +19,8 @@ def configure_parser(parser):
     commands = parser.add_subparsers(dest='action', required=True)
     commands.add_parser('show', help=tr('settings.cli.show'))
     commands.add_parser('check', help=tr('settings.cli.check'))
+    prompt = commands.add_parser('prompt', help=tr('settings.cli.prompt'))
+    prompt.add_argument('--preset', default='correct_asr', help=tr('settings.cli.preset'))
     edit = commands.add_parser('set', help=tr('settings.cli.set'))
     edit.add_argument('changes', metavar='JSON', help=tr('settings.cli.changes'))
     edit.add_argument('--revision', required=True, help=tr('settings.cli.revision'))
@@ -72,9 +76,17 @@ def main(argv=None, *, root=None):
         }
         if args.action == 'show':
             result['saved'] = public_values(snapshot.saved[service.section])
+        if args.action == 'prompt':
+            if args.server:
+                raise CandidateError(Notice('validation.prompt.client_only'))
+            from core.correction_prompts import inspect_prompt
+
+            config = SimpleNamespace(**snapshot.saved['ClientConfig'])
+            preview = inspect_prompt(root / config.llm_config_dir, config, preset_id=args.preset)
+            result['prompt'] = asdict(preview)
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     except (OSError, ValueError, SyntaxError) as exc:
-        reason = exc.args[0] if isinstance(exc, CandidateError) else type(exc).__name__
+        reason = exc.args[0] if exc.args and isinstance(exc.args[0], Notice) else type(exc).__name__
         print(tr('settings.cli.failed', reason=localize_notice(reason)), file=sys.stderr)
         return 2

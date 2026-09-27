@@ -259,7 +259,8 @@ def test_llm_payload_and_response_do_not_enter_diagnostics(
         }}, retry_after=KEY)
     elif failure:
         transport.complete.side_effect = RuntimeError(TRANSCRIPT + PROMPT + KEY)
-    service = TextActionService(SimpleNamespace(llm_enabled=True), tmp_path, transport=transport)
+    service = TextActionService(SimpleNamespace(llm_enabled=True, caret_context_enabled=True),
+                                tmp_path, transport=transport)
     result = asyncio.run(service.process(TRANSCRIPT, context=CONTEXT))
     assert result.text == (TRANSCRIPT if failure else OUTPUT)
     assert result.processed == (failure is None)

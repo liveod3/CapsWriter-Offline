@@ -1,6 +1,14 @@
 """UI messages keyed by stable product IDs."""
 
 MESSAGES = {
+    'validation.prompt.level': '纠错强度必须为 minimal（最小修改）、natural（自然整理）或 fluent（流畅改写）。',
+    'validation.prompt.boolean': '纠错提示词模块开关必须为布尔值。',
+    'validation.prompt.mode': '提示词模式必须为 custom 或 correction。',
+    'validation.prompt.ambiguous': '组合纠错预设不能同时定义 system_prompt；如需保留完整自定义提示词，请使用 custom 模式。',
+    'validation.prompt.preset': '要查看的提示词预设不存在。',
+    'validation.prompt.client_only': '提示词预览仅适用于客户端配置。',
+    'settings.cli.prompt': '按已保存的客户端配置查看最终提示词，不发送请求。',
+    'settings.cli.preset': '要查看的预设 ID，默认为 correct_asr。',
     'settings.commented_value': '{field} 的值内部包含注释，请在配置文件中编辑该字段以保留注释。',
     'settings.action_failed': '无法完成应用操作，请查看诊断记录。',
     'diagnostic.tray_manager.action_failed': '应用操作失败：%s',

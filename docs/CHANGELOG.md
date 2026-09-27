@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-27 - Unreleased, composable correction prompts accepted
+
+- Compose one correction prompt from mandatory content-preservation rules, five independent modules and three editing levels. Share validated client preferences, safe reload, request snapshots and explicit prompt inspection. Preserve complete custom prompts and translation routing.
+- Enforce client/preset reference gates and retain a single LLM request with original-input fallback. Separate pure catalog loading from client startup for file-only inspection.
+- Accepted by the user with commit authorized; live option comparisons are deferred until the settings GUI is available. Validation: 793 default tests passed, 8 deselected; syntax, Ruff, configured mypy, language/documentation and diff checks passed. See the [acceptance record](validation/P1-correction-prompts.md).
+
 ## 2026-09-27 - Unreleased, shared settings interface accepted
 
 - Share whole-candidate validation, revision-checked saves and saved/effective/pending/restart state across tray operations, file-only CLI and future GUI adapters. Preserve task-boundary publication, source comments and credentials; reject stale editors and unsafe compound-comment replacements.

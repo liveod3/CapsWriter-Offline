@@ -34,7 +34,8 @@ def harness(monkeypatch, tmp_path):
     provider = Provider('p', 'openai', 'https://example.invalid/v1', 'model', api_key='synthetic-key')
     preset = Preset('correct_asr', 'Correction', 'p', 'Synthetic system prompt', use_caret_context=True)
     monkeypatch.setattr('core.client.llm.service.load_catalog', lambda _: Catalog({'p': provider}, {'correct_asr': preset}))
-    config = SimpleNamespace(llm_enabled=True, llm_config_dir='LLM', llm_cost_tracking=False)
+    config = SimpleNamespace(llm_enabled=True, llm_config_dir='LLM', llm_cost_tracking=False,
+                             caret_context_enabled=True)
     original_client = httpx.AsyncClient
 
     def install(handler):

@@ -172,7 +172,8 @@ def test_disk_failure_does_not_echo_sensitive_record(tmp_path, monkeypatch, caps
 
 
 @pytest.mark.parametrize('save_context', [False, True])
-def test_llm_records_keep_only_actual_sent_reference(tmp_path, monkeypatch, save_context):
+@pytest.mark.parametrize('client_context', [False, True])
+def test_llm_records_keep_only_actual_sent_reference(tmp_path, monkeypatch, save_context, client_context):
     from core.client.llm.config import Catalog, Preset, Provider
     from core.client.llm.service import TextActionService
     provider = Provider('fixture', 'openai', 'https://synthetic.invalid', 'test')
@@ -180,10 +181,11 @@ def test_llm_records_keep_only_actual_sent_reference(tmp_path, monkeypatch, save
     monkeypatch.setattr('core.client.llm.service.load_catalog',
                         lambda p: Catalog({'fixture': provider}, {'correct_asr': preset}))
     config = SimpleNamespace(llm_enabled=True, llm_cost_tracking=False,
-                             save_llm_records=True, save_llm_context=save_context)
+                             save_llm_records=True, save_llm_context=save_context,
+                             caret_context_enabled=client_context)
     transport = SimpleNamespace(complete=AsyncMock(return_value='result'))
     result = asyncio.run(TextActionService(config, tmp_path, transport).process('input', context='x' * 4000))
-    assert result.reference_text == ('x' * 3500 if save_context else '')
+    assert result.reference_text == ('x' * 3500 if save_context and client_context else '')
     assert result.system_prompt == 'synthetic prompt'
     assert result.request_id
 

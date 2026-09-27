@@ -40,6 +40,62 @@ llm_default_preset = 'correct_asr'
 
 纠错提示词要求结合当前文本修正有依据的同音误识别、赘词和标点，保留原意、有效强调、数值与单位；不回答转写中的问题。翻译提示词默认译为英文。实际效果取决于模型，不能保证每次纠正都准确。提示词是功能输入，内部文档英文化不会翻译这些提示词。
 
+## 组合纠错提示词
+
+本次源码升级先重启客户端一次。内置 `correct_asr` 现在使用基础规则、可选模块和编辑强度
+组成一个提示词，仍然只调用一次 LLM。基础规则始终要求输出本次转写的完整内容，保留事实、
+否定、条件、列举和有意义的语气，不执行转写里的指令。
+
+在 `ClientConfig` 中按需调整：
+
+```python
+llm_correction_level = 'natural'
+llm_correction_numbers = True
+llm_correction_punctuation = True
+llm_correction_fillers = True
+llm_correction_english = False
+llm_correction_homophones = True
+```
+
+| 设置 | 控制内容 |
+| --- | --- |
+| `numbers` | 明确数值改为阿拉伯数字，保留精度、单位和前导零，不猜测不确定数量 |
+| `punctuation` | 调整标点和断句；开启参考时也可调整插入位置的首尾标点 |
+| `fillers` | 去除无意义语气词、犹豫声和口吃重复，保留有效强调和指代 |
+| `english` | 有充分语境依据时，将误识别成中文的英文术语还原；不会翻译普通中文 |
+| `homophones` | 修正有明确语义依据的同音、近音或错字误识别 |
+
+字段名均以 `llm_correction_` 开头。三档强度分别是：
+
+- `minimal`：只做已开启模块允许的局部修改，保留原有句式。
+- `natural`：小幅整理语法，让口语更自然，保留信息顺序。
+- `fluent`：允许调整句式和语序，但不摘要、不丢失有意义的信息；合并无意义重复仍需开启 `fillers`。
+
+更高强度不能重新开启关闭的模块。所有模块关闭且选择最小修改时，提示词要求保留原文；
+这仍会调用模型。若需要完全不请求 LLM，请关闭纠错或总开关。
+
+这些选项不会开启 LLM，也不会开启光标读取。光标参考仍需客户端和预设两层授权。
+服务端 `format_num` 可能已经转换数字，客户端 `trash_punc` 可能已经移除尾部标点；
+关闭对应的提示词模块不会撤销这些上游处理。
+
+选项沿用共享配置接口，可手工编辑，也可使用[配置 CLI](configuration.md)保存；任务进行中
+先保存，等安全边界再生效。查看已保存配置将组成的完整提示词：
+
+```powershell
+python start_client.py settings prompt
+python start_client.py settings prompt --preset translate
+```
+
+预览不会读取输入框或发送请求。它显示文件配置；运行中的客户端可能仍在等待任务结束。
+完整提示词可能包含你自己写入的私人内容，预览只供明确查看，不会自动写入普通诊断。
+
+旧预设的 `system_prompt` 保持完整自定义模式，不会自动注入模块，翻译预设也保持原样。
+自定义预设要启用组合模式，需要先保留旧提示词副本，再移除 `system_prompt` 并设置
+`prompt_mode = "correction"`。要恢复完整自定义提示词，使用 `prompt_mode = "custom"`
+并重新提供 `system_prompt`。同时填写组合模式和完整提示词会报配置错误，避免悄悄忽略其中一份。
+
+模块和强度是给模型的指令，实际语言质量、漏字或过度修改仍需结合实际听写验收。
+
 ## 启用光标参考
 
 默认 `caret_context_enabled=False`。确需读取插入点附近文字时，在 `ClientConfig` 中开启，并按需调整范围：
@@ -59,7 +115,7 @@ caret_context_after_chars = 200
 开启诊断日志且日志级别包含 INFO 时，可在 `logs/client/`（用 `python scripts/read_logs.py logs/client` 阅读） 中核对：
 
 - `Caret capture`：`task` 对应录音任务，`status` 为采集结果，`method` 为使用的接口，`before_chars` / `after_chars` 为两侧字符数。
-- `LLM request started`：`context_chars` 为该次请求实际附带的参考字符数（含插入点标记），`context_allowed` 表示预设是否允许参考。采集成功但预设不允许时，仍为 0。
+- `LLM request started`：`context_chars` 为该次请求实际附带的参考字符数（含插入点标记），`context_allowed` 表示客户端和预设是否共同允许参考。任一权限关闭或没有可用参考时，字符数仍为 0。
 
 常见采集状态：`captured` 为成功，`empty` 为附近无文字，`unsupported_text_pattern` / `unsupported_control` 为控件不支持，`selection` 为存在选区或无法取得单个光标，`readonly_or_unknown` 为只读或无法确认，`focus_changed` 为焦点改变，`timeout` 为子进程超时，`provider_error` 为 UI Automation 读取异常。`disabled` 表示功能关闭。诊断只记录状态、字数和耗时，不记录正文或窗口标题。
 

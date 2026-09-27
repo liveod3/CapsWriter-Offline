@@ -190,6 +190,17 @@ class ClientConfig:
     # Disabling a capability blocks both its automatic and explicit invocation.
     llm_default_preset = 'correct_asr'
 
+    # Used only by presets with prompt_mode='correction'; custom/translation prompts stay intact.
+    # All six preferences reload between tasks. They do not enable LLM or caret capture.
+    # Levels: 'minimal' (module edits only), 'natural' (local cleanup), 'fluent' (restructure).
+    llm_correction_level = 'natural'
+    llm_correction_numbers = True
+    llm_correction_punctuation = True
+    llm_correction_fillers = True
+    llm_correction_english = False
+    llm_correction_homophones = True
+    # Disabling a prompt module does not undo server format_num or client trash_punc processing.
+
     llm_config_dir = 'LLM'
 
     # Shortcut to cancel LLM output.

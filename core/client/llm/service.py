@@ -15,6 +15,7 @@ from urllib.parse import urlsplit
 
 from .config import Catalog, load_catalog
 from .settings import llm_options
+from core.correction_prompts import resolve_preset, snapshot_options
 from .provider import HTTPTextProvider, MissingAPIKeyError
 from .errors import describe_failure, localized_failure
 from .diagnostics import RequestDiagnostics, current_request
@@ -88,6 +89,8 @@ class TextActionService:
         # Snapshot the mode at entry; menu changes apply to subsequent requests.
         default_preset = getattr(self.config, "llm_default_preset", "correct_asr")
         options = llm_options(self.config)
+        prompt_options = snapshot_options(self.config)
+        context_enabled = bool(getattr(self.config, 'caret_context_enabled', False))
         if not any(options.values()) or (preset_id in options and not options[preset_id]):
             return TextResult(text, text)
         content = text
@@ -130,6 +133,7 @@ class TextActionService:
             if preset is None:
                 outcome = 'skipped'
                 return TextResult(text, text, request_id=request_id)
+            preset = resolve_preset(preset, prompt_options, context_enabled=context_enabled)
             selected_id = preset.id
             provider = catalog.providers[preset.provider]
             host = urlsplit(provider.base_url).hostname

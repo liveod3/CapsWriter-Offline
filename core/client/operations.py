@@ -44,6 +44,13 @@ class ClientOperations:
     async def validate_settings(self, changes, *, revision):
         return await asyncio.to_thread(self.settings.validate, changes, revision=revision)
 
+    async def inspect_prompt(self, preset_id='correct_asr'):
+        """Preview the effective next-request prompt without capturing or sending text."""
+        from core.correction_prompts import inspect_prompt
+
+        config = SimpleNamespace(**self.settings.reloader.effective()['ClientConfig'])
+        return await asyncio.to_thread(inspect_prompt, self.app.llm.directory, config, preset_id=preset_id)
+
     async def save_settings(self, changes, *, revision):
         async with self._settings_lock:
             self._check_running()

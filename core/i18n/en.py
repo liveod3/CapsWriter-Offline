@@ -1,6 +1,14 @@
 """UI messages keyed by stable product IDs."""
 
 MESSAGES = {
+    'validation.prompt.level': 'Correction level must be minimal, natural or fluent.',
+    'validation.prompt.boolean': 'Correction module switches must be boolean.',
+    'validation.prompt.mode': 'Prompt mode must be custom or correction.',
+    'validation.prompt.ambiguous': 'A correction-mode preset must not also define system_prompt; use custom mode to keep a complete custom prompt.',
+    'validation.prompt.preset': 'The requested prompt preset does not exist.',
+    'validation.prompt.client_only': 'Prompt inspection is available for client settings only.',
+    'settings.cli.prompt': 'Inspect the resolved prompt using saved client settings; no request is sent.',
+    'settings.cli.preset': 'Preset ID to inspect (default: correct_asr).',
     'settings.commented_value': 'The value of {field} contains internal comments. Edit this field in the configuration file to preserve them.',
     'settings.action_failed': 'Could not complete the application action. See diagnostics for details.',
     'diagnostic.tray_manager.action_failed': 'Application action failed: %s',

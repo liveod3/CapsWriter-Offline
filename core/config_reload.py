@@ -27,6 +27,8 @@ traditional_convert traditional_locale save_transcripts transcript_dir
 transcript_save_original save_llm_records save_llm_context caret_context_enabled
 caret_context_before_chars caret_context_after_chars llm_enabled
 llm_correction_enabled llm_translation_enabled llm_default_preset llm_cost_tracking
+llm_correction_level llm_correction_numbers llm_correction_punctuation
+llm_correction_fillers llm_correction_english llm_correction_homophones
 mic_seg_duration mic_seg_overlap mic_io_timeout mic_result_timeout
 file_seg_duration file_seg_overlap file_io_timeout file_result_timeout
 file_max_inflight_chunks""".split()
@@ -209,6 +211,8 @@ def validate_settings(values, defaults, section):
             ):
                 raise CandidateError(Notice('validation.config_reload.expected_positive_value', value0=name))
     if section == "ClientConfig":
+        if cfg.get('llm_correction_level', 'natural') not in {'minimal', 'natural', 'fluent'}:
+            raise CandidateError(Notice('validation.prompt.level'))
         for prefix in ("mic", "file"):
             duration, overlap = cfg[f"{prefix}_seg_duration"], cfg[f"{prefix}_seg_overlap"]
             if not (0.1 <= duration <= 120 and 0 <= overlap <= 30 and overlap < duration):

@@ -18,6 +18,7 @@ Use these records to distinguish implementation checks from user acceptance. Res
 | Logging and record management | [P1 logging and records](P1-logging-records.md) |
 | LLM diagnostic fields and granularity | [P1 LLM diagnostics](P1-llm-diagnostics.md) |
 | Shared settings and application operations | [P1 shared settings](P1-shared-settings.md) |
+| Composable correction prompts | [P1 correction prompts](P1-correction-prompts.md) |
 
 ## Supporting historical stages
 

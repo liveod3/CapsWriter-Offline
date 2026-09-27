@@ -64,8 +64,14 @@ def test_server_edit_is_validated_without_starting_server(tmp_path, capsys):
     assert 'format_num = False' in path.read_text(encoding='utf-8')
 
 
-def test_entrypoint_settings_never_imports_config_audio_or_ui(tmp_path):
+@pytest.mark.parametrize('action', ['check', 'prompt'])
+def test_entrypoint_settings_never_imports_config_audio_or_ui(tmp_path, action):
     client_file(tmp_path)
+    directory = tmp_path / 'LLM'
+    directory.mkdir()
+    public = Path(__file__).resolve().parents[2] / 'LLM'
+    for name in ('providers.template.toml', 'presets.toml'):
+        (directory / name).write_bytes((public / name).read_bytes())
     script = '''
 import functools
 import importlib.abc
@@ -80,10 +86,10 @@ sys.meta_path.insert(0, RejectHardware())
 import core.settings_cli
 core.settings_cli.main = functools.partial(core.settings_cli.main, root=sys.argv[1])
 import start_client
-raise SystemExit(start_client.main(['settings', 'check']))
+raise SystemExit(start_client.main(['settings', sys.argv[2]]))
 '''
     result = subprocess.run(
-        [sys.executable, '-c', script, str(tmp_path)],
+        [sys.executable, '-c', script, str(tmp_path), action],
         cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=10,
     )
     assert result.returncode == 0, result.stderr

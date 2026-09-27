@@ -89,6 +89,7 @@ and reports the restart subset explicitly. Restart-required values stay on disk.
 | Task deadlines and file window | `mic_io_timeout`, `mic_result_timeout`, `file_io_timeout`, `file_result_timeout`, `file_max_inflight_chunks` |
 | Text output | `paste`, `restore_clip`, `paste_apps`, `enter_apps`, `trash_punc`, `trash_punc_thresh`, `trash_punc_apps`, `traditional_convert`, `traditional_locale` |
 | LLM selection and accounting | `llm_enabled`, `llm_correction_enabled`, `llm_translation_enabled`, `llm_default_preset`, `llm_cost_tracking`; see [cost accounting](../user/llm-costs.md) |
+| Correction prompt composition | `llm_correction_level`, `llm_correction_numbers`, `llm_correction_punctuation`, `llm_correction_fillers`, `llm_correction_english`, `llm_correction_homophones`; see [prompt modes and boundaries](correction-prompts.md) |
 | Caret context | `caret_context_enabled`, `caret_context_before_chars`, `caret_context_after_chars` |
 
 Microphone mode publishes only when all capture, upload, pending ASR, LLM, output
@@ -186,7 +187,7 @@ covers only in-memory state; file I/O and validation run outside it. Closed relo
 reject new saves and publication. A save already replacing the file may finish
 during shutdown; that does not change the closed application's effective settings.
 
-`ClientOperations` provides async read/validate/save, language/LLM toggles, pause
+`ClientOperations` provides async read/validate/save, prompt inspection, language/LLM toggles, pause
 and microphone reconnect operations. Call it on the client loop or use `submit()`
 from another UI thread and observe the returned future. Saving toggles uses saved
 values so repeated clicks during an active task accumulate correctly; menu checks
@@ -194,8 +195,9 @@ continue to show effective values. Pause/reconnect delegate to existing owners.
 Filesystem/clipboard presentation actions remain in the tray adapter. No remote
 control protocol or model-process ownership change is introduced.
 
-Provider/preset TOML retains its existing loader, comments, secrets and request
-snapshots; this increment does not rewrite those files. Structured TOML editing
-belongs to the subsequent prompt/preset and GUI work, without executing legacy Python
-roles. See the [user CLI procedure](../user/configuration.md) and
+Provider/preset TOML retains static loading, secrets and request snapshots.
+Correction options use this shared Python-settings interface, while the preset
+selects custom or composed mode; see [prompt composition](correction-prompts.md).
+Structured TOML editing remains part of the subsequent GUI work, without executing
+legacy Python roles. See the [user CLI procedure](../user/configuration.md) and
 [validation record](../validation/P1-shared-settings.md).
