@@ -85,7 +85,7 @@ def test_language_save_preserves_user_settings_and_handles_failure(tmp_path, mon
     from core.client.llm.settings import save_ui_language
 
     path = tmp_path / "config_client.py"
-    original = b'\xef\xbb\xbfclass ClientConfig:\r\n    language = "japanese"  # ASR\r\n    custom = "keep"\r\n'
+    original = b'\xef\xbb\xbfclass ClientConfig:\r\n    language = "japanese"  # ASR\r\n    llm_default_preset = "keep"\r\n'
     path.write_bytes(original)
     save_ui_language(path, "zh-CN")
     saved = path.read_bytes()
@@ -96,15 +96,15 @@ def test_language_save_preserves_user_settings_and_handles_failure(tmp_path, mon
     stable = path.read_bytes()
     with pytest.raises(ValueError):
         save_ui_language(path, "invalid")
-    monkeypatch.setattr("core.client.llm.settings.os.replace", Mock(side_effect=PermissionError))
+    monkeypatch.setattr("core.settings.os.replace", Mock(side_effect=PermissionError))
     with pytest.raises(PermissionError):
         save_ui_language(path, "auto")
     assert path.read_bytes() == stable
-    assert list(tmp_path.iterdir()) == [path]
+    assert set(tmp_path.iterdir()) == {path, tmp_path / '.config_client.py.lock'}
 
 
 def test_real_language_menu_dispatch_saves_without_changing_inflight_language(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, attach_client_operations
 ):
     from core.client.manager.tray_manager import TrayManager
     from pystray import Icon
@@ -125,6 +125,7 @@ def test_real_language_menu_dispatch_saves_without_changing_inflight_language(
             llm=SimpleNamespace(directory=tmp_path),
             state=SimpleNamespace(dictation_paused=False),
         )
+        attach_client_operations(app, config)
         manager = TrayManager(app)
         settings = next(a for a in manager.menu_actions() if a.to_item().text == "Settings")
         language_menu = settings.children[0]
@@ -235,23 +236,26 @@ def test_language_and_llm_saves_cannot_overwrite_each_other(tmp_path, monkeypatc
     async def run():
         writes = []
         queued = []
-        manager = TrayManager(SimpleNamespace(base_dir=tmp_path))
+        operations = SimpleNamespace()
+        manager = TrayManager(SimpleNamespace(base_dir=tmp_path, operations=operations))
         manager._schedule = queued.append
         started, release = asyncio.Event(), asyncio.Event()
 
-        async def save_in_thread(function, *args, **kwargs):
-            writes.append(function.__name__)
+        async def save_language(*args, **kwargs):
+            writes.append('set_language')
             started.set()
             await release.wait()
 
-        monkeypatch.setattr('core.client.manager.tray_manager.asyncio.to_thread', save_in_thread)
+        operations.set_language = save_language
+        operations.toggle_llm = AsyncMock()
         monkeypatch.setattr('core.ui.show_status_hint', Mock())
         manager._set_language('zh-CN')
         language_save = asyncio.create_task(queued.pop())
         await started.wait()
         manager._toggle_llm_option()
         await queued.pop()
-        assert writes == ['save_ui_language']
+        assert writes == ['set_language']
+        operations.toggle_llm.assert_not_called()
         release.set()
         await language_save
         assert not manager._mode_saving

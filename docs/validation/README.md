@@ -17,6 +17,7 @@ Use these records to distinguish implementation checks from user acceptance. Res
 | Caret-context compatibility at the validated scope | [P1 caret context](P1-caret-context.md) |
 | Logging and record management | [P1 logging and records](P1-logging-records.md) |
 | LLM diagnostic fields and granularity | [P1 LLM diagnostics](P1-llm-diagnostics.md) |
+| Shared settings and application operations | [P1 shared settings](P1-shared-settings.md) |
 
 ## Supporting historical stages
 

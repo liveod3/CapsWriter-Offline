@@ -51,7 +51,21 @@ def test_settings_use_editor_not_python_association(tmp_path):
     associated.assert_not_called()
 
 
-def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch):
+def test_failed_application_action_has_content_free_feedback(monkeypatch):
+    from concurrent.futures import Future
+
+    future = Future()
+    app = SimpleNamespace(operations=SimpleNamespace(submit=lambda _: future))
+    manager = TrayManager(app)
+    hint = Mock()
+    monkeypatch.setattr('core.ui.show_status_hint', hint)
+    assert manager._schedule(None)
+    future.set_exception(OSError('private-fixture-details'))
+    assert hint.called
+    assert 'private-fixture-details' not in hint.call_args.args[0]
+
+
+def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch, attach_client_operations):
     config = SimpleNamespace(llm_enabled=False, llm_default_preset="correct_asr")
     monkeypatch.setattr("core.client.manager.tray_manager.Config", config)
     path = tmp_path / "config_client.py"
@@ -61,6 +75,7 @@ def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch
         state=SimpleNamespace(dictation_paused=False, last_recognition_text=""),
         llm=SimpleNamespace(start=Mock(), process=AsyncMock(), directory=tmp_path / "LLM"),
     )
+    attach_client_operations(app, config)
     manager = TrayManager(app)
     manager._schedule = lambda operation: asyncio.run(operation) or True
     monkeypatch.setattr("core.ui.show_status_hint", Mock())
@@ -75,6 +90,9 @@ def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch
     ):
         # Exercise pystray argument adaptation rather than calling callbacks directly.
         modes[index].to_item()(Mock(name="tray_icon"))
+        app.config_reload.poll()
+        app.config_reload.poll()
+        app.config_reload.apply()
         assert config.llm_enabled == (correction or translation)
         assert config.llm_default_preset == "correct_asr"
         assert llm_options(config) == {"correct_asr": correction, "translate": translation}
@@ -102,20 +120,22 @@ def test_independent_llm_switches_save_and_show_live_state(tmp_path, monkeypatch
 def test_failed_mode_save_keeps_runtime_settings(monkeypatch):
     config = SimpleNamespace(llm_enabled=True, llm_default_preset="correct_asr")
     monkeypatch.setattr("core.client.manager.tray_manager.Config", config)
-    app = SimpleNamespace(base_dir=Path("."), llm=SimpleNamespace(start=Mock()))
+    app = SimpleNamespace(
+        base_dir=Path("."), llm=SimpleNamespace(start=Mock()),
+        operations=SimpleNamespace(toggle_llm=AsyncMock(side_effect=PermissionError)),
+    )
     manager = TrayManager(app)
     manager._schedule = lambda operation: asyncio.run(operation) or True
     hint = Mock()
     monkeypatch.setattr("core.ui.show_status_hint", hint)
-    with patch("core.client.manager.tray_manager.save_llm_options", side_effect=PermissionError):
-        manager._toggle_llm_option("translate")
+    manager._toggle_llm_option("translate")
     assert config.llm_enabled and config.llm_default_preset == "correct_asr"
     app.llm.start.assert_not_called()
     assert "Could not save" in hint.call_args.args[0]
     assert not manager._mode_saving
 
 
-def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, monkeypatch):
+def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, monkeypatch, attach_client_operations):
     from pystray import Icon
     from core.client.llm.config import Catalog, Preset, Provider
     from core.client.llm.service import TextActionService
@@ -148,6 +168,7 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
         app = SimpleNamespace(
             loop=asyncio.get_running_loop(), base_dir=tmp_path, state=SimpleNamespace(dictation_paused=False), llm=service,
         )
+        attach_client_operations(app, config)
         manager = TrayManager(app)
         parent = next(a for a in manager.menu_actions() if a.to_item().text == "LLM actions")
         items = [action.to_item() for action in parent.children]
@@ -160,6 +181,9 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
             # Dispatch from the tray thread through pystray to the real event loop; retain _schedule.
             await asyncio.to_thread(Icon._handler(icon, items[index]))
             await asyncio.wait_for(saved.wait(), timeout=3)
+            app.config_reload.poll()
+            app.config_reload.poll()
+            app.config_reload.apply()
             persisted = ast.parse(path.read_text(encoding="utf-8")).body[0]
             reloaded = SimpleNamespace(**{
                 node.targets[0].id: ast.literal_eval(node.value) for node in persisted.body
@@ -181,7 +205,8 @@ def test_real_menu_dispatch_saves_settings_and_controls_next_request(tmp_path, m
     asyncio.run(run())
 
 
-def test_mode_save_preserves_user_code_comments_bom_and_newlines(tmp_path):
+def test_source_patch_preserves_user_code_comments_bom_and_newlines(tmp_path):
+    from core.settings import patch_source
     path = tmp_path / "config_client.py"
     original = (
         "\ufeffraise AssertionError('must not execute')\r\n"
@@ -193,19 +218,25 @@ def test_mode_save_preserves_user_code_comments_bom_and_newlines(tmp_path):
         "    llm_default_preset = (\r\n        'correct_asr'\r\n    )  # 预设\r\n"
     ).encode("utf-8")
     path.write_bytes(original)
-    save_llm_options(path, correction=True, translation=True)
-    assert path.read_bytes() == original.replace(b"False", b"True")
+    patched = patch_source(original, 'ClientConfig', {
+        'llm_enabled': True, 'llm_correction_enabled': True, 'llm_translation_enabled': True,
+    })
+    assert patched == original.replace(b"False", b"True")
+    # Application saves must reject executable files just as live reload does.
+    with pytest.raises(ValueError, match='Unsupported Python'):
+        save_llm_options(path, correction=True, translation=True)
+    assert path.read_bytes() == original
 
 
 def test_failed_atomic_save_keeps_original_file(tmp_path):
     path = tmp_path / "config_client.py"
     original = b"class ClientConfig:\n    llm_enabled = False\n"
     path.write_bytes(original)
-    with patch("core.client.llm.settings.os.replace", side_effect=PermissionError):
+    with patch("core.settings.os.replace", side_effect=PermissionError):
         with pytest.raises(PermissionError):
             save_llm_options(path, correction=True, translation=True)
     assert path.read_bytes() == original
-    assert list(tmp_path.iterdir()) == [path]
+    assert set(tmp_path.iterdir()) == {path, tmp_path / '.config_client.py.lock'}
 
 
 @pytest.mark.parametrize("source", [

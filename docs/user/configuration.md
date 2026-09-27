@@ -22,6 +22,37 @@
 
 完整字段矩阵见[配置参考](../reference/configuration.md)。一次编辑同时包含可重载与需重启字段时，只应用可重载部分，并列出需重启字段名；磁盘上的设置仍保留。
 
+## 通过命令行校验和修改
+
+在已准备好的项目 Python 环境中执行：
+
+```powershell
+python start_client.py settings check
+python start_client.py settings show
+python start_client.py settings --server check
+```
+
+这些命令不会启动麦克风、模型或窗口，也不会执行本机配置中的 Python 代码。
+`show` 输出已保存值和 `revision`，凭据字段会隐藏。它只知道文件状态，不会把磁盘配置
+当作另一个正在运行的进程已经生效的配置，因此运行状态字段显示为 `null`。
+
+保存时提供上次读取的版本和要修改的字段。下面的 PowerShell 示例将界面语言改为中文，
+并用 `-` 从管道读取 JSON，避免 Windows 旧版命令行对 JSON 引号的处理差异：
+
+```powershell
+$settingsView = python start_client.py settings show | ConvertFrom-Json
+'{"ui_language":"zh-CN"}' | python start_client.py settings set - --revision $settingsView.revision
+```
+
+命令会校验整份候选文件，保留注释、换行和未修改的值。如果配置已被其他编辑器修改，
+保存会被拒绝；重新读取并确认新内容后再保存。非法值或保存失败不会覆盖原文件。
+列表或字典的值内部带有注释时，整体修改该字段会提示改用文件编辑，避免丢失注释。
+包含自定义执行逻辑的配置仍可按原方式启动和手工编辑，但结构化保存要求先整理为声明式配置。
+
+托盘的语言和 LLM 开关也使用同一保存接口。连续点击会修改上次保存的值；菜单勾选仍表示
+当前生效值，任务未结束时两者可能暂时不同。完成保存不等于立即生效，仍遵守上面的任务边界
+和重启要求。Provider、预设 TOML 的编辑方式暂时不变。
+
 ## 选择录音目录
 
 `save_audio=True` 才保存录音。`audio_dir` 决定新录音位置：

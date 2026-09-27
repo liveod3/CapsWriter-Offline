@@ -14,6 +14,13 @@ CapsWriter separates capture and presentation from inference. The WebSocket cont
 
 `rebuild-srt` takes a separate local path: edited TXT plus timed JSON produces new SRT without audio capture or inference.
 
+`settings` takes a file-only path through `core/settings_cli.py` before importing
+local executable configuration, audio or UI modules. Shared `SettingsService`
+transactions validate and persist candidates; `ClientOperations` adapts desktop
+actions to the existing client loop and resource owners. The reloader alone
+publishes live values at application-owned task boundaries. See the
+[shared settings contract](../reference/configuration.md#shared-settings-interface).
+
 ## Keep resource ownership explicit
 
 | Owner | Resources and responsibilities |

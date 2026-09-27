@@ -104,6 +104,8 @@ class CapsWriterClient:
             self.base_dir / 'config_client.py', config_client, config_client_template,
             'ClientConfig', CLIENT_LIVE, self._report_config,
         )
+        from core.client.operations import ClientOperations
+        self.operations = ClientOperations(self)
 
     def _report_config(self, message):
         from core.i18n import localize_notice

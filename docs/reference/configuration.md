@@ -136,3 +136,66 @@ snapshot before importing server modules. They do not reread a partially edited
 configuration or silently adopt pending model/resource changes.
 
 Manual acceptance: [P1 validation checklist](../validation/P1-recording-storage-config-reload.md).
+
+## Shared settings interface
+
+`core/settings.py` exposes `SettingsService` to file editors. The tray uses its
+async adapter in `core/client/operations.py`; `start_client.py settings` uses the
+same transaction and validator without starting the application. Future GUI code
+can use the adapter without importing tray widgets or writing configuration globals.
+
+| Operation | Contract |
+| --- | --- |
+| `read()` | Return detached saved/effective values, a SHA-256 source revision, pending live fields, restart-required fields and a controlled error if the file is invalid |
+| `validate(changes, revision=...)` | Validate the entire candidate and preview its differences without writing; retain the base revision for saving |
+| `save(changes, revision=...)` | Reject a stale revision, validate, preserve unrelated source and atomically replace the file; return saved state without publishing it |
+
+Changes map field names to literal values in `ClientConfig` or `ServerConfig`.
+Other template classes and metadata participate in validation/restart reporting;
+edit those advanced expressions through the existing file editor. Unsupported
+executable configurations remain supported at ordinary startup, but shared saves
+reject them instead of executing or rewriting them. Simplify them to the accepted
+declarative subset before using structured edits. No static-format migration occurs.
+
+Snapshots contain private configuration values and must not be logged or exported
+indiscriminately. Their representations omit values. CLI `show` redacts credentials
+and reports `effective`, `pending` and `restart_required` as `null`: an independent
+file-editing process cannot inspect another process's current state. An attached
+service reports actual process-local effective values. Pending fields are saved
+live values that differ from effective values, including the debounce interval;
+they are not a claim that publication has already been scheduled. Invalid files
+have no saved candidate or pending/restart classification; attached effective
+values remain available.
+
+Writers serialize using a persistent sibling `.config_client.py.lock` or
+`.config_server.py.lock` and compare exact source bytes again before replacement.
+A stale editor must reload and reapply its changes; there is no silent merge.
+Temporary files are cleaned after normal success/failure. Comments, UTF-8 BOM,
+line endings, credential expressions and unrelated values survive literal edits.
+Unchanged literals are not rewritten. A changed compound value containing internal
+comments is rejected with a file-editing hint rather than discarding those comments;
+this first interface does not attempt comment-aware list/dictionary restructuring.
+External editors do not honor the lock: edits observed before the final comparison
+are rejected, but no portable filesystem transaction can exclude an uncooperative
+editor in the final compare/replace interval. Atomic replacement prevents partial
+files produced by this writer, not every external write race.
+
+An attached save revokes pending and in-flight reload candidates. Publication still
+waits for two stable polls and the existing task boundary. The publication lock
+covers only in-memory state; file I/O and validation run outside it. Closed reloaders
+reject new saves and publication. A save already replacing the file may finish
+during shutdown; that does not change the closed application's effective settings.
+
+`ClientOperations` provides async read/validate/save, language/LLM toggles, pause
+and microphone reconnect operations. Call it on the client loop or use `submit()`
+from another UI thread and observe the returned future. Saving toggles uses saved
+values so repeated clicks during an active task accumulate correctly; menu checks
+continue to show effective values. Pause/reconnect delegate to existing owners.
+Filesystem/clipboard presentation actions remain in the tray adapter. No remote
+control protocol or model-process ownership change is introduced.
+
+Provider/preset TOML retains its existing loader, comments, secrets and request
+snapshots; this increment does not rewrite those files. Structured TOML editing
+belongs to the subsequent prompt/preset and GUI work, without executing legacy Python
+roles. See the [user CLI procedure](../user/configuration.md) and
+[validation record](../validation/P1-shared-settings.md).

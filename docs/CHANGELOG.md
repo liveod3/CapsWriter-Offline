@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026-09-27 - Unreleased, shared settings interface accepted
+
+- Share whole-candidate validation, revision-checked saves and saved/effective/pending/restart state across tray operations, file-only CLI and future GUI adapters. Preserve task-boundary publication, source comments and credentials; reject stale editors and unsafe compound-comment replacements.
+- Add client operations for settings, language/LLM switches, pause and microphone reconnect, with controlled failure feedback. Settings CLI commands do not import executable local configuration, audio or UI.
+- Accepted by the user with commit authorized. Final default suite: 761 passed, 8 deselected; preceding coverage rerun: 760 passed, 85.22% configured coverage. Static checks passed. A timing-dependent existing cancellation test and remaining desktop/packaged checks are documented in the [acceptance record](validation/P1-shared-settings.md).
+
 ## 2026-09-27 - Unreleased, LLM diagnostic granularity accepted
 
 - Correlate LLM actions with dictation tasks and record request stages, available transport timings, configuration revisions, selected response headers, byte/parse states, token usage and terminal outcomes independently of cost tracking.

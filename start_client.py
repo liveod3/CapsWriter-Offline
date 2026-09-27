@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from core.client.cli import parse_client_command
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -13,6 +12,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if arguments[:1] == ['--capture-caret']:
         from core.client.caret_worker import main as capture_main
         return capture_main(arguments[1:])
+    if arguments[:1] == ['settings']:
+        from core.settings_cli import main as settings_main
+        return settings_main(arguments[1:])
+    from core.client.cli import parse_client_command
     command = parse_client_command(arguments)
 
     # Keep help, version, and argument errors independent of audio and UI imports.

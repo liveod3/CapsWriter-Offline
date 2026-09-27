@@ -175,6 +175,9 @@ logs/
 # Local configuration
 /config_client.py
 /config_server.py
+/.config_client.py.lock
+/.config_server.py.lock
+/.settings-*
 /LLM/providers.toml
 /LLM/costs.toml
 /llm-costs/

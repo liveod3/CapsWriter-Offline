@@ -13,6 +13,8 @@ import hashlib
 import math
 import os
 import operator
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from core.i18n import Notice
@@ -111,6 +113,8 @@ def read_settings(source: bytes, path: Path) -> dict:
                 and not node.bases
                 and not node.decorator_list
             ):
+                if node.name in result:
+                    raise CandidateError(Notice('validation.config_reload.duplicate_configuration_assignment'))
                 values = assignments(node.body, dict(scope))
                 scope[node.name] = SimpleNamespace(**values)
                 result[node.name] = values
@@ -278,6 +282,43 @@ def validate_settings(values, defaults, section):
             raise CandidateError(Notice('validation.config_reload.websocket_message_limit_cannot_contain_configured_audio'))
 
 
+def read_source(path):
+    """Bound reads before allocating or parsing a configuration file."""
+    with Path(path).open('rb') as stream:
+        source = stream.read(1024 * 1024 + 1)
+    if len(source) > 1024 * 1024:
+        raise CandidateError(Notice('validation.config_reload.configuration_file_too_large'))
+    return source
+
+
+def prepare_settings(source, path, defaults, required, section):
+    """Validate the entire declarative candidate without executing local code."""
+    if len(source) > 1024 * 1024:
+        raise CandidateError(Notice('validation.config_reload.configuration_file_too_large'))
+    parsed = read_settings(source, path)
+    for group, fields in required.items():
+        if not isinstance(parsed.get(group), dict) or not fields <= parsed[group].keys():
+            raise CandidateError(Notice('validation.config_reload.incomplete_configuration_existing_fields_were_removed'))
+    values = copy.deepcopy(defaults)
+    for group in values:
+        if group not in parsed:
+            continue
+        if not isinstance(parsed[group], dict) or parsed[group].keys() - values[group].keys():
+            raise CandidateError(Notice('validation.config_reload.unknown_configuration_field_restart_required'))
+        values[group].update(parsed[group])
+    if section not in parsed:
+        raise CandidateError(Notice('validation.config_reload.incomplete_configuration_missing_class'))
+    validate_settings(values, defaults, section)
+    return values, parsed
+
+
+def restart_fields(values, current, section, live):
+    return [
+        f'{group}.{name}' for group in values for name in values[group]
+        if (group != section or name not in live) and values[group][name] != current[group][name]
+    ]
+
+
 class ConfigReloader:
     """Prepare stable files off-loop and publish on the application's owner loop."""
 
@@ -320,83 +361,96 @@ class ConfigReloader:
         self.pending = None
         self.task = None
         self.last_error = None
+        self._lock = threading.RLock()
+        self._generation = 0
+        self._editing = False
+
+    def prepare(self, source):
+        """Validate detached bytes using the same schema as live reload."""
+        with self._lock:
+            required = copy.deepcopy(self.required)
+        return prepare_settings(source, self.path, self.defaults, required, self.section)
+
+    def effective(self):
+        """Return a detached snapshot; never expose mutable application settings."""
+        with self._lock:
+            return copy.deepcopy(self.current)
+
+    @contextmanager
+    def editing(self):
+        """Revoke pending/in-flight candidates while a cooperating writer saves."""
+        with self._lock:
+            if self._closed:
+                raise CandidateError(Notice('settings.stopped'))
+            self._generation += 1
+            self._editing = True
+            self.seen = self.processed = self.pending = None
+        try:
+            yield
+        finally:
+            with self._lock:
+                self._editing = False
 
     def poll(self):
         """Require identical bytes on two polls; newer edits revoke pending data."""
-        if self._closed:
-            return
+        with self._lock:
+            if self._closed or self._editing:
+                return
+            generation = self._generation
         try:
-            source = self.path.read_bytes()
-            if self._closed:
-                return
-            if len(source) > 1024 * 1024:
-                raise CandidateError(Notice('validation.config_reload.configuration_file_too_large'))
+            source = read_source(self.path)
             digest = hashlib.sha256(source).digest()
-            if digest != self.seen:
-                self.seen, self.pending = digest, None
-                self.processed = None
-                return
-            if digest == self.processed:
-                return
-            self.processed = digest
-            parsed = read_settings(source, self.path)
-            for group, fields in self.required.items():
-                if group not in parsed or not fields <= parsed[group].keys():
-                    raise CandidateError(Notice('validation.config_reload.incomplete_configuration_existing_fields_were_removed'))
-            values = copy.deepcopy(self.defaults)
-            for group in values:
-                if group not in parsed:
-                    if group in self.required:
-                        raise CandidateError(Notice('validation.config_reload.incomplete_configuration_missing_class'))
-                    continue
-                unknown = parsed[group].keys() - values[group].keys()
-                if unknown:
-                    raise CandidateError(Notice('validation.config_reload.unknown_configuration_field_restart_required'))
-                values[group].update(parsed[group])
-            validate_settings(values, self.defaults, self.section)
-            self.last_error = None
-            changes = {
-                name: value
-                for name, value in values[self.section].items()
-                if name in self.live and value != self.current[self.section][name]
-            }
-            restart = [
-                f"{g}.{k}"
-                for g in values
-                for k in values[g]
-                if (g != self.section or k not in self.live) and values[g][k] != self.current[g][k]
-            ]
-            restart.extend(key for key, value in self.metadata.items() if parsed.get(key) != value)
+            with self._lock:
+                if self._closed or self._editing or generation != self._generation:
+                    return
+                if digest != self.seen:
+                    self.seen, self.pending = digest, None
+                    self.processed = None
+                    return
+                if digest == self.processed:
+                    return
+                self.processed = digest
+            values, parsed = self.prepare(source)
+            with self._lock:
+                if self._closed or self._editing or generation != self._generation or self.seen != digest:
+                    return
+                self.last_error = None
+                changes = {
+                    name: value
+                    for name, value in values[self.section].items()
+                    if name in self.live and value != self.current[self.section][name]
+                }
+                restart = restart_fields(values, self.current, self.section, self.live)
+                restart.extend(key for key, value in self.metadata.items() if parsed.get(key) != value)
+                self.pending = changes or None
+                self.required = {g: set(f) for g, f in parsed.items() if g in self.defaults}
             if restart:
-                self.report(
-                    Notice('config.restart', fields=", ".join(sorted(restart)))
-                )
+                self.report(Notice('config.restart', fields=", ".join(sorted(restart))))
             if changes:
-                self.pending = changes
-                self.report(
-                    Notice('config.pending', fields=", ".join(sorted(changes)))
-                )
-            self.required = {g: set(f) for g, f in parsed.items() if isinstance(f, dict)}
+                self.report(Notice('config.pending', fields=", ".join(sorted(changes))))
         except Exception as exc:
-            self.pending = None
-            if isinstance(exc, OSError):
-                self.seen = self.processed = None
             message = exc.args[0] if isinstance(exc, CandidateError) else type(exc).__name__
-            if self.last_error != (self.seen, message):
-                self.report(
-                    Notice('config.rejected', reason=message)
-                )
+            with self._lock:
+                if self._closed or self._editing or generation != self._generation:
+                    return
+                self.pending = None
+                if isinstance(exc, OSError):
+                    self.seen = self.processed = None
+                repeated = self.last_error == (self.seen, message)
                 self.last_error = (self.seen, message)
+            if not repeated:
+                self.report(Notice('config.rejected', reason=message))
 
     def apply(self):
         """Caller must hold its task-admission lock; no await or I/O here."""
-        if not self.pending:
-            return ()
-        changes, self.pending = self.pending, None
-        for name, value in changes.items():
-            setattr(self.target, name, value)
-        self.current[self.section].update(copy.deepcopy(changes))
-        return tuple(sorted(changes))
+        with self._lock:
+            if self._closed or self._editing or not self.pending:
+                return ()
+            changes, self.pending = self.pending, None
+            for name, value in changes.items():
+                setattr(self.target, name, value)
+            self.current[self.section].update(copy.deepcopy(changes))
+            return tuple(sorted(changes))
 
     async def watch(self, publish):
         while True:
@@ -409,8 +463,10 @@ class ConfigReloader:
         self.task = asyncio.create_task(self.watch(publish))
 
     async def close(self):
-        self._closed = True
-        self.pending = None
+        with self._lock:
+            self._closed = True
+            self._generation += 1
+            self.pending = None
         if self.task is not None:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)

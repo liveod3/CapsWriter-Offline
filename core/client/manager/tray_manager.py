@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from core.i18n import LANGUAGES, Notice, lazy, tr
 
-import asyncio
 import os
 import subprocess
 from pathlib import Path
 
 from config_client import ClientConfig as Config
-from core.client.llm.settings import llm_options, save_llm_options
+from core.client.llm.settings import llm_options
 from core.ui.menu_model import MenuAction
 from core.diagnostics import storage_path
 from . import logger
@@ -195,33 +194,33 @@ class TrayManager:
             stop_tray()
 
     def _toggle_pause(self):
-        self._schedule(asyncio.to_thread(self.app.toggle_dictation_pause))
+        self._schedule(self.app.operations.toggle_pause())
 
     def _reconnect(self):
         async def reopen():
-            if self.state.recording:
+            notice = await self.app.operations.reconnect_microphone()
+            if notice:
                 from core.ui import show_status_hint
-
-                show_status_hint(
-                    tr('mic.finish_first'), duration_ms=2000
-                )
-                return
-            if not self.state.dictation_paused:
-                await asyncio.to_thread(self.app.stream.reopen)
+                from core.i18n import localize_notice
+                show_status_hint(localize_notice(notice), duration_ms=2000)
 
         self._schedule(reopen())
 
     def _schedule(self, coroutine):
-        loop = self.app.loop
-        if loop.is_closed() or getattr(self.app, "_stopping", False):
-            coroutine.close()
+        future = self.app.operations.submit(coroutine)
+        if future is None:
             return False
-        try:
-            asyncio.run_coroutine_threadsafe(coroutine, loop)
-            return True
-        except RuntimeError:
-            coroutine.close()
-            return False
+
+        def completed(result):
+            if result.cancelled() or getattr(self.app, '_stopping', False):
+                return
+            error = result.exception()
+            if error is not None:
+                logger.warning(Notice('diagnostic.tray_manager.action_failed'), type(error).__name__)
+                self._save_failure(error, 'settings.action_failed', duration_ms=2500)
+
+        future.add_done_callback(completed)
+        return True
 
     def _copy_result(self):
         if self.state.last_output_text:
@@ -249,20 +248,19 @@ class TrayManager:
 
     def _set_language(self, language):
         async def save():
-            from core.client.llm.settings import save_ui_language
             from core.ui import show_status_hint
 
             if self._mode_saving:
                 return
             self._mode_saving = True
             try:
-                await asyncio.to_thread(save_ui_language, self.app.base_dir / 'config_client.py', language)
+                await self.app.operations.set_language(language)
                 if not getattr(self.app, '_stopping', False):
                     show_status_hint(tr('language.saved'), duration_ms=2500)
             except (OSError, ValueError, SyntaxError) as exc:
                 logger.warning(Notice('diagnostic.tray_manager.cannot_save_ui_language'), type(exc).__name__)
                 if not getattr(self.app, '_stopping', False):
-                    show_status_hint(tr('language.failed'), duration_ms=3000)
+                    self._save_failure(exc, 'language.failed', duration_ms=3000)
             finally:
                 self._mode_saving = False
 
@@ -276,31 +274,24 @@ class TrayManager:
                 return
             self._mode_saving = True
             try:
-                options = llm_options(Config)
-                if preset_id is None:
-                    active = not all(options.values())
-                    options = dict.fromkeys(options, active)
-                else:
-                    options[preset_id] = not options[preset_id]
-                await asyncio.to_thread(
-                    save_llm_options, self.app.base_dir / "config_client.py",
-                    correction=options["correct_asr"], translation=options["translate"],
-                )
+                await self.app.operations.toggle_llm(preset_id)
                 if getattr(self.app, "_stopping", False):
                     return
-                if hasattr(self.app, 'config_reload'):
-                    show_status_hint(tr('llm.saved_pending'), duration_ms=2500)
-                else:
-                    Config.llm_correction_enabled = options["correct_asr"]
-                    Config.llm_translation_enabled = options["translate"]
-                    Config.llm_enabled = any(options.values())
-                    if Config.llm_enabled:
-                        self.app.llm.start()
-                    show_status_hint(tr('llm.saved'), duration_ms=1600)
+                show_status_hint(tr('llm.saved_pending'), duration_ms=2500)
             except (OSError, ValueError, SyntaxError) as exc:
                 logger.warning(Notice('diagnostic.tray_manager.cannot_save_llm_options'), type(exc).__name__)
-                show_status_hint(tr('llm.save_failed'), duration_ms=2500)
+                if not getattr(self.app, '_stopping', False):
+                    self._save_failure(exc, 'llm.save_failed', duration_ms=2500)
             finally:
                 self._mode_saving = False
 
         self._schedule(save())
+
+    @staticmethod
+    def _save_failure(exc, fallback, *, duration_ms):
+        from core.config_reload import CandidateError
+        from core.i18n import localize_notice
+        from core.ui import show_status_hint
+
+        message = localize_notice(exc.args[0]) if isinstance(exc, CandidateError) else tr(fallback)
+        show_status_hint(message, duration_ms=duration_ms)

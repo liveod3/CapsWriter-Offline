@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 from core.i18n import tr, set_language
-from core.i18n.argparse import localize_parser_error
+from core.i18n.argparse import LocalizedArgumentParser
 
 import argparse
 import sys
@@ -22,32 +22,10 @@ class ClientMode(str, Enum):
     MIC = "mic"
     TRANSCRIBE = "transcribe"
     REBUILD_SRT = "rebuild-srt"
+    SETTINGS = "settings"
 
 
 OUTPUT_FORMATS = frozenset({"srt", "txt", "json", "merge"})
-
-
-class LocalizedHelpFormatter(argparse.HelpFormatter):
-    def start_section(self, heading):
-        heading_id = {'options': 'cli.options', 'positional arguments': 'cli.positionals'}.get(heading)
-        super().start_section(tr(heading_id) if heading_id else heading)
-
-    def add_usage(self, usage, actions, groups, prefix=None):
-        super().add_usage(usage, actions, groups, tr('cli.usage') if prefix is None else prefix)
-
-
-class LocalizedArgumentParser(argparse.ArgumentParser):
-    """Localize product help without changing argparse's process-global gettext."""
-
-    def __init__(self, *args, **kwargs):
-        kwargs.setdefault('formatter_class', LocalizedHelpFormatter)
-        kwargs['add_help'] = False
-        super().__init__(*args, **kwargs)
-        self.add_argument('-h', '--help', action='help', help=tr('cli.help'))
-
-    def error(self, message):
-        self.print_usage(sys.stderr)
-        self.exit(2, tr('cli.error', prog=self.prog, message=localize_parser_error(message)))
 
 
 @dataclass(frozen=True)
@@ -60,6 +38,7 @@ class ClientCommand:
     recursive: bool = True
     text_file: Path | None = None
     json_file: Path | None = None
+    settings_args: tuple[str, ...] = ()
 
 
 def configured_output_formats() -> frozenset[str]:
@@ -122,6 +101,8 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
+    from core.settings_cli import add_settings_parser
+    add_settings_parser(subparsers)
     subparsers.add_parser("mic", help=tr('cli.mic'))
 
     transcribe = subparsers.add_parser(
@@ -239,6 +220,9 @@ def parse_client_command(
     arguments = _normalize_compatibility_args(parser, arguments, startup_cwd)
     namespace = parser.parse_args(arguments)
     mode = ClientMode(namespace.command)
+
+    if mode is ClientMode.SETTINGS:
+        return ClientCommand(mode=mode, settings_args=tuple(arguments[1:]))
 
     if mode is ClientMode.MIC:
         return ClientCommand(mode=mode)
