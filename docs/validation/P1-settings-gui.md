@@ -2,6 +2,110 @@
 
 Date: 2026-09-27; acceptance updated 2026-09-28. Status: the user accepted the functional source GUI baseline and authorized committing it. Physical desktop and complete packaged-release checks remain separate follow-ups. The reported startup recording symptom still needs clarification between an actual Recording/red-dot state and Windows microphone-use indication. The preceding composable-prompt work was accepted and committed as `58727c6`; this record concerns the GUI, client desktop entry and integrated Tk shutdown work.
 
+## Provider selection autosave
+
+Accepted by the user on 2026-09-28 with commit authorized, covering the final
+Text processing, configured-provider details, master-switch gating and autosave
+implementation. Remove the separate save
+button. User activation of the provider dropdown immediately submits a serialized,
+revision-checked save. Programmatic loading and metadata refresh do not write.
+The controls are briefly disabled during the save, avoiding overlapping selections.
+Failure is shown inline and retains the draft; selecting the same choice retries.
+Queued/active saves finish before close or exit; failure cancels pending exit.
+Next requests read the saved provider, while in-flight snapshots stay unchanged.
+Validation: **1018 passed, 11 deselected** in the default suite using the existing
+Python 3.11.15 environment. New synthetic tests cover keyboard activation, no
+writes on refresh/unchanged choice, inline failure and same-choice retry, queued
+polling, external conflicts, and close/exit success/failure. Syntax, Ruff,
+configured mypy, language/docs and diff checks passed. English/Chinese off/on
+renders at 800x600, 1120x860 and 1440x900 passed spacing/overflow checks; the button
+is absent. No real provider calls or user configuration writes were performed.
+Physical mixed-DPI desktop interaction remains manual validation.
+
+## Provider-only selection and read-only details
+
+Historical implementation stage dated 2026-09-28; superseded by the accepted
+provider-autosave implementation above. This supersedes the model
+editor and per-preset model override described in the historical stages below.
+The GUI only chooses a configured provider; the model remains fixed in that
+provider configuration. Below the selector, a read-only panel shows the model,
+API type and configured rates with currency, per-million token units and update
+date. Missing, invalid and expired rates are distinguished. No price lookup or
+provider request occurs. Rate and credential refresh preserves selection drafts.
+Provider help and selection have an explicit 20-pixel minimum layout gap. Master
+switch gating and preservation of advanced presets remain in place.
+
+Verification: **1011 passed, 11 deselected** in the default suite on the existing
+`capswriter` environment, Python 3.11.15. Syntax, Ruff, configured mypy, internal
+language, documentation and diff checks passed. Synthetic boundary checks cover
+exact endpoint/model rate matching, zero versus unknown, invalid/expired rates,
+metadata refresh, provider-owned request models and untouched connection/translation
+configuration. English and Simplified Chinese off/on layouts at 800x600, 1120x860
+and 1440x900 passed horizontal-overflow and help-spacing checks; representative
+renders were visually inspected. No actual user configuration, live provider
+requests, microphone input or UI Automation capture was used. Physical mixed-DPI
+interaction and live service connectivity remain outside this verification.
+
+## Configured providers and the LLM master switch
+
+Historical implementation stage dated 2026-09-28; superseded by the accepted
+provider-autosave implementation above. Remove the expandable provider
+editor from the GUI. Keep selection from the existing catalog, with disabled
+missing-credential entries, preserved saved selections and empty-list guidance.
+Credential readiness follows explicit environment-variable precedence in the
+request process; it is not an endpoint health check. No provider configuration is
+created or changed merely by opening or selecting an entry.
+
+The LLM master switch disables complete rows/cards for model selection, cleanup,
+caret context, LLM record permissions, context diagnostic copies and accounting.
+The switch remains usable. Disabled labels, inputs, help and toggles are muted;
+values and model drafts survive off/on transitions, reloads and foreground-operation
+completion. Other audio/ASR/transcript settings remain independent. Regression
+checks cover these transitions and prove provider selection preserves connection
+files and other presets. The capture entry point now checks the LLM master switch
+before dispatching any UI Automation work; disabling it suppresses the shared
+ASR/LLM context snapshot without resetting the saved context permission. Final
+verification: **1005 passed, 11 deselected** in the final default suite. It includes off/on layouts in English and Simplified Chinese at
+800x600, 1120x860 and 1440x900 with no horizontal overflow. Syntax, Ruff, configured
+mypy, language/docs and diff checks passed. The capture/privacy tests passed
+121 cases after updating the existing capture fixture to explicitly enable LLM.
+No real user configuration, provider request, audio or UI Automation capture was
+used. Physical mixed-DPI interaction and real service connectivity remain manual
+scope.
+
+## Text processing and model selection
+
+Historical implementation stage dated 2026-09-28; superseded by the accepted
+provider-autosave implementation above. The common page now exposes
+Text cleanup with three strengths, a distinct five-module group, independent
+caret controls and compact bilingual help/dividers. General and Dictation were
+accepted and committed first as `a468e9e`.
+
+The fixed cleanup model selection and expandable connection editor preserve
+separate saves, revisions, other drafts and existing secrets. Tests cover new
+connections without model/key duplication, per-action model overrides and legacy
+fallback, malformed/unresolved models, translation isolation, custom prompts and
+context permissions, external changes, missing cleanup entries and effective
+preset-file paths opened by the parent GUI. Runtime mocks check that diagnostics,
+accounting and transport use the same resolved model. Advanced defaults and
+capability switches remain unchanged and receive contextual guidance.
+
+Synthetic English and Simplified Chinese layouts at 800x600, 1120x860 and 1440x900
+were inspected with provider management collapsed and expanded. The offscreen
+renderer explicitly registered system fonts for accurate glyph metrics; production
+font policy is unchanged. No real client/server, microphone, transcript history,
+caret reads, provider requests or writes to actual user configuration were used.
+Physical mixed-DPI/focus/accessibility, live model compliance and packaging remain
+manual release scope.
+
+Verification: **997 passed, 11 deselected** in the final default suite; the focused
+GUI/text-action/composition suite passed **185 tests**. Syntax, Ruff, configured
+mypy, internal-language, documentation and diff checks passed. The initial baseline
+run hit inaccessible shared pytest temporary directories; both the successful
+985-test baseline and final run used fresh ignored workspace test directories.
+The existing native audio tests and complete packaging were not repeated because
+this increment does not change audio ownership, native callbacks or packaging.
+
 ## General and Dictation acceptance
 
 On 2026-09-28 the user accepted the General and Dictation settings refinements and authorized committing the accumulated settings/autosave/help/device work before the Text page redesign. Physical hotplug, mixed-DPI and packaged-release checks remain separate release scope.

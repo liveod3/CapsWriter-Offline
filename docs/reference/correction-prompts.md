@@ -30,6 +30,19 @@ and set `prompt_mode = "correction"`; to revert, select `custom` and restore the
 full prompt. Provider configuration and legacy Python role files are not rewritten
 or executed for migration.
 
+## Model selection and the settings page
+
+The GUI calls the base feature **Text cleanup** and keeps its three editing
+strengths and five optional modules separate from advanced preset editing.
+Translation and full custom prompts remain file-configured actions; the GUI does
+not stack cleanup before them or rewrite existing routing.
+
+Each provider defines its required `model` alongside protocol, URL, timeout and
+credentials. Presets select a provider ID; they do not override its model. The GUI
+selects only a configured provider for cleanup and displays its model and locally
+configured rates read-only. Saving that selection leaves other presets untouched.
+The provider model is shared by the request, diagnostics and cost accounting.
+
 ## Shared client settings
 
 These preferences belong to `ClientConfig`, not to credentials or caret capture.
@@ -76,7 +89,9 @@ is used by transport, opt-in diagnostic text copies, saved action records and
 the existing configuration-revision observation. No additional provider call,
 clipboard read, history read or context collection is introduced.
 
-Reference transmission requires both `ClientConfig.caret_context_enabled` and
+Caret capture now also requires `ClientConfig.llm_enabled`; disabling the master
+switch suppresses capture of the snapshot used by both ASR and LLM. Existing
+preferences are retained for re-enabling. Reference transmission requires both `ClientConfig.caret_context_enabled` and
 the selected preset's `use_caret_context`. Composition preferences do not enable
 either permission. The service also enforces both gates for callers supplying a
 reference directly. Insertion-point punctuation rules are injected only when both

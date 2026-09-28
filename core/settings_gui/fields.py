@@ -9,8 +9,7 @@ PAGES = {
         'mic_seg_duration': float, 'mic_seg_overlap': float,
     },
     'text': {
-        'llm_enabled': bool, 'llm_correction_enabled': bool, 'llm_translation_enabled': bool,
-        'llm_default_preset': None, 'llm_correction_level': ('minimal', 'natural', 'fluent'),
+        'llm_enabled': bool, 'llm_correction_level': ('minimal', 'natural', 'fluent'),
         'llm_correction_numbers': bool, 'llm_correction_punctuation': bool,
         'llm_correction_fillers': bool, 'llm_correction_english': bool,
         'llm_correction_homophones': bool, 'caret_context_enabled': bool,

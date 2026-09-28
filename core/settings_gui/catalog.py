@@ -1,6 +1,7 @@
 """Comment-preserving, conflict-detecting transactions for static LLM files."""
 
 from dataclasses import asdict
+from datetime import date
 import os
 from pathlib import Path
 import re
@@ -12,6 +13,7 @@ from core.config_reload import read_source
 from core.file_lock import file_lock
 from core.i18n import Notice
 from core.llm_config import parse_catalog
+from core.llm_accounting.config import load_cost_config, select_rate
 from core.settings import SettingsConflict, source_revision
 
 
@@ -37,9 +39,24 @@ class CatalogEditor:
         docs, revision = self.documents()
         catalog = self.validate(docs)
         providers = {}
+        try:
+            costs = load_cost_config(self.directory)
+        except (OSError, ValueError, TypeError):
+            costs = None
         for key, provider in catalog.providers.items():
             values = asdict(provider)
             values['has_api_key'] = bool(values.pop('api_key'))
+            # Match transport credential precedence without returning any key value
+            # or probing endpoints. Keyless local services remain selectable.
+            credential = (os.environ.get(provider.api_key_env, '') if provider.api_key_env
+                          else provider.api_key)
+            values['credentials_ready'] = (credential is None or bool(credential.strip()))
+            rate = select_rate(costs, provider, date.today()) if costs is not None else None
+            values['pricing'] = ({name: rate[name] for name in (
+                'currency', 'input', 'output', 'cached_input', 'cache_write', 'reasoning',
+                'updated', 'valid_until', 'expired') if name in rate} if rate else None)
+            values['pricing_status'] = ('invalid' if costs is None else 'missing' if rate is None
+                                        else 'expired' if rate['expired'] else 'configured')
             providers[key] = values
         return {'revision': revision, 'providers': providers,
                 'presets': {key: asdict(preset) for key, preset in catalog.presets.items()}}

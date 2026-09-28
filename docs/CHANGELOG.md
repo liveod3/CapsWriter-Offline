@@ -2,6 +2,12 @@
 
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
+- Accept the final Text processing simplification and provider autosave for commit after user review. Validation: 1018 tests passed, 11 deselected; static checks and bilingual layouts passed.
+- Save configured provider selection automatically on dropdown activation. Remove the separate save button, show inline failures with retry by reselecting, preserve conflict checks and finish pending writes before close/exit.
+- Hide provider management from the GUI; select existing locally configured connections with credential-readiness guidance and no network probes. Disable related provider, cleanup, context and LLM record options when the master LLM switch is off, preserving all values and drafts.
+
+- Replace Text & presets with Text processing: compact bilingual cleanup controls, separate detail modules and a configured provider selector. Move arbitrary presets to advanced files, preserve custom routing/prompts and use the model fixed in each provider configuration. Show read-only model/rate details below the selector and separate its help button from the control.
+
 - Keep microphone rows stable through initial discovery, retries and failures: remove transient loading text and use a fixed inline status-icon slot for persistent error details. Add subtle separators between individual General settings rows.
 - Simplify microphone choices to one preferred endpoint interface, hiding duplicate host APIs and kernel pins. Automatically refresh from Windows audio-device notifications, coalescing bursts, deferring open menus and retaining existing selections; use slow visible-page fallback if subscription is unavailable.
 

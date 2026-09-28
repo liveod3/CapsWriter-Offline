@@ -286,7 +286,7 @@ def test_caret_capture_metadata_is_safe_in_all_sinks(diagnostics, monkeypatch, f
         }).encode(), b"")
     monkeypatch.setattr("core.client.caret_context.subprocess.Popen", spawn)
     monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), ROOT)
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), ROOT)
     result = asyncio.run(capture.capture(42, task_id="12345678-abcd"))
     assert (CONTEXT in result) == (not failure)
 

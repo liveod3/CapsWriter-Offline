@@ -390,3 +390,52 @@ def test_enabling_after_start_registers_cancel_once_and_stop_cleans_up(monkeypat
     hotkeys.unregister.assert_called_once_with("<esc>")
     service.start()
     hotkeys.register.assert_called_once()
+
+
+@pytest.mark.parametrize('model', [None, True, 12, [], {}])
+def test_catalog_rejects_non_string_provider_models(model):
+    from core.llm_config import parse_catalog
+    providers = {'p': {'kind': 'openai', 'base_url': 'https://example.invalid/v1', 'model': model}}
+    presets = {'correct_asr': {'name': 'Cleanup', 'provider': 'p', 'prompt_mode': 'correction'}}
+    with pytest.raises(ValueError):
+        parse_catalog(providers, presets)
+
+
+def test_provider_model_is_required_even_with_legacy_preset_model():
+    from core.llm_config import parse_catalog
+    providers = {'p': {'kind': 'openai', 'base_url': 'https://example.invalid/v1'}}
+    presets = {'correct_asr': {'name': 'Cleanup', 'provider': 'p', 'prompt_mode': 'correction', 'model': 'unused'}}
+    with pytest.raises(ValueError):
+        parse_catalog(providers, presets)
+
+
+def test_selected_provider_owns_model_for_request_diagnostics_and_costs(monkeypatch):
+    from core.settings_gui.catalog import CatalogEditor
+    editor = CatalogEditor(ROOT / 'LLM')
+    editor.save('presets', 'correct_asr', {'provider': 'local'}, revision=editor.read()['revision'])
+    initial = load_catalog(ROOT / 'LLM')
+    transport = SimpleNamespace(complete=AsyncMock(return_value='result'))
+    service = TextActionService(config(llm_enabled=True), ROOT, transport)
+    prepared_models = []
+    configured_models = []
+    from core.client.llm.diagnostics import RequestDiagnostics
+    configure = RequestDiagnostics.configure
+    def configure_probe(self, provider, *args):
+        configured_models.append(provider.model)
+        return configure(self, provider, *args)
+    monkeypatch.setattr(RequestDiagnostics, 'configure', configure_probe)
+    service.config.llm_cost_tracking = True
+    def prepare(provider, *args):
+        prepared_models.append(provider.model)
+        return None, False
+    monkeypatch.setattr(service.costs, 'prepare', prepare)
+    assert asyncio.run(service.process('original')).processed
+    assert asyncio.run(service.process('Translate: original')).processed
+    cleanup_provider = transport.complete.call_args_list[0].args[0]
+    translation_provider = transport.complete.call_args_list[1].args[0]
+    assert cleanup_provider == initial.providers['local']
+    assert translation_provider == initial.providers['gemini']
+    assert configured_models == prepared_models == [cleanup_provider.model, translation_provider.model]
+    editor.save('presets', 'correct_asr', {'provider': 'gemini'}, revision=editor.read()['revision'])
+    assert asyncio.run(service.process('original')).processed
+    assert transport.complete.call_args.args[0] == translation_provider

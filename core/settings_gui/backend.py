@@ -55,9 +55,13 @@ class Backend:
                 return None
             future = self.operations.submit(self.operations.read_status())
             return future.result(timeout=10) if future else None
-        if method == 'advanced':
+        if method in ('advanced', 'advanced_path'):
             import subprocess
-            subprocess.Popen(['notepad.exe', str(self.root / 'config_client.py')])
+            path = (self.editor().directory / 'presets.toml' if params.get('file') == 'presets'
+                    else self.root / 'config_client.py')
+            if method == 'advanced_path':
+                return str(path)
+            subprocess.Popen(['notepad.exe', str(path)])
             return None
         if method in ('history_query', 'history_read', 'history_open', 'history_open_path'):
             from .history import day_path, query_history, read_history_entry

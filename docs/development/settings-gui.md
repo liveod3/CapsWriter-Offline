@@ -28,9 +28,59 @@ Only changed visible fields are written. Opening and saving another field preser
 
 There is no permanent reload button. Background revision changes refresh clean client forms and clean catalog editors automatically, preserving catalog selection. Client drafts block automatic client-form replacement; either catalog draft blocks catalog replacement. Conflicts preserve the old revision so a save cannot silently overwrite external edits. Only a detected conflict reveals the contextual **Use file version** action, with confirmation before discarding drafts. The ordinary footer shows autosave status and exposes Retry only after a failure. Advanced-file access is on a dedicated sixth settings page.
 
-Client fields autosave after a 600 ms debounce; numeric editing commits on completion. Immediate field validation checks the displayed draft, and the shared service still validates the entire revision-checked atomic write. Invalid drafts block the write. Errors remain inline without modal retry loops. A completed write acknowledges only its submitted values, preserving edits made during I/O for the next save. Programmatic population and catalog choice refresh suppress edit signals. Catalog entries retain explicit Save this entry actions. Client and catalog writes remain separate operations. The GUI does not promise atomic changes across them. Preset preview validates the current unsaved module options and preset patch using the same prompt resolver as requests. It sends no request, reads no caret and modifies no configuration. Existing custom prompts and correction prompts remain distinct; switching to correction mode explicitly removes the full prompt field.
+Client fields autosave after a 600 ms debounce; numeric editing commits on completion. Immediate field validation checks the displayed draft, and the shared service still validates the entire revision-checked atomic write. Invalid drafts block the write. Errors remain inline without modal retry loops. A completed write acknowledges only its submitted values, preserving edits made during I/O for the next save. Programmatic population and catalog choice refresh suppress edit signals. Provider selection saves immediately on user activation of the dropdown. Client and catalog writes remain separate operations. The GUI does not promise atomic changes across them. The backend and CLI retain explicit prompt inspection, but the common GUI no longer exposes arbitrary preset editing or prompt preview. Provider selection edits only the built-in cleanup action provider field; custom prompt text and context permissions remain untouched.
 
 GUI labels retain their startup locale. Language edits save automatically and show a GUI restart explanation, even when the hidden client can publish the locale between tasks. Fully quitting and reopening updates the window and desktop tray; hiding to the tray does not. Common client fields and catalog inputs have adjacent circular help buttons with accessible names/descriptions. Native Qt tooltips display escaped, width-bounded title/body text on hover, with click and keyboard access. Errors and changed-state badges remain inline, while permanent explanations are removed. Short numeric/code/choice fields use bounded widths. Settings groups use two columns once their available width reaches 920 logical pixels and return to one column below it; reflow moves the existing cards without rebuilding fields, changing drafts or dispatching writes.
+
+## Text processing
+
+The common page uses Text cleanup as the user-facing name for the built-in
+`correct_asr` action. Stable IDs, correction prompt composition and capability
+routing remain compatible. The page always offers the cleanup provider and three
+editing strengths, with five prompt modules grouped separately as Cleanup details.
+Caret reference controls remain independent. Translation, arbitrary presets,
+triggers, default routing and separate capability switches are advanced file
+configuration; they are not silently reset by opening or saving this page. A
+contextual notice identifies advanced configurations that bypass composed cleanup.
+
+A fixed provider selector writes only `provider` on `correct_asr`; if that
+entry is absent, selecting a provider creates the standard composed action.
+Provider connection creation, deletion and credential editing are absent from the
+GUI. The selector reads configured entries without probing endpoints or discovering
+models. A content-free `credentials_ready` flag uses the transport's explicit
+environment-variable precedence and permits keyless services; configured-but-empty
+credentials disable that choice. The saved choice remains visible even when it
+is unavailable, and no fallback selection or configuration write occurs on load.
+The selected provider owns the required model ID, protocol, endpoint, credentials
+and timeout. There is no model input or preset model override. A read-only details
+panel displays the configured model, API type and rates. Rates use the existing
+cost configuration and exact endpoint/model matching, with currency, per-million
+token units and update date. Missing, invalid and expired rates receive distinct
+messages; missing rates never imply zero. Optional rate categories appear only
+when configured. Cost/credential metadata refreshes without discarding selection
+drafts, even when catalog revisions have not changed. No live pricing lookup is
+performed. The provider help button and selector have an explicit 20-pixel gap.
+
+Provider selection autosaves on the combo box activation signal with existing
+revision checks. Loading, metadata refresh and reselecting the saved value do not
+write configuration. The serialized foreground transaction briefly disables the
+controls until completion, preventing a later selection from overtaking a write.
+Save failures remain inline and preserve the draft; reselecting retries. Queued
+and active writes complete before close/exit, and failures cancel pending exit.
+The next request reads the new provider; in-flight requests keep their snapshot. The catalog transaction API remains available to file tooling, but
+there is no provider editor in the window. Other client controls keep
+autosave. All visible labels and help use locale resources; API/model/provider IDs
+remain stable. The ASR connection page now contains only the recognition endpoint.
+The LLM master switch immediately gates provider selection, cleanup cards, caret
+controls, LLM records, context diagnostic copies and accounting preferences. Whole
+rows/cards are disabled, with explicit muted label/input/help styling. Values and
+unsaved provider drafts remain intact; loading settings and finishing foreground
+operations reapply the gate. Audio, ordinary transcript history and ASR controls
+remain independent. The capture entry point also checks the LLM master switch,
+so disabled context controls cannot still collect references for ASR. Advanced offers a preset-file action; the running worker resolves the effective
+LLM directory and the GUI owns the external editor process. No model listing,
+provider probe, extra request, caret capture or automatic configuration migration
+is added.
 
 ## Input device and language choices
 

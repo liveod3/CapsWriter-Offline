@@ -24,6 +24,7 @@ QLabel#heroTitle { font-size: 28px; font-weight: 700; }
 QLabel#metric { font-size: 20px; font-weight: 600; }
 QFrame#card { background: #ffffff; border: 1px solid #e7e9f1; border-radius: 12px; }
 QFrame#settingDivider { background: #edf0f5; border: none; }
+QFrame#providerDetails { background: #f7f8fc; border: 1px solid #edf0f5; border-radius: 8px; }
 QFrame#hero { background: #edeefe; border: 1px solid #dedff6; border-radius: 16px; }
 QWidget#footer { background: #ffffff; border-top: 1px solid #e5e7ee; }
 QLabel#state { color: #626a80; font-size: 11px; padding: 3px 6px; }
@@ -95,6 +96,10 @@ QScrollBar::handle:vertical { background: #ccd0df; border-radius: 4px; min-heigh
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
 QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: none; }
 QToolTip { background: #282c40; color: #ffffff; border: none; padding: 6px; }
+QLabel:disabled, QLabel#cardTitle:disabled, QLabel#muted:disabled { color: #9ca2b2; }
+QLineEdit:disabled, QComboBox:disabled, QAbstractSpinBox:disabled {
+    background: #f1f2f6; color: #9ca2b2; border-color: #e5e7ee; }
+QPushButton#fieldHelp:disabled { color: #b5bac6; border-color: #d7dbe4; background: transparent; }
 '''
 
 
@@ -303,6 +308,7 @@ class HomePage(QWidget):
 GROUP_STARTS = {
     'ui_language': 'group.interface', 'language': 'group.microphone',
     'llm_enabled': 'group.llm', 'llm_correction_level': 'group.correction',
+    'llm_correction_numbers': 'group.cleanup_details',
     'caret_context_enabled': 'group.context', 'addr': 'group.connection',
     'paste': 'group.output', 'save_transcripts': 'group.history', 'save_audio': 'group.audio',
     'save_diagnostic_logs': 'group.diagnostics',

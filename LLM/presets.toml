@@ -1,6 +1,6 @@
 # ClientConfig.llm_default_preset selects the default; None requires an explicit trigger.
 [presets.correct_asr]
-name = "Correct transcription"
+name = "Text cleanup"
 provider = "gemini"
 triggers = []
 use_caret_context = true

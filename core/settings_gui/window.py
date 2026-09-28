@@ -9,7 +9,7 @@ import time
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -20,9 +20,9 @@ from .bridge import Disconnected, RemoteError
 from .choices import ConfigChoice, MicrophoneChoice, RecognitionChoice
 from .device_watch import DeviceWatch
 from .fields import PAGES
-from .help_widgets import DeviceNotice, HelpButton, SettingsGroups, field_caption
+from .help_widgets import DeviceNotice, SettingsGroups, field_caption
 from .history_page import HistoryPage
-from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, card, text
+from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, text
 from .shell import show_window
 from .validation import field_errors
 
@@ -43,7 +43,7 @@ def make_input(name, kind):
         widget = Choice()
         for choice in kind:
             widget.addItem(label('choice.' + choice) if choice in ('minimal', 'natural', 'fluent', 'custom', 'correction',
-                                                                 'auto', 'zh-CN', 'en')
+                                                                 'auto', 'zh-CN', 'en', 'openai', 'ollama')
                            else choice, choice)
     elif kind in (int, float):
         widget = IntegerInput() if kind is int else DecimalInput()
@@ -120,6 +120,7 @@ class SettingsWindow(QMainWindow):
         self.catalog = None
         self.fields = {}
         self.field_states = {}
+        self.llm_controls = []
         self.editors = {}
         self.editor_original = {}
         self.editor_ids = {}
@@ -214,22 +215,20 @@ class SettingsWindow(QMainWindow):
             for name, kind in fields.items():
                 if name in GROUP_STARTS:
                     group = groups.add_group(GROUP_STARTS[name])
+                    if page == 'text' and name != 'llm_enabled':
+                        self.llm_controls.append(groups.cards[-1])
                     form = QFormLayout()
                     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
                     form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
                     form.setHorizontalSpacing(20)
-                    form.setVerticalSpacing(6 if page == 'general' else 8)
+                    form.setVerticalSpacing(6 if page in ('general', 'text') else 8)
                     group.addLayout(form)
-                if page == 'general' and form.rowCount():
+                if page in ('general', 'text') and form.rowCount():
                     divider = QFrame()
                     divider.setObjectName('settingDivider')
                     divider.setFixedHeight(1)
                     form.addRow(divider)
                 widget = make_input(name, kind)
-                if name == 'llm_default_preset':
-                    widget = Choice()
-                    widget.setAccessibleName(label(name))
-                    widget.addItem(label('triggers_only'), None)
                 self.fields[name] = (widget, kind)
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
@@ -261,18 +260,13 @@ class SettingsWindow(QMainWindow):
                     row_layout.addWidget(self.device_notice)
                 field_layout.addWidget(state, 0, Qt.AlignmentFlag.AlignLeft)
                 form.addRow(field)
-            if page == 'text':
-                self.add_catalog_editor(content_layout, 'presets')
-                self.preview_button = QPushButton(label('preview'))
-                self.preview_button.clicked.connect(self.preview)
-                content_layout.addWidget(self.preview_button)
-                self.prompt = QPlainTextEdit()
-                self.prompt.setReadOnly(True)
-                self.prompt.setAccessibleName(label('preview'))
-                self.prompt.setMinimumHeight(200)
-                content_layout.addWidget(self.prompt)
-            if page == 'services':
-                self.add_catalog_editor(content_layout, 'providers')
+                if name in ('save_llm_records', 'save_llm_context', 'llm_cost_tracking', 'diagnostic_include_context'):
+                    self.llm_controls.append(field)
+                if name == 'llm_enabled':
+                    self.add_provider_selector(group)
+                    self.cleanup_notice = text('cleanup_advanced', 'muted')
+                    self.cleanup_notice.hide()
+                    group.addWidget(self.cleanup_notice)
             if page == 'diagnostics':
                 self.runtime = QLabel(label('standalone'))
                 self.runtime.setWordWrap(True)
@@ -319,6 +313,9 @@ class SettingsWindow(QMainWindow):
         self.advanced = QPushButton(label('advanced'))
         self.advanced.clicked.connect(self.open_advanced)
         advanced_layout.addWidget(self.advanced, 0, Qt.AlignmentFlag.AlignLeft)
+        presets_file = QPushButton(label('advanced_presets'))
+        presets_file.clicked.connect(lambda: self.request('advanced', {'file': 'presets'}, lambda _: None))
+        advanced_layout.addWidget(presets_file, 0, Qt.AlignmentFlag.AlignLeft)
         advanced_layout.addStretch()
         self.pages.addWidget(advanced_page)
         self.navigation.currentRowChanged.connect(self.navigate)
@@ -355,6 +352,8 @@ class SettingsWindow(QMainWindow):
                       if isinstance(widget, QComboBox) else widget.valueChanged
                       if kind in (int, float) else widget.textChanged)
             signal.connect(self.settings_edited)
+        self.fields['llm_enabled'][0].toggled.connect(self.update_llm_controls)
+        self.update_llm_controls()
         self.thread = threading.Thread(target=self.work, daemon=True, name='settings-worker')
         self.thread.start()
         self.timer = QTimer(self)
@@ -365,92 +364,94 @@ class SettingsWindow(QMainWindow):
         self.poll.start(200)
         self.request('read', {}, self.loaded)
 
-    def add_catalog_editor(self, layout, kind):
-        layout = card(layout, kind)
-        layout.addWidget(text('catalog_edit_help', 'muted'))
-        selector = Choice()
-        selector.setAccessibleName(label(kind))
-        layout.addWidget(selector)
-        specs = ({'name': str, 'provider': str, 'prompt_mode': ('correction', 'custom'),
-                  'triggers': str, 'use_caret_context': bool, 'temperature': float,
-                  'max_tokens': int, 'system_prompt': str} if kind == 'presets' else
-                 {'kind': ('openai', 'ollama'), 'base_url': str, 'model': str,
-                  'timeout': float, 'api_key_env': str, 'api_key': str})
+    def add_provider_selector(self, layout):
+        panel = QWidget()
+        self.llm_controls.append(panel)
+        layout.addWidget(panel)
+        box = QVBoxLayout(panel)
+        box.setContentsMargins(0, 0, 0, 0)
+        box.setSpacing(10)
         form = QFormLayout()
-        form.setVerticalSpacing(14)
-        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
-        layout.addLayout(form)
+        form.setVerticalSpacing(6)
+        box.addLayout(form)
         widgets = {}
-        identifier = QLineEdit()
-        identifier.setAccessibleName(label('identifier'))
-        identifier.setToolTip(label('help.identifier'))
-        identifier.setAccessibleDescription(label('help.identifier'))
-        form.addRow(field_caption('identifier', identifier), identifier)
-        for name, spec in specs.items():
-            widget = QPlainTextEdit() if name in ('system_prompt', 'triggers') else make_input(name, spec)
-            if name == 'provider':
-                widget = Choice()
-                widget.setAccessibleName(label(name))
-            if name == 'triggers':
-                widget.setMaximumHeight(70)
-                widget.setAccessibleName(label(name))
-            if name == 'system_prompt':
-                widget.setMaximumHeight(150)
-                widget.setAccessibleName(label(name))
-            if name == 'api_key':
-                widget.setEchoMode(QLineEdit.EchoMode.Password)
-                widget.setPlaceholderText(label('key_keep'))
-            caption = field_caption(name, widget)
+        for name in ('provider',):
+            widget = Choice()
+            widget.setMaximumWidth(330)
+            widget.setMinimumContentsLength(12)
+            widget.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
+            widget.setAccessibleName(label(name))
             widget.setToolTip(label('help.' + name))
             widget.setAccessibleDescription(label('help.' + name))
-            form.addRow(caption, widget)
-            widgets[name] = (widget, spec)
-        clear_key = QCheckBox(label('key_clear')) if kind == 'providers' else None
-        if clear_key:
-            clear_key.setToolTip(label('help.key_clear'))
-            clear_key.setAccessibleDescription(label('help.key_clear'))
-            clear_row = QHBoxLayout()
-            clear_row.addWidget(clear_key)
-            clear_row.addWidget(HelpButton('key_clear'))
-            clear_row.addStretch()
-            form.addRow(clear_row)
-        buttons = QHBoxLayout()
-        for key, callback in [('new', lambda: self.new_entry(kind)),
-                              ('delete', lambda: self.save_entry(kind, delete=True)),
-                              ('save_entry', lambda: self.save_entry(kind))]:
-            button = QPushButton(label(key))
-            button.setObjectName('primary' if key == 'save_entry' else 'danger' if key == 'delete' else '')
-            button.clicked.connect(callback)
-            buttons.addWidget(button)
-        layout.addLayout(buttons)
-        self.editors[kind] = (selector, identifier, widgets, clear_key)
-        selector.currentTextChanged.connect(lambda _: self.select_entry(kind))
-        if kind == 'presets':
-            widgets['prompt_mode'][0].currentIndexChanged.connect(self.prompt_mode_changed)
+            divider = QFrame()
+            divider.setObjectName('settingDivider')
+            divider.setFixedHeight(1)
+            form.addRow(divider)
+            row = QHBoxLayout()
+            row.setSpacing(20)
+            row.addWidget(field_caption(name, widget))
+            row.addStretch()
+            row.addWidget(widget, 1)
+            form.addRow(row)
+            widgets[name] = (widget, str)
+        details = QFrame()
+        details.setObjectName('providerDetails')
+        details_box = QVBoxLayout(details)
+        details_box.setContentsMargins(14, 12, 14, 12)
+        details_box.setSpacing(8)
+        details_box.addWidget(text('provider_details', 'muted'))
+        info = QFormLayout()
+        info.setHorizontalSpacing(20)
+        info.setVerticalSpacing(7)
+        info.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        details_box.addLayout(info)
+        self.provider_info = {}
+        for key in ('model', 'kind', 'price_input', 'price_output', 'price_cached',
+                    'price_cache_write', 'price_reasoning', 'price_updated'):
+            value = QLabel()
+            value.setTextFormat(Qt.TextFormat.PlainText)
+            value.setWordWrap(True)
+            value.setMinimumWidth(0)
+            value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            value.setAccessibleName(label(key))
+            info.addRow(text(key, 'muted'), value)
+            self.provider_info[key] = value
+        self.provider_info_form = info
+        self.price_note = text('price_note', 'muted')
+        details_box.addWidget(self.price_note)
+        box.addWidget(details)
+        self.provider_notice = text('providers_empty', 'muted')
+        self.provider_notice.hide()
+        box.addWidget(self.provider_notice)
+        self.provider_status = text('autosaving', 'muted')
+        self.provider_status.hide()
+        box.addWidget(self.provider_status)
+        self.editors['presets'] = (None, None, widgets, None)
+        widgets['provider'][0].currentIndexChanged.connect(self.update_provider_details)
+        # Only user activation writes; loading and metadata refresh remain read-only.
+        widgets['provider'][0].activated.connect(self.provider_selected)
 
-    def prompt_mode_changed(self):
-        widgets = self.editors['presets'][2]
-        widgets['system_prompt'][0].setEnabled(widgets['prompt_mode'][0].currentData() == 'custom')
+    def provider_selected(self, *_):
+        self.provider_status.hide()
+        self.save_entry('presets')
+
+    def update_llm_controls(self, *_):
+        enabled = self.fields['llm_enabled'][0].isChecked()
+        for widget in self.llm_controls:
+            widget.setEnabled(enabled)
 
     def entry_values(self, kind):
-        _, identifier, widgets, clear_key = self.editors[kind]
-        values = {name: get_value(widget, spec) for name, (widget, spec) in widgets.items()}
-        if kind == 'presets':
-            values['triggers'] = [v.strip() for v in values['triggers'].splitlines() if v.strip()]
-            if values['prompt_mode'] == 'correction':
-                values.pop('system_prompt')
-        else:
-            if clear_key.isChecked():
-                values['api_key'] = ''
-            elif not values['api_key']:
-                values.pop('api_key')
-        return identifier.text(), values
+        widgets = self.editors[kind][2]
+        return 'correct_asr', {name: get_value(widget, spec) for name, (widget, spec) in widgets.items()}
 
     def entry_dirty(self, kind):
         return kind in self.editor_original and self.entry_values(kind) != self.editor_original[kind]
 
     def entry_changes(self, kind):
         identifier, values = self.entry_values(kind)
+        if kind == 'presets' and identifier not in self.catalog['presets']:
+            return identifier, {**values, 'name': 'Text cleanup', 'prompt_mode': 'correction',
+                                'use_caret_context': True}
         if not self.editor_ids.get(kind):
             return identifier, values
         original = self.editor_original[kind][1]
@@ -461,98 +462,104 @@ class SettingsWindow(QMainWindow):
                                     QMessageBox.StandardButton.Discard | QMessageBox.StandardButton.Cancel,
                                     QMessageBox.StandardButton.Cancel) == QMessageBox.StandardButton.Discard
 
-    def select_entry(self, kind):
-        if self.loading or not self.catalog:
-            return
-        selector = self.editors[kind][0]
-        if self.entry_dirty(kind) and not self.confirm_discard():
-            selector.blockSignals(True)
-            selector.setCurrentText(self.editor_ids.get(kind, ''))
-            selector.blockSignals(False)
-            return
-        self.populate_entry(kind, selector.currentText())
-
     def populate_entry(self, kind, identifier):
-        _, id_field, widgets, clear_key = self.editors[kind]
+        widgets = self.editors[kind][2]
         self.editor_ids[kind] = identifier
-        id_field.setText(identifier)
-        id_field.setReadOnly(bool(identifier))
-        defaults = ({'name': '', 'provider': next(iter(self.catalog['providers']), ''), 'prompt_mode': 'custom',
-                     'triggers': [], 'use_caret_context': False, 'temperature': 0.0,
-                     'max_tokens': 2048, 'system_prompt': ''} if kind == 'presets' else
-                    {'kind': 'openai', 'base_url': '', 'model': '', 'timeout': 30.0,
-                     'api_key_env': '', 'api_key': ''})
+        defaults = {'provider': ''}
         defaults.update(self.catalog[kind].get(identifier, {}))
         for name, (widget, spec) in widgets.items():
-            value = defaults.get(name, '')
-            if name == 'triggers':
-                value = '\n'.join(value)
-            set_value(widget, spec, value)
-        if clear_key:
-            clear_key.setChecked(False)
-            widgets['api_key'][0].setPlaceholderText(label('key_present' if defaults.get('has_api_key') else 'key_keep'))
+            set_value(widget, spec, defaults.get(name, ''))
         self.editor_original[kind] = self.entry_values(kind)
-        if kind == 'presets':
-            self.prompt_mode_changed()
+        self.update_provider_details()
+        self.update_cleanup_notice()
 
-    def new_entry(self, kind):
-        if self.catalog and (not self.entry_dirty(kind) or self.confirm_discard()):
-            self.populate_entry(kind, '')
-            self.editors[kind][1].setFocus()
-
-    def save_entry(self, kind, delete=False):
-        if self.blocked or not self.catalog:
+    def save_entry(self, kind):
+        if self.blocked or not self.catalog or not self.fields['llm_enabled'][0].isChecked():
+            return
+        if not self.entry_dirty(kind):
             return
         identifier, changes = self.entry_changes(kind)
-        if delete and QMessageBox.question(self, label('delete'), label('delete_confirm'),
-                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                          QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+        provider_id = self.entry_values(kind)[1]['provider']
+        provider = self.catalog['providers'].get(provider_id)
+        if not provider or not provider.get('credentials_ready', True):
             return
-        self.request('catalog_save', {'kind': kind, 'identifier': identifier, 'changes': changes,
-                     'revision': self.catalog['revision'], 'delete': delete},
-                     lambda result: self.catalog_saved(result, kind, identifier))
+        # Serialize the transaction with existing foreground actions. Controls stay
+        # disabled until it finishes, so a later choice cannot overtake this write.
+        if self.request('catalog_save', {'kind': kind, 'identifier': identifier, 'changes': changes,
+                        'revision': self.catalog['revision']},
+                        lambda result: self.catalog_saved(result, kind, identifier)):
+            self.provider_status.setText(label('autosaving'))
+            self.provider_status.show()
 
     def catalog_saved(self, result, kind, identifier):
-        # Keep an unsaved draft in the other editor; advance its revision only after
-        # our own successful transaction (external writes are rejected by the backend).
+        # Advance the revision after our own successful transaction; the backend
+        # rejects external writes before a stale selection can overwrite them.
         self.catalog = result
         self.update_choices()
         self.fill_selector(kind, identifier)
+        self.provider_status.hide()
         self.status.setText(label('catalog_saved'))
 
     def fill_selector(self, kind, identifier=None):
-        selector = self.editors[kind][0]
-        self.loading = True
-        selector.clear()
-        selector.addItems(list(self.catalog[kind]))
-        if identifier in self.catalog[kind]:
-            selector.setCurrentText(identifier)
-        self.loading = False
-        self.populate_entry(kind, selector.currentText())
+        self.populate_entry(kind, 'correct_asr')
 
     def catalog_loaded(self, result):
         self.catalog = result
         self.catalog_conflict = False
+        self.provider_status.hide()
         self.update_choices()
         for kind in self.editors:
             self.fill_selector(kind, self.editor_ids.get(kind))
         self.update_conflict()
 
     def update_choices(self):
-        for widget, entries, empty in (
-            (self.fields['llm_default_preset'][0], self.catalog['presets'], True),
-            (self.editors['presets'][2]['provider'][0], self.catalog['providers'], False),
-        ):
-            current = widget.currentData()
-            previous = widget.blockSignals(True)
-            widget.clear()
-            if empty:
-                widget.addItem(label('triggers_only'), None)
-            for entry in entries:
-                widget.addItem(entry, entry)
-            if current is not None:
-                set_value(widget, str, current)
-            widget.blockSignals(previous)
+        widget = self.editors['presets'][2]['provider'][0]
+        current = widget.currentData()
+        previous = widget.blockSignals(True)
+        widget.clear()
+        widget.addItem(label('choose_provider'), '')
+        widget.model().item(0).setEnabled(False)
+        for entry, provider in self.catalog['providers'].items():
+            ready = provider.get('credentials_ready', True)
+            title = entry if ready else tr('gui.provider_unavailable', provider=entry)
+            widget.addItem(title, entry)
+            widget.model().item(widget.count() - 1).setEnabled(ready)
+        if current is not None:
+            set_value(widget, str, current)
+        widget.blockSignals(previous)
+        self.update_provider_details()
+
+    def update_provider_details(self):
+        if not self.catalog:
+            return
+        widgets = self.editors['presets'][2]
+        provider = self.catalog['providers'].get(widgets['provider'][0].currentData(), {})
+        ready = bool(provider) and provider.get('credentials_ready', True)
+        available = any(item.get('credentials_ready', True) for item in self.catalog['providers'].values())
+        self.provider_notice.setText(label('providers_empty' if not available else 'provider_needs_key'))
+        self.provider_notice.setVisible(not ready)
+        self.provider_info['model'].setText(provider.get('model') or label('unknown'))
+        self.provider_info['kind'].setText(label('choice.' + provider['kind']) if provider else label('unknown'))
+        rate = provider.get('pricing') or {}
+        for field, key in (('price_input', 'input'), ('price_output', 'output'), ('price_cached', 'cached_input'),
+                           ('price_cache_write', 'cache_write'), ('price_reasoning', 'reasoning')):
+            value = self.provider_info[field]
+            value.setText(tr('gui.price_amount', amount=rate[key], currency=rate['currency'])
+                          if key in rate else label('price_unknown'))
+            self.provider_info_form.setRowVisible(value, key in ('input', 'output') or key in rate)
+        self.provider_info['price_updated'].setText(rate.get('updated') or label('unknown'))
+        status = provider.get('pricing_status', 'missing')
+        self.price_note.setText(label('price_' + status))
+
+    def update_cleanup_notice(self):
+        if not self.catalog or not self.snapshot or not self.snapshot.get('saved'):
+            return
+        config = self.snapshot['saved']['ClientConfig']
+        preset = self.catalog['presets'].get('correct_asr')
+        custom = (not preset or preset['prompt_mode'] != 'correction'
+                  or config.get('llm_default_preset') != 'correct_asr'
+                  or not config.get('llm_correction_enabled', True))
+        self.cleanup_notice.setVisible(custom)
 
     def changes(self):
         if not self.snapshot or not self.snapshot.get('saved'):
@@ -584,6 +591,8 @@ class SettingsWindow(QMainWindow):
             self.input_errors = {}
             self.autosave.stop()
             self.update_save_status()
+            self.update_cleanup_notice()
+            self.update_llm_controls()
 
     def update_state(self, result):
         self.latest_state = result
@@ -670,6 +679,11 @@ class SettingsWindow(QMainWindow):
                 self.update_conflict()
             else:
                 self.catalog_loaded(result)
+        elif result['providers'] != self.catalog['providers']:
+            # Price/credential metadata can change without changing routing files.
+            # Refresh details while retaining the user's pending provider selection.
+            self.catalog['providers'] = result['providers']
+            self.update_choices()
 
     def poll_state(self):
         if self.busy or self.exiting:
@@ -843,16 +857,6 @@ class SettingsWindow(QMainWindow):
     def capture_baseline(self):
         self.form_baseline = {name: get_value(widget, spec) for name, (widget, spec) in self.fields.items()}
 
-    def preview(self):
-        if self.blocked or not self.catalog or not self.snapshot:
-            return
-        identifier, changes = self.entry_changes('presets')
-        self.request('preview', {'changes': self.changes(), 'revision': self.snapshot['revision'],
-                     'draft': {'kind': 'presets', 'identifier': identifier, 'changes': changes,
-                               'revision': self.catalog['revision']}},
-                     lambda result: self.prompt.setPlainText(
-                         label('context_on' if result['context_allowed'] else 'context_off') + '\n\n' + result['system_prompt']))
-
     def show_report(self, result):
         self.report.setPlainText(json.dumps(result, ensure_ascii=False, indent=2))
 
@@ -868,6 +872,7 @@ class SettingsWindow(QMainWindow):
         self.pages.setEnabled(enabled)
         self.resolve_button.setEnabled(enabled)
         self.advanced.setEnabled(enabled)
+        self.update_llm_controls()
 
     def request(self, method, params, callback, quiet=False):
         if self.closed.is_set() or (self.exiting and method != 'desktop_stop'):
@@ -918,6 +923,11 @@ class SettingsWindow(QMainWindow):
         if error:
             if self.active_method == 'input_devices':
                 self.devices_loaded({'devices': [], 'default': -1, 'partial': False, 'error': 'unavailable'})
+            if self.active_method == 'catalog_save':
+                self.exit_pending = False
+                self.close_pending = False
+                self.provider_status.setText(label('provider_save_failed') + error)
+                self.provider_status.show()
             if self.active_method == 'save':
                 self.save_error = error
                 self.autosave.stop()
@@ -937,17 +947,21 @@ class SettingsWindow(QMainWindow):
             if not self.active_method.startswith('history_'):
                 self.status.setText(label('failed') + error)
                 self.home.detail.setText(label('failed') + error)
-            if not quiet and not self.active_method.startswith('history_'):
+            if not quiet and not self.active_method.startswith('history_') and self.active_method != 'catalog_save':
                 if self.desktop_mode:
                     show_window(self)
                 QMessageBox.warning(self, label('failed'), error)
         else:
             callback(result)
         if self.exit_pending:
+            if self.pending_request and self.pending_request[0] == 'catalog_save':
+                pending, self.pending_request = self.pending_request, None
+                self.request(*pending)
+                return
             self.pending_request = None
             self.continue_exit()
             return
-        if self.close_pending and not self.busy and not self.changes():
+        if self.close_pending and not self.busy and self.pending_request is None and not self.changes():
             self.close_pending = False
             self.close()
             return
@@ -1008,7 +1022,10 @@ class SettingsWindow(QMainWindow):
         finally:
             self.confirming_exit = False
         self.discard_on_exit = bool(self.input_errors or self.save_error or self.config_conflict)
-        if ((self.discard_on_exit and self.changes()) or any(self.entry_dirty(kind) for kind in self.editors)) \
+        provider_saving = self.busy and (self.active_method == 'catalog_save' or
+                          (self.pending_request and self.pending_request[0] == 'catalog_save'))
+        if ((self.discard_on_exit and self.changes()) or
+                (not provider_saving and any(self.entry_dirty(kind) for kind in self.editors))) \
                 and not self.confirm_discard():
             return
         self.exit_pending = True

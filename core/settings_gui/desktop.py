@@ -193,6 +193,10 @@ class DesktopBackend(Backend):
             return result
         # External file launch belongs to the GUI so closing our worker cannot
         # terminate an editor that the user is still using.
+        if self.phase == 'running' and method == 'advanced':
+            path = self.session.call('advanced_path', params)
+            subprocess.Popen(['notepad.exe', path])
+            return None
         if self.phase == 'running' and method == 'history_open':
             path = self.session.call('history_open_path', params)
             subprocess.Popen(['notepad.exe', path])

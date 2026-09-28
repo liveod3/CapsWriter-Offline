@@ -213,6 +213,7 @@ class ClientConfig:
     llm_cost_tracking = True
 
     # Read text near the dictation insertion point; disabled means no text-control access.
+    # Requires llm_enabled as well; the master switch suppresses capture for ASR and LLM.
     caret_context_enabled = False
 
     caret_context_before_chars = 800

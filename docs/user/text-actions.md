@@ -7,13 +7,15 @@
 ## 配置 Provider
 
 1. 从托盘的设置菜单打开 Provider 配置。首次编辑会从 `LLM/providers.template.toml` 创建本机 `LLM/providers.toml`；已有文件不会覆盖。
-2. 在本机文件中设置连接地址、模型和密钥。公开模板中的空密钥是占位值，不能填入真实凭据。
+2. 在本机文件中设置连接地址、密钥和 `model`。每个 Provider 的模型由此处固定，预设只选择 Provider，不覆盖模型。公开模板中的空密钥是占位值，不能填入真实凭据。
 3. 检查 `LLM/presets.toml` 的 `provider` 指向需要使用的连接 ID。
 4. 在客户端配置或托盘中开启需要的能力，等待当前任务结束后生效。
 
 `api_key_env` 显式指定后优先于 `api_key`；变量为空会报错，不回退到文件中的密钥。环境变量改变后要重启客户端，使新进程读取它。仅修改 Provider 或预设 TOML 时，下次请求会重读，无需重启。
 
 `kind = "openai"` 指兼容协议，不能据此判断请求发给哪家公司。实际目标由 `base_url` 决定；客户端会追加 `/chat/completions`，不要重复填写。`local` 这样的连接名称同样不能证明实际地址在本机。示例以[公开模板](../../LLM/providers.template.toml)为准，外部服务的模型可用性和价格以提供方为准。
+
+桌面客户端可在 **文本处理** 中选择已配置的服务商，并只读查看其模型和配置中的资费；服务商连接详情仍通过文件调整，见[设置窗口](settings-gui.md#配置文本整理)。翻译和其他高级预设仍在文件中编辑。
 
 ## 选择处理方式
 
@@ -98,9 +100,10 @@ python start_client.py settings prompt --preset translate
 
 ## 启用光标参考
 
-默认 `caret_context_enabled=False`。确需读取插入点附近文字时，在 `ClientConfig` 中开启，并按需调整范围：
+默认 `caret_context_enabled=False`。只有 `llm_enabled` 和此开关同时开启才会采集上下文；关闭 LLM 总开关也会停止给 ASR 采集这份参考。确需读取插入点附近文字时，在 `ClientConfig` 中开启，并按需调整范围：
 
 ```python
+llm_enabled = True
 caret_context_enabled = True
 caret_context_before_chars = 800
 caret_context_after_chars = 200
@@ -123,7 +126,7 @@ caret_context_after_chars = 200
 
 参考通过 ASR `context` 字段发送给配置的服务端，Qwen/Fun-ASR 可使用它，SenseVoice/Paraformer 不使用。若服务端在另一台机器，这也是一次文本外发。
 
-LLM 还需预设的 `use_caret_context=true` 才附带参考。内置纠错允许它，翻译默认不允许。关闭 LLM 不会关闭独立的 ASR 光标参考。
+LLM 还需预设的 `use_caret_context=true` 才附带参考。内置纠错允许它，翻译默认不允许。关闭 LLM 总开关会同时停止为 ASR 和 LLM 采集新的光标参考。
 
 纠错预设用 `[Insertion point]` 区分左右已有文字，只输出待插入片段。提示词要求按插入后的完整句子判断边界标点，避免重复已有标点或改写周围文字；这依赖参考成功捕获和模型遵循提示。
 

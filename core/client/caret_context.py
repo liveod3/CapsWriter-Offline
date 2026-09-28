@@ -58,7 +58,8 @@ class CaretContextCapture:
         self._closed = False
 
     async def capture(self, expected_window: int, *, task_id: str = "") -> str:
-        if not getattr(self.config, "caret_context_enabled", False):
+        if (not getattr(self.config, "llm_enabled", False)
+                or not getattr(self.config, "caret_context_enabled", False)):
             _report(task_id, "disabled")
             return ""
         if not expected_window:

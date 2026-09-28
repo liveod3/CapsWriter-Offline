@@ -307,7 +307,7 @@ def test_timeout_kills_helper_without_failing_dictation(monkeypatch):
     process.communicate.side_effect = [subprocess.TimeoutExpired("helper", 1), (b"", b"")]
     monkeypatch.setattr("core.client.caret_context.subprocess.Popen", lambda *a, **k: process)
     monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), Path("."))
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), Path("."))
     assert asyncio.run(capture.capture(42)) == ""
     process.kill.assert_called_once()
 
@@ -321,7 +321,7 @@ def test_focus_change_discards_captured_context(monkeypatch):
     )
     monkeypatch.setattr("core.client.caret_context.subprocess.Popen", lambda *a, **k: process)
     monkeypatch.setattr("core.client.caret_context.foreground_window", Mock(side_effect=[42, 43]))
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), Path("."))
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), Path("."))
     assert asyncio.run(capture.capture(42)) == ""
 
 
@@ -333,7 +333,7 @@ def test_snapshot_is_bounded_and_zero_before_means_no_prefix(monkeypatch):
     monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
     capture = CaretContextCapture(
         SimpleNamespace(
-            caret_context_enabled=True, caret_context_before_chars=0, caret_context_after_chars=2
+            llm_enabled=True, caret_context_enabled=True, caret_context_before_chars=0, caret_context_after_chars=2
         ),
         Path("."),
     )
@@ -371,7 +371,7 @@ def test_capture_diagnostics_use_only_validated_metadata(monkeypatch, response, 
     monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
     log = Mock()
     monkeypatch.setattr("core.client.logger.info", log)
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), Path("."))
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), Path("."))
     result = asyncio.run(capture.capture(42, task_id="12345678-abcd"))
     message, *args = log.call_args.args
     record = message % tuple(args)
@@ -401,7 +401,7 @@ def test_capture_failure_is_observable_and_releases_lock(monkeypatch, failure, s
     monkeypatch.setattr("core.client.caret_context.foreground_window", lambda: 42)
     log = Mock()
     monkeypatch.setattr("core.client.logger.info", log)
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), Path("."))
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), Path("."))
     if failure == "closed":
         capture.close()
     if failure == "busy":
@@ -431,7 +431,7 @@ def test_helper_main_emits_only_json_metadata_on_failure(monkeypatch):
 
 
 def test_close_during_capture_discards_output_and_prevents_restart(monkeypatch):
-    capture = CaretContextCapture(SimpleNamespace(caret_context_enabled=True), Path("."))
+    capture = CaretContextCapture(SimpleNamespace(llm_enabled=True, caret_context_enabled=True), Path("."))
     process = Mock(returncode=0)
 
     def communicate(**kwargs):
@@ -447,3 +447,18 @@ def test_close_during_capture_discards_output_and_prevents_restart(monkeypatch):
     process.kill.assert_called_once()
     spawn.assert_called_once()
     assert capture._process is None
+
+
+@pytest.mark.parametrize('llm_enabled', [False, None])
+def test_llm_master_off_never_dispatches_context_capture(llm_enabled, monkeypatch):
+    values = {'caret_context_enabled': True}
+    if llm_enabled is not None:
+        values['llm_enabled'] = llm_enabled
+    capture = CaretContextCapture(SimpleNamespace(**values), Path('.'))
+    monkeypatch.setattr(capture, '_capture', lambda *_: pytest.fail('Context must not be read'))
+    result = asyncio.run(capture.capture(42))
+    assert result == '' and asr_reference(result) == ''
+    assert capture.config.caret_context_enabled is True
+    capture.config.llm_enabled = True
+    monkeypatch.setattr(capture, '_capture', lambda *_: 'synthetic context')
+    assert asyncio.run(capture.capture(42)) == 'synthetic context'

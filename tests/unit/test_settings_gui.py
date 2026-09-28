@@ -192,10 +192,9 @@ def window(gui_root, qt_app):
     assert not widget.thread.is_alive()
 
 
-def test_widgets_save_preview_keyboard_and_no_unintended_writes(window, qt_app, gui_root):
+def test_widgets_save_keyboard_and_no_unintended_writes(window, qt_app, gui_root):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    from core.settings_gui.window import get_value
     assert not window.changes()
     assert window.catalog and window.navigation.count() == 6
     window.navigation.setFocus()
@@ -203,15 +202,14 @@ def test_widgets_save_preview_keyboard_and_no_unintended_writes(window, qt_app, 
     assert window.pages.currentIndex() == 1
     window.fields['llm_correction_english'][0].setChecked(True)
     assert window.changes() == {'llm_correction_english': True}
-    window.preview()
-    settle(qt_app, window)
-    assert window.prompt.toPlainText()
     assert not (gui_root / 'LLM/providers.toml').exists()
     window.save()
     settle(qt_app, window)
     assert not window.changes()
     assert Backend(gui_root).config()['llm_correction_english']
-    assert get_value(window.fields['llm_default_preset'][0], None) == 'correct_asr'
+    assert Backend(gui_root).config()['llm_default_preset'] == 'correct_asr'
+    assert 'llm_default_preset' not in window.fields
+    assert not hasattr(window, 'preview_button')
     assert all(widget.accessibleName() for widget, _ in window.fields.values())
 
 
@@ -230,28 +228,33 @@ def test_widgets_conflict_preserves_draft_and_failed_save_is_visible(window, qt_
     assert 'external edit' in path.read_text(encoding='utf-8')
 
 
-def test_preset_switch_cancel_and_save_other_entry_preserve_draft(window, qt_app):
-    from core.settings_gui.window import set_value
-    selector, _, fields, _ = window.editors['presets']
-    fields['name'][0].setText('Draft name')
-    window.confirm_discard = lambda: False
-    selector.setCurrentText('translate')
-    assert selector.currentText() == 'correct_asr'
-    assert window.entry_values('presets')[1]['name'] == 'Draft name'
-    provider_fields = window.editors['providers'][2]
-    set_value(provider_fields['model'][0], str, 'edited-model')
-    window.save_entry('providers')
+def test_provider_draft_survives_master_switch_autosave(window, qt_app):
+    fields = window.editors['presets'][2]
+    window.fields['llm_enabled'][0].setChecked(True)
+    fields['provider'][0].setCurrentIndex(fields['provider'][0].findData('local'))
     settle(qt_app, window)
     assert window.entry_dirty('presets')
-    window.save_entry('presets')
+    assert fields['provider'][0].currentData() == 'local'
+    provider_choice = window.editors['presets'][2]['provider'][0]
+    provider_choice.activated.emit(provider_choice.currentIndex())
     settle(qt_app, window)
     assert not window.entry_dirty('presets')
+    assert window.catalog['presets']['correct_asr']['provider'] == 'local'
+    assert window.provider_info['model'].text() == window.catalog['providers']['local']['model']
+    assert window.catalog['presets']['translate']['provider'] == 'gemini'
 
 
-def test_blank_default_is_explicit_and_numeric_device_is_preserved(window, qt_app):
-    combo = window.fields['llm_default_preset'][0]
-    combo.setCurrentIndex(combo.findData(None))
-    assert window.changes()['llm_default_preset'] is None
+def test_advanced_routing_and_numeric_device_are_preserved(window, qt_app, gui_root):
+    from core.settings import SettingsService
+    service = SettingsService.standalone(gui_root / 'config_client.py')
+    service.save({'llm_default_preset': None, 'llm_correction_enabled': False}, revision=service.read().revision)
+    window.reload()
+    settle(qt_app, window)
+    assert not window.cleanup_notice.isHidden()
+    window.fields['llm_correction_english'][0].setChecked(True)
+    settle(qt_app, window)
+    assert service.read().saved['ClientConfig']['llm_default_preset'] is None
+    assert service.read().saved['ClientConfig']['llm_correction_enabled'] is False
     window.snapshot['saved']['ClientConfig']['input_device'] = 3
     window.fields['input_device'][0].set_config_value(3)
     window.form_baseline['input_device'] = 3
@@ -978,19 +981,17 @@ def test_external_settings_refresh_clean_form_but_preserve_drafts(window, qt_app
 
 def test_external_catalog_refresh_keeps_selection_and_protects_draft(window, qt_app, gui_root):
     editor = CatalogEditor(gui_root / 'LLM')
-    selector = window.editors['presets'][0]
-    selector.setCurrentText('translate')
-    editor.save('presets', 'translate', {'name': 'External name'}, revision=editor.read()['revision'])
+    fields = window.editors['presets'][2]
+    editor.save('presets', 'correct_asr', {'provider': 'local'}, revision=editor.read()['revision'])
     window.poll_state()
     settle(qt_app, window)
-    assert selector.currentText() == 'translate'
-    assert window.entry_values('presets')[1]['name'] == 'External name'
-    window.editors['presets'][2]['name'][0].setText('Retained draft')
-    editor.save('presets', 'translate', {'name': 'Another name'}, revision=editor.read()['revision'])
+    assert fields['provider'][0].currentData() == 'local'
+    fields['provider'][0].setCurrentIndex(fields['provider'][0].findData('gemini'))
+    editor.save('presets', 'correct_asr', {'temperature': 0.4}, revision=editor.read()['revision'])
     window.next_settings_poll = 0
     window.poll_state()
     settle(qt_app, window)
-    assert window.entry_values('presets')[1]['name'] == 'Retained draft'
+    assert fields['provider'][0].currentData() == 'gemini'
     assert window.catalog_conflict and not window.resolve_button.isHidden()
 
 
@@ -1115,7 +1116,8 @@ def test_client_options_have_bilingual_help_and_language_restart_is_explicit(win
         for locale in ('en', 'zh-CN'):
             assert tr('gui.help.' + name, locale=locale) != 'gui.help.' + name
     for _, identifier, widgets, _ in window.editors.values():
-        assert identifier.accessibleDescription()
+        if identifier is not None:
+            assert identifier.accessibleDescription()
         for name, (widget, _) in widgets.items():
             assert widget.toolTip() and widget.accessibleDescription()
             assert tr('gui.help.' + name) != 'gui.help.' + name
@@ -1880,3 +1882,402 @@ Path('desktop-result.json').write_text(json.dumps({'desktop': code, 'client': ob
                              cwd=gui_root, capture_output=True, timeout=20)
     assert process.returncode == 0, process.stderr
     assert json.loads((gui_root / 'desktop-result.json').read_text()) == {'desktop': 0, 'client': 0}
+
+
+
+def test_cleanup_provider_save_retains_custom_prompts_context_and_translation(window, qt_app, gui_root):
+    editor = CatalogEditor(gui_root / 'LLM')
+    before = editor.read()
+    editor.save('presets', 'correct_asr', {'prompt_mode': 'custom', 'system_prompt': 'Keep my prompt',
+                'use_caret_context': False}, revision=before['revision'])
+    window.reload()
+    settle(qt_app, window)
+    assert not window.cleanup_notice.isHidden()
+    window.fields['llm_enabled'][0].setChecked(True)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setCurrentIndex(provider.findData('local'))
+    settle(qt_app, window)
+    provider_choice = window.editors['presets'][2]['provider'][0]
+    provider_choice.activated.emit(provider_choice.currentIndex())
+    settle(qt_app, window)
+    after = editor.read()
+    assert after['presets']['correct_asr']['system_prompt'] == 'Keep my prompt'
+    assert after['presets']['correct_asr']['use_caret_context'] is False
+    assert after['presets']['translate'] == before['presets']['translate']
+
+
+def test_configured_provider_selection_never_edits_connection_or_other_presets(window, qt_app, gui_root):
+    editor = CatalogEditor(gui_root / 'LLM')
+    editor.save('providers', 'synthetic', {'kind': 'openai', 'base_url': 'https://example.invalid/v1',
+                'api_key': 'synthetic-key', 'model': 'synthetic-model'}, revision=editor.read()['revision'])
+    window.reload()
+    settle(qt_app, window)
+    before = (gui_root / 'LLM/providers.toml').read_bytes()
+    window.fields['llm_enabled'][0].setChecked(True)
+    fields = window.editors['presets'][2]
+    fields['provider'][0].setCurrentIndex(fields['provider'][0].findData('synthetic'))
+    settle(qt_app, window)
+    provider_choice = window.editors['presets'][2]['provider'][0]
+    provider_choice.activated.emit(provider_choice.currentIndex())
+    settle(qt_app, window)
+    assert window.catalog['presets']['correct_asr']['provider'] == 'synthetic'
+    assert window.catalog['presets']['translate']['provider'] == 'gemini'
+    assert (gui_root / 'LLM/providers.toml').read_bytes() == before
+    assert 'synthetic-key' not in repr(window.catalog)
+    assert 'providers' not in window.editors
+
+
+def test_fixed_cleanup_editor_can_restore_absent_builtin_without_altering_advanced_default(window, qt_app, gui_root):
+    from core.settings import SettingsService
+    service = SettingsService.standalone(gui_root / 'config_client.py')
+    service.save({'llm_default_preset': None}, revision=service.read().revision)
+    editor = CatalogEditor(gui_root / 'LLM')
+    editor.save('presets', 'correct_asr', {}, revision=editor.read()['revision'], delete=True)
+    window.reload()
+    settle(qt_app, window)
+    assert window.editor_ids['presets'] == 'correct_asr'
+    window.fields['llm_enabled'][0].setChecked(True)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setCurrentIndex(provider.findData('local'))
+    settle(qt_app, window)
+    provider_choice = window.editors['presets'][2]['provider'][0]
+    provider_choice.activated.emit(provider_choice.currentIndex())
+    settle(qt_app, window)
+    assert window.catalog['presets']['correct_asr']['prompt_mode'] == 'correction'
+    assert service.read().saved['ClientConfig']['llm_default_preset'] is None
+
+
+def test_text_page_keeps_advanced_preset_controls_out_of_normal_ui(window, qt_app):
+    from PySide6.QtWidgets import QFrame
+    window.navigate(1)
+    qt_app.processEvents()
+    assert set(window.editors['presets'][2]) == {'provider'}
+    assert not {'llm_default_preset', 'llm_correction_enabled', 'llm_translation_enabled'} & window.fields.keys()
+    assert not hasattr(window, 'provider_panel')
+    assert not hasattr(window, 'provider_toggle')
+    assert 'providers' not in window.editors
+    assert window.pages.currentWidget().findChildren(QFrame, 'settingDivider')
+    assert window.editors['presets'][0] is None and window.editors['presets'][1] is None
+
+
+def test_preset_file_open_uses_effective_worker_path_and_parent_launch(gui_root, monkeypatch):
+    from core.settings_gui.desktop import DesktopBackend
+    from unittest.mock import Mock
+    path = str(gui_root / 'effective-llm/presets.toml')
+    session = Mock()
+    session.call.return_value = path
+    backend = DesktopBackend(gui_root)
+    backend.phase = 'running'
+    backend.session = session
+    launch = Mock()
+    monkeypatch.setattr('subprocess.Popen', launch)
+    backend.dispatch('advanced', {'file': 'presets'})
+    session.call.assert_called_once_with('advanced_path', {'file': 'presets'})
+    launch.assert_called_once_with(['notepad.exe', path])
+    assert Backend(gui_root).dispatch('advanced_path', {'file': 'presets'}) == str(gui_root / 'LLM/presets.toml')
+
+
+@pytest.mark.parametrize('environment_key, expected', [('', False), ('  ', False), ('synthetic-env-key', True)])
+def test_provider_readiness_uses_transport_key_precedence_without_exposing_keys(gui_root, monkeypatch,
+                                                                              environment_key, expected):
+    monkeypatch.setenv('CAPSWRITER_TEST_PROVIDER_KEY', environment_key)
+    editor = CatalogEditor(gui_root / 'LLM')
+    result = editor.save('providers', 'gemini', {'api_key': 'synthetic-file-key',
+                         'api_key_env': 'CAPSWRITER_TEST_PROVIDER_KEY'}, revision=editor.read()['revision'])
+    assert result['providers']['gemini']['credentials_ready'] is expected
+    assert result['providers']['local']['credentials_ready']
+    assert 'synthetic-file-key' not in repr(result) and 'synthetic-env-key' not in repr(result)
+    monkeypatch.delenv('CAPSWRITER_TEST_PROVIDER_KEY')
+    assert not editor.read()['providers']['gemini']['credentials_ready']
+
+
+def test_provider_choices_keep_saved_unavailable_entry_without_auto_replacement(window, qt_app, gui_root):
+    fields = window.editors['presets'][2]
+    provider = fields['provider'][0]
+    assert provider.currentData() == 'gemini'
+    assert not provider.model().item(provider.findData('gemini')).isEnabled()
+    assert provider.model().item(provider.findData('local')).isEnabled()
+    assert not hasattr(window, 'provider_save')
+    assert not window.provider_notice.isHidden()
+    original = (gui_root / 'LLM/presets.toml').read_bytes()
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    assert provider.isEnabled()
+    provider.setCurrentIndex(provider.findData('local'))
+    assert provider.isEnabled() and window.provider_notice.isHidden()
+    assert (gui_root / 'LLM/presets.toml').read_bytes() == original
+    window.fields['llm_enabled'][0].setChecked(False)
+    settle(qt_app, window)
+    assert not provider.isEnabled() and window.entry_dirty('presets')
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    assert provider.currentData() == 'local' and provider.isEnabled()
+
+
+def test_no_providers_shows_guidance_without_creating_configuration(window, qt_app, gui_root):
+    (gui_root / 'LLM/providers.template.toml').write_text('[providers]\n', encoding='utf-8')
+    (gui_root / 'LLM/presets.toml').write_text('[presets]\n', encoding='utf-8')
+    window.reload()
+    settle(qt_app, window)
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    assert not window.provider_notice.isHidden()
+    assert not hasattr(window, 'provider_save')
+    assert not (gui_root / 'LLM/providers.toml').exists()
+    assert not window.entry_dirty('presets')
+
+
+def test_llm_master_gates_related_controls_and_retains_values_through_refresh(window, qt_app, gui_root):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from core.settings_gui.window import get_value
+    window.navigate(1)
+    master = window.fields['llm_enabled'][0]
+    names = ['llm_correction_level', 'llm_correction_numbers', 'llm_correction_punctuation',
+             'llm_correction_fillers', 'llm_correction_english', 'llm_correction_homophones',
+             'caret_context_enabled', 'caret_context_before_chars', 'caret_context_after_chars',
+             'save_llm_records', 'save_llm_context', 'llm_cost_tracking', 'diagnostic_include_context']
+    original = {name: get_value(*window.fields[name]) for name in names}
+    assert master.isEnabled() and not master.isChecked()
+    assert all(not window.fields[name][0].isEnabled() for name in names)
+    toggle = window.fields['llm_correction_numbers'][0]
+    QTest.mouseClick(toggle, Qt.MouseButton.LeftButton)
+    assert get_value(*window.fields['llm_correction_numbers']) == original['llm_correction_numbers']
+    QTest.mouseClick(master, Qt.MouseButton.LeftButton)
+    settle(qt_app, window)
+    assert master.isChecked() and all(window.fields[name][0].isEnabled() for name in names)
+    QTest.mouseClick(master, Qt.MouseButton.LeftButton)
+    settle(qt_app, window)
+    window.reload()
+    settle(qt_app, window)
+    window.enable_editor(False)
+    window.enable_editor(True)
+    assert master.isEnabled() and not master.isChecked()
+    assert all(not window.fields[name][0].isEnabled() for name in names)
+    assert not window.editors['presets'][2]['provider'][0].isEnabled()
+    assert not window.provider_info['model'].isEnabled()
+    assert not hasattr(window, 'provider_save')
+    assert all(window.fields[name][0].isEnabled() for name in ('save_audio', 'save_transcripts', 'language'))
+    config = Backend(gui_root).config()
+    assert not config['llm_enabled']
+    assert {name: get_value(*window.fields[name]) for name in names} == original
+    assert all(config[name] == value for name, value in original.items())
+
+
+@pytest.fixture
+def provider_rates(gui_root):
+    import tomlkit
+    editor = CatalogEditor(gui_root / 'LLM')
+    provider = editor.read()['providers']['local']
+    rate = {'endpoint': provider['base_url'], 'model': provider['model'], 'currency': 'USD',
+            'input': '0', 'output': '2.50', 'cached_input': '0.03',
+            'source': 'https://example.invalid/pricing', 'assumption': 'Synthetic rates',
+            'updated': '2026-01-01', 'valid_until': '2099-01-01'}
+    def write(**changes):
+        (gui_root / 'LLM/costs.toml').write_text(tomlkit.dumps({'rates': [{**rate, **changes}]}), encoding='utf-8')
+    write()
+    return write
+
+
+@pytest.mark.parametrize('change, status', [({}, 'configured'), ({'model': 'different'}, 'missing'),
+                         ({'endpoint': 'https://different.invalid/v1'}, 'missing'),
+                         ({'valid_until': '2026-01-02'}, 'expired')])
+def test_provider_pricing_matches_configured_model_and_endpoint(gui_root, provider_rates, change, status):
+    provider_rates(**change)
+    provider = CatalogEditor(gui_root / 'LLM').read()['providers']['local']
+    assert provider['pricing_status'] == status
+    if status == 'missing':
+        assert provider['pricing'] is None
+    else:
+        assert provider['pricing']['input'] == '0'
+        assert provider['pricing']['output'] == '2.50'
+        assert 'endpoint' not in provider['pricing']
+
+
+def test_provider_pricing_failure_does_not_block_selection(gui_root):
+    (gui_root / 'LLM/costs.toml').write_text('invalid [', encoding='utf-8')
+    editor = CatalogEditor(gui_root / 'LLM')
+    result = editor.save('presets', 'correct_asr', {'provider': 'local'}, revision=editor.read()['revision'])
+    assert result['providers']['local']['pricing_status'] == 'invalid'
+    assert result['providers']['local']['credentials_ready']
+    assert result['presets']['correct_asr']['provider'] == 'local'
+
+
+def test_provider_details_refresh_without_discarding_selection_draft(window, qt_app, provider_rates):
+    from core.settings_gui.window import label
+    window.fields['llm_enabled'][0].setChecked(True)
+    fields = window.editors['presets'][2]
+    fields['provider'][0].setCurrentIndex(fields['provider'][0].findData('local'))
+    settle(qt_app, window)
+    window.catalog_polled(window.backend.dispatch('catalog', {}))
+    assert window.entry_dirty('presets')
+    assert set(fields) == {'provider'}
+    assert window.provider_info['model'].text() == window.catalog['providers']['local']['model']
+    assert '0 USD' in window.provider_info['price_input'].text()
+    assert '2.50 USD' in window.provider_info['price_output'].text()
+    provider_rates(output='8', currency='CNY')
+    window.catalog_polled(window.backend.dispatch('catalog', {}))
+    assert window.entry_dirty('presets') and fields['provider'][0].currentData() == 'local'
+    assert '8 CNY' in window.provider_info['price_output'].text()
+    fields['provider'][0].setCurrentIndex(fields['provider'][0].findData('gemini'))
+    assert window.provider_info['model'].text() == window.catalog['providers']['gemini']['model']
+    assert window.provider_info['price_input'].text() == label('price_unknown')
+    assert window.provider_info['price_cached'].isHidden()
+
+
+
+def test_provider_keyboard_selection_autosaves_and_refresh_does_not_write(window, qt_app, gui_root, monkeypatch):
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    editor = CatalogEditor(gui_root / 'LLM')
+    original = editor.read()
+    writes = []
+    dispatch = window.backend.dispatch
+    def capture(method, params):
+        if method == 'catalog_save':
+            writes.append(params)
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', capture)
+    window.navigate(1)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setFocus()
+    QTest.keyClick(provider, Qt.Key.Key_End)
+    settle(qt_app, window)
+    assert provider.currentData() == 'local'
+    assert editor.read()['presets']['correct_asr']['provider'] == 'local'
+    assert editor.read()['presets']['translate'] == original['presets']['translate']
+    assert not (gui_root / 'LLM/providers.toml').exists()
+    assert not window.entry_dirty('presets') and window.provider_status.isHidden()
+    assert len(writes) == 1 and writes[0]['changes'] == {'provider': 'local'}
+    window.reload()
+    settle(qt_app, window)
+    window.catalog_polled(editor.read())
+    provider.activated.emit(provider.currentIndex())
+    settle(qt_app, window)
+    assert len(writes) == 1
+
+
+def test_provider_autosave_failure_is_inline_and_same_choice_can_retry(window, qt_app, gui_root, monkeypatch):
+    from unittest.mock import Mock
+    from core.settings_gui.window import label
+    from PySide6.QtWidgets import QMessageBox
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    original = (gui_root / 'LLM/presets.toml').read_bytes()
+    dispatch = window.backend.dispatch
+    failing = True
+    def fail_once(method, params):
+        nonlocal failing
+        if method == 'catalog_save' and failing:
+            failing = False
+            raise OSError('Synthetic failure')
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', fail_once)
+    warning = Mock()
+    monkeypatch.setattr(QMessageBox, 'warning', warning)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setCurrentIndex(provider.findData('local'))
+    provider.activated.emit(provider.currentIndex())
+    settle(qt_app, window)
+    assert (gui_root / 'LLM/presets.toml').read_bytes() == original
+    assert window.entry_dirty('presets') and provider.isEnabled()
+    assert not window.provider_status.isHidden()
+    assert window.provider_status.text().startswith(label('provider_save_failed'))
+    warning.assert_not_called()
+    window.catalog_polled(CatalogEditor(gui_root / 'LLM').read())
+    assert not window.provider_status.isHidden()
+    provider.activated.emit(provider.currentIndex())
+    settle(qt_app, window)
+    assert CatalogEditor(gui_root / 'LLM').read()['presets']['correct_asr']['provider'] == 'local'
+    assert not window.entry_dirty('presets') and window.provider_status.isHidden()
+
+
+@pytest.mark.parametrize('external_change', [False, True])
+def test_provider_autosave_waits_for_poll_and_protects_external_edits(window, qt_app, gui_root, monkeypatch,
+                                                                  external_change):
+    import threading
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    def delayed_read(method, params):
+        if method == 'read':
+            result = dispatch(method, params)
+            entered.set()
+            assert release.wait(3)
+            return result
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', delayed_read)
+    assert window.request('read', {}, window.polled, quiet=True)
+    assert entered.wait(2)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setCurrentIndex(provider.findData('local'))
+    provider.activated.emit(provider.currentIndex())
+    assert window.pending_request[0] == 'catalog_save'
+    assert not provider.isEnabled()
+    editor = CatalogEditor(gui_root / 'LLM')
+    if external_change:
+        editor.save('presets', 'translate', {'temperature': 0.4}, revision=editor.read()['revision'])
+    release.set()
+    settle(qt_app, window)
+    saved = editor.read()
+    assert provider.isEnabled()
+    if external_change:
+        assert saved['presets']['correct_asr']['provider'] == 'gemini'
+        assert saved['presets']['translate']['temperature'] == 0.4
+        assert not window.provider_status.isHidden() and window.entry_dirty('presets')
+        window.catalog_polled(saved)
+        assert window.catalog_conflict
+    else:
+        assert saved['presets']['correct_asr']['provider'] == 'local'
+        assert not window.entry_dirty('presets')
+
+
+
+@pytest.mark.parametrize('exiting, fail', [(False, False), (True, False), (True, True)])
+def test_provider_autosave_finishes_before_close_or_exit(window, qt_app, gui_root, monkeypatch, exiting, fail):
+    import threading
+    from unittest.mock import Mock
+    window.fields['llm_enabled'][0].setChecked(True)
+    settle(qt_app, window)
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    events = []
+    def delayed_read(method, params):
+        if method == 'read':
+            result = dispatch(method, params)
+            entered.set()
+            assert release.wait(3)
+            return result
+        if method == 'catalog_save':
+            events.append('save')
+            if fail:
+                raise OSError('Synthetic failure')
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', delayed_read)
+    window.confirm_discard = Mock(return_value=False)
+    window.confirm_exit = lambda: True
+    monkeypatch.setattr(window, 'begin_exit', lambda: (events.append('exit'), setattr(window, 'exit_pending', False)))
+    window.request('read', {}, lambda _: None, quiet=True)
+    assert entered.wait(2)
+    provider = window.editors['presets'][2]['provider'][0]
+    provider.setCurrentIndex(provider.findData('local'))
+    provider.activated.emit(provider.currentIndex())
+    if exiting:
+        window.request_exit()
+    else:
+        window.close()
+    release.set()
+    settle(qt_app, window)
+    window.confirm_discard.assert_not_called()
+    saved = CatalogEditor(gui_root / 'LLM').read()['presets']['correct_asr']['provider']
+    if fail:
+        assert saved == 'gemini' and events == ['save']
+        assert not window.exit_pending and not window.provider_status.isHidden()
+    else:
+        assert saved == 'local'
+        assert events == (['save', 'exit'] if exiting else ['save'])
+        if not exiting:
+            assert window.closed.is_set()
