@@ -15,7 +15,14 @@ from core.settings_gui.catalog import CatalogEditor
 
 
 @pytest.fixture
-def gui_root(tmp_path):
+def gui_root(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr('core.settings_gui.device_watch.subscribe', lambda notify: SimpleNamespace(close=lambda: None))
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', lambda: {
+        'devices': [{'index': 2, 'name': 'USB Microphone', 'api': 'Windows WASAPI',
+                     'selector': 'USB Microphone, Windows WASAPI', 'ambiguous': False}],
+        'default': 2, 'partial': False, 'error': None,
+    })
     root = Path(__file__).resolve().parents[2]
     (tmp_path / 'config_client.py').write_bytes((root / 'config_templates/config_client_template.py').read_bytes())
     directory = tmp_path / 'LLM'
@@ -162,7 +169,8 @@ def settle(app, window):
     deadline = time.monotonic() + 5
     def pending():
         return (window.busy or window.history.inflight or window.history.pending is not None
-                or window.history.auto_search.isActive())
+                or window.history.auto_search.isActive() or window.autosave.isActive()
+                or window.device_retry.isActive() or window.devices_inflight)
     while pending() and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
@@ -189,7 +197,7 @@ def test_widgets_save_preview_keyboard_and_no_unintended_writes(window, qt_app, 
     from PySide6.QtTest import QTest
     from core.settings_gui.window import get_value
     assert not window.changes()
-    assert window.catalog and window.navigation.count() == 5
+    assert window.catalog and window.navigation.count() == 6
     window.navigation.setFocus()
     QTest.keyClick(window.navigation, Qt.Key.Key_Down)
     assert window.pages.currentIndex() == 1
@@ -216,7 +224,8 @@ def test_widgets_conflict_preserves_draft_and_failed_save_is_visible(window, qt_
     path.write_bytes(path.read_bytes() + b'\n# external edit\n')
     window.save()
     settle(qt_app, window)
-    assert warnings and window.changes()['save_audio']
+    assert not warnings and window.save_error and window.changes()['save_audio']
+    assert not window.retry_save.isHidden()
     assert not Backend(gui_root).config()['save_audio']
     assert 'external edit' in path.read_text(encoding='utf-8')
 
@@ -244,9 +253,291 @@ def test_blank_default_is_explicit_and_numeric_device_is_preserved(window, qt_ap
     combo.setCurrentIndex(combo.findData(None))
     assert window.changes()['llm_default_preset'] is None
     window.snapshot['saved']['ClientConfig']['input_device'] = 3
-    window.fields['input_device'][0].setText('3')
-    window.form_baseline['input_device'] = '3'
+    window.fields['input_device'][0].set_config_value(3)
+    window.form_baseline['input_device'] = 3
     assert 'input_device' not in window.changes()
+
+
+def test_language_and_microphone_choices_save_canonical_values(window, qt_app, gui_root):
+    language = window.fields['language'][0]
+    microphone = window.fields['input_device'][0]
+    assert not language.isEditable() and not microphone.isEditable()
+    window.navigate(0)
+    settle(qt_app, window)
+    assert window.devices_loaded_once and not window.changes()
+    language.setCurrentIndex(language.findData('english'))
+    microphone.setCurrentIndex(microphone.findData('USB Microphone, Windows WASAPI'))
+    settle(qt_app, window)
+    config = Backend(gui_root).config()
+    assert config['language'] == 'english'
+    assert config['input_device'] == 'USB Microphone, Windows WASAPI'
+    microphone.setCurrentIndex(0)
+    settle(qt_app, window)
+    assert Backend(gui_root).config()['input_device'] is None
+
+
+def test_device_refresh_preserves_missing_selection_and_never_writes(window, qt_app, gui_root, monkeypatch):
+    microphone = window.fields['input_device'][0]
+    microphone.set_config_value('Saved disconnected microphone')
+    settle(qt_app, window)
+    before = (gui_root / 'config_client.py').read_bytes()
+    window.navigate(0)
+    settle(qt_app, window)
+    assert microphone.currentData() == 'Saved disconnected microphone'
+    assert not microphone.selection_found() and not window.device_notice.isHidden()
+    assert (gui_root / 'config_client.py').read_bytes() == before
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', lambda: {
+        'devices': [], 'default': -1, 'partial': False, 'error': 'timeout',
+    })
+    window.refresh_devices()
+    settle(qt_app, window)
+    assert microphone.currentData() == 'Saved disconnected microphone'
+    assert 'timed out' in window.device_notice.accessibleDescription()
+    assert (gui_root / 'config_client.py').read_bytes() == before
+
+
+@pytest.mark.parametrize('width', [800, 1440])
+def test_microphone_initial_query_failure_and_recovery_keep_field_geometry(window, qt_app, monkeypatch, width):
+    from threading import Event
+    from PySide6.QtCore import QPoint
+    from PySide6.QtWidgets import QToolTip
+    from core.settings_gui.fields import PAGES
+    entered, release = Event(), Event()
+    inventory = {'devices': [{'index': 1, 'name': 'Synthetic microphone', 'api': 'Windows WASAPI',
+                             'selector': 'Synthetic microphone, Windows WASAPI', 'ambiguous': False}],
+                 'default': 1, 'partial': False, 'error': None}
+    def discover():
+        entered.set()
+        assert release.wait(3)
+        return inventory
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
+    window.resize(width, 860)
+    window.pages.setCurrentIndex(0)
+    window.workspace.setCurrentIndex(1)
+    def geometry():
+        for _ in range(5):
+            qt_app.processEvents()
+        return [(widget.mapTo(window, QPoint()), widget.size())
+                for name in PAGES['general'] for widget, _ in [window.fields[name]]]
+    baseline = geometry()
+    window.refresh_devices()
+    assert entered.wait(2)
+    try:
+        assert window.device_notice.isHidden()
+        assert geometry() == baseline
+    finally:
+        release.set()
+    settle(qt_app, window)
+    assert window.device_notice.isHidden() and geometry() == baseline
+    window.devices_loaded({'devices': [], 'default': -1, 'partial': False, 'error': 'timeout'})
+    assert not window.device_notice.isHidden() and geometry() == baseline
+    shown = []
+    monkeypatch.setattr(QToolTip, 'showText', lambda *args: shown.append(args[1]))
+    window.device_notice.click()
+    assert 'timed out' in shown[-1]
+    window.refresh_devices()
+    assert not window.device_notice.isHidden() and geometry() == baseline
+    settle(qt_app, window)
+    assert window.device_notice.isHidden() and geometry() == baseline
+
+
+def test_device_refresh_retains_edits_made_while_loading(window, qt_app, gui_root, monkeypatch):
+    from threading import Event
+    entered, release = Event(), Event()
+    def discover():
+        entered.set()
+        assert release.wait(3)
+        return {'devices': [], 'default': -1, 'partial': False, 'error': None}
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
+    window.navigate(0)
+    assert entered.wait(2)
+    try:
+        assert window.fields['input_device'][0].isEnabled()
+        window.fields['language'][0].set_config_value('english')
+        window.fields['input_device'][0].set_config_value('Unlisted custom selector')
+    finally:
+        release.set()
+    settle(qt_app, window)
+    config = Backend(gui_root).config()
+    assert config['language'] == 'english' and config['input_device'] == 'Unlisted custom selector'
+
+
+@pytest.mark.parametrize('saved', [None, '', 2, 'USB Microphone', 'custom substring'])
+def test_device_refresh_preserves_legacy_value_types(window, qt_app, gui_root, saved):
+    backend = Backend(gui_root)
+    snapshot = backend.dispatch('read', {})
+    backend.dispatch('save', {'revision': snapshot['revision'], 'changes': {'input_device': saved}})
+    window.populate_settings(backend.dispatch('read', {}))
+    microphone = window.fields['input_device'][0]
+    window.refresh_devices()
+    settle(qt_app, window)
+    assert type(microphone.currentData()) is type(saved)
+    assert microphone.currentData() == saved and not window.changes()
+
+
+def test_close_waits_for_device_probe_then_stops_worker(window, qt_app, monkeypatch):
+    from threading import Event
+    entered, release = Event(), Event()
+    def discover():
+        entered.set()
+        assert release.wait(3)
+        return {'devices': [], 'default': -1, 'partial': False, 'error': None}
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
+    window.refresh_devices()
+    assert entered.wait(2)
+    try:
+        window.close()
+        assert window.close_pending and not window.closed.is_set()
+    finally:
+        release.set()
+    settle(qt_app, window)
+    assert window.closed.is_set() and not window.thread.is_alive()
+    assert not window.device_retry.isActive()
+
+
+def test_unknown_language_is_preserved_when_other_fields_save(window, qt_app, gui_root):
+    language = window.fields['language'][0]
+    language.set_config_value('custom-language')
+    settle(qt_app, window)
+    window.fields['save_audio'][0].setChecked(True)
+    settle(qt_app, window)
+    assert language.currentData() == 'custom-language'
+    assert Backend(gui_root).config()['language'] == 'custom-language'
+
+
+def test_ambiguous_device_names_are_disabled_but_legacy_indices_survive(qt_app):
+    from core.settings_gui.choices import MicrophoneChoice
+    microphone = MicrophoneChoice()
+    rows = [{'index': index, 'name': name, 'api': 'MME', 'selector': name + ', MME', 'ambiguous': True}
+            for index, name in enumerate(('Same mic', 'same MIC'))]
+    microphone.replace_inventory({'devices': rows, 'default': 0, 'partial': False, 'error': None})
+    assert all(not microphone.model().item(index).isEnabled() for index in (1, 2))
+    microphone.set_config_value('Same mic, MME')
+    assert not microphone.selection_found()
+    microphone.set_config_value(0)
+    assert microphone.selection_found() and type(microphone.currentData()) is int
+
+
+def test_device_notifications_coalesce_defer_when_hidden_and_stop(window, qt_app, monkeypatch):
+    from types import SimpleNamespace
+    clock = [10.0]
+    calls, closed = [], []
+    watch = window.device_watch
+    monkeypatch.setattr('core.settings_gui.device_watch.time.monotonic', lambda: clock[0])
+    monkeypatch.setattr('core.settings_gui.device_watch.subscribe',
+                        lambda notify: SimpleNamespace(close=lambda: closed.append(True)))
+    watch.visible = lambda: window.isVisible()
+    watch.refresh = lambda: calls.append(True)
+    watch.start()
+    for _ in range(50):
+        watch.notify()
+    assert len(watch.events) == 1
+    watch.tick()
+    assert not calls
+    clock[0] += 1
+    window.hide()
+    watch.tick()
+    assert not calls and watch.dirty
+    window.show()
+    watch.tick()
+    assert calls == [True] and not watch.dirty
+    watch.tick()
+    assert calls == [True]
+    watch.stop()
+    watch.notify()
+    watch.tick()
+    assert closed == [True] and not watch.events and not watch.timer.isActive()
+
+
+def test_device_watch_uses_slow_visible_fallback_if_subscription_fails(window, monkeypatch):
+    clock, calls = [10.0], []
+    watch = window.device_watch
+    monkeypatch.setattr('core.settings_gui.device_watch.time.monotonic', lambda: clock[0])
+    monkeypatch.setattr('core.settings_gui.device_watch.subscribe', lambda notify: None)
+    watch.visible = lambda: True
+    watch.refresh = lambda: calls.append(True)
+    watch.start()
+    clock[0] += 14
+    watch.tick()
+    assert not calls
+    clock[0] += 1
+    watch.tick()
+    assert calls == [True]
+    watch.tick()
+    assert calls == [True]
+    watch.stop()
+
+
+def test_device_unsubscribe_failure_keeps_callback_alive_but_ignores_late_events(window):
+    from types import SimpleNamespace
+    calls = []
+    def close():
+        calls.append(True)
+        if len(calls) == 1:
+            raise RuntimeError('Synthetic native failure')
+    watch = window.device_watch
+    watch.native = SimpleNamespace(close=close)
+    watch.started = True
+    watch.stop()
+    assert watch.native is not None and not watch.started
+    watch.notify()
+    assert not watch.events
+    watch.stop()
+    assert watch.native is None and len(calls) == 2
+
+
+def test_device_event_during_probe_runs_one_followup_query(window, qt_app, monkeypatch):
+    from threading import Event
+    entered, release = Event(), Event()
+    calls = []
+    def discover():
+        calls.append(True)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(3)
+        return {'devices': [], 'default': -1, 'partial': False, 'error': None}
+    monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
+    window.refresh_devices()
+    assert entered.wait(2)
+    try:
+        for _ in range(10):
+            window.refresh_devices()
+        assert window.devices_pending
+    finally:
+        release.set()
+    settle(qt_app, window)
+    assert len(calls) == 2 and not window.devices_pending
+
+
+def test_device_refresh_defers_open_menu_and_unchanged_inventory_keeps_model(window, qt_app):
+    microphone = window.fields['input_device'][0]
+    window.navigate(0)
+    settle(qt_app, window)
+    item = microphone.model().item(1)
+    microphone.showPopup()
+    qt_app.processEvents()
+    window.refresh_devices()
+    assert not window.devices_inflight and window.device_retry.isActive()
+    assert microphone.model().item(1) is item
+    microphone.hidePopup()
+    settle(qt_app, window)
+    assert microphone.model().item(1) is item
+
+
+def test_microphone_menu_hides_interfaces_preserves_old_selection_and_default_updates(qt_app):
+    from core.settings_gui.choices import MicrophoneChoice
+    microphone = MicrophoneChoice()
+    rows = [{'index': i, 'name': name, 'api': api, 'selector': name + ', ' + api, 'ambiguous': False}
+            for i, (name, api) in enumerate([('Headset', 'Windows WASAPI'), ('Laptop', 'Windows WASAPI'),
+                                            ('Headset', 'MME'), ('Laptop', 'Windows WDM-KS')])]
+    microphone.replace_inventory({'devices': rows, 'default': 2, 'partial': False, 'error': None})
+    assert microphone.count() == 3
+    assert [microphone.itemText(i) for i in (1, 2)] == ['Headset', 'Laptop']
+    assert 'Headset' in microphone.itemText(0)
+    microphone.set_config_value('Headset, MME')
+    microphone.replace_inventory({'devices': rows, 'default': 1, 'partial': False, 'error': None})
+    assert microphone.currentData() == 'Headset, MME' and microphone.selection_found()
+    assert 'Laptop' in microphone.itemText(0)
 
 
 def test_opening_preserves_numeric_types_empty_nullables_and_fractional_settings(gui_root, qt_app):
@@ -627,7 +918,7 @@ def test_background_refresh_keeps_buttons_stable_and_defers_save(window, qt_app,
             return False
 
     monitor = EnabledChanges()
-    window.save_button.installEventFilter(monitor)
+    window.advanced.installEventFilter(monitor)
     original = window.backend.dispatch
     entered, release = threading.Event(), threading.Event()
 
@@ -642,17 +933,16 @@ def test_background_refresh_keeps_buttons_stable_and_defers_save(window, qt_app,
     window.poll_state()
     assert entered.wait(2)
     try:
-        assert window.save_button.isEnabled() and window.pages.isEnabled()
+        assert window.advanced.isEnabled() and window.pages.isEnabled()
         assert monitor.changes == 0
-        window.save_button.click()
-        assert window.pending_request is not None
-        window.close()
-        assert not window.closed.is_set()
+        window.save()
+        assert window.autosave.isActive()
     finally:
         release.set()
     settle(qt_app, window)
     assert Backend(gui_root).config()['save_audio']
-    assert window.save_button.isEnabled() and not window.changes()
+    assert window.advanced.isEnabled() and not window.changes()
+    assert monitor.changes == 0
     monitor.changes = 0
     window.next_settings_poll = 0
     window.poll_state()
@@ -729,7 +1019,232 @@ def test_recording_badge_tracks_runtime_and_clears_on_disconnect(window):
 
 def test_compact_settings_font_reaches_child_controls(window):
     assert window.fields['input_device'][0].font().pixelSize() == 12
-    assert window.save_button.font().pixelSize() == 12
+    assert window.advanced.font().pixelSize() == 12
+
+
+def test_autosave_coalesces_typing_and_keeps_newer_edits_during_write(window, qt_app, gui_root, monkeypatch):
+    import threading
+    dispatch = window.backend.dispatch
+    entered, release = threading.Event(), threading.Event()
+    writes = []
+
+    def delayed(method, params):
+        if method == 'save':
+            writes.append(dict(params['changes']))
+            if len(writes) == 1:
+                entered.set()
+                assert release.wait(3)
+        return dispatch(method, params)
+
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    port = window.fields['port'][0]
+    port.setText('60')
+    port.setText('6020')
+    window.save()
+    assert entered.wait(2)
+    try:
+        assert window.pages.isEnabled()
+        port.setText('6030')
+        window.fields['save_audio'][0].setChecked(True)
+    finally:
+        release.set()
+    settle(qt_app, window)
+    assert writes == [{'port': '6020'}, {'port': '6030', 'save_audio': True}]
+    assert Backend(gui_root).config()['port'] == '6030'
+    assert not window.changes()
+
+
+@pytest.mark.parametrize(('name', 'value'), [
+    ('port', ''), ('port', '65536'), ('port', 'abc'), ('port', '9' * 5000), ('addr', 'ws://localhost'),
+    ('language', ' '), ('idle_suspend_seconds', 0), ('mic_seg_duration', 0),
+    ('mic_seg_overlap', 31), ('audio_name_len', 201), ('transcript_dir', ''),
+])
+def test_invalid_autosave_keeps_disk_unchanged_with_inline_feedback(window, qt_app, gui_root, name, value):
+    from core.settings_gui.window import set_value
+    path = gui_root / 'config_client.py'
+    original = path.read_bytes()
+    widget, kind = window.fields[name]
+    set_value(widget, kind, value)
+    settle(qt_app, window)
+    assert name in window.input_errors
+    assert not window.field_states[name].isHidden()
+    assert path.read_bytes() == original
+    assert window.changes()
+
+
+def test_cross_field_validation_recovers_after_overlap_is_corrected(window, qt_app, gui_root):
+    window.fields['mic_seg_duration'][0].setValue(2)
+    window.fields['mic_seg_overlap'][0].setValue(3)
+    settle(qt_app, window)
+    assert 'mic_seg_overlap' in window.input_errors
+    window.fields['mic_seg_overlap'][0].setValue(1)
+    settle(qt_app, window)
+    assert not window.input_errors and not window.changes()
+    assert Backend(gui_root).config()['mic_seg_duration'] == 2
+
+
+def test_save_failure_stays_visible_without_retry_loop_and_can_retry(window, qt_app, gui_root, monkeypatch):
+    dispatch = window.backend.dispatch
+    failures = []
+    def fail(method, params):
+        if method == 'save':
+            failures.append(1)
+            raise OSError('synthetic write failure')
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', fail)
+    window.fields['save_audio'][0].setChecked(True)
+    settle(qt_app, window)
+    assert window.save_error and window.changes() and len(failures) == 1
+    message = window.save_status.text()
+    window.poll_state()
+    settle(qt_app, window)
+    assert window.save_status.text() == message and len(failures) == 1
+    assert not Backend(gui_root).config()['save_audio']
+    monkeypatch.setattr(window.backend, 'dispatch', dispatch)
+    window.retry_save.click()
+    settle(qt_app, window)
+    assert Backend(gui_root).config()['save_audio'] and not window.changes()
+    assert window.retry_save.isHidden()
+
+
+def test_client_options_have_bilingual_help_and_language_restart_is_explicit(window, qt_app):
+    from core.i18n import tr
+    from core.settings_gui.window import label
+    for name, (widget, _) in window.fields.items():
+        assert widget.accessibleDescription()
+        for locale in ('en', 'zh-CN'):
+            assert tr('gui.help.' + name, locale=locale) != 'gui.help.' + name
+    for _, identifier, widgets, _ in window.editors.values():
+        assert identifier.accessibleDescription()
+        for name, (widget, _) in widgets.items():
+            assert widget.toolTip() and widget.accessibleDescription()
+            assert tr('gui.help.' + name) != 'gui.help.' + name
+    assert window.fields['port'][0].maximumWidth() == 160
+    assert window.fields['mic_seg_duration'][0].maximumWidth() == 160
+    assert not hasattr(window, 'save_button')
+    window.navigate(0)
+    assert not window.advanced.isVisible()
+    window.navigate(5)
+    assert window.advanced.isVisible()
+    window.startup_language = 'en'
+    widget = window.fields['ui_language'][0]
+    widget.setCurrentIndex(widget.findData('zh-CN'))
+    settle(qt_app, window)
+    assert window.save_status.text() == label('language_restart')
+    assert window.field_states['ui_language'].text() == label('restart')
+
+
+def test_autosave_keeps_latest_runtime_indicator(window, qt_app):
+    window.update_runtime({'recording': True, 'connected': True, 'processing_count': 1})
+    window.fields['save_audio'][0].setChecked(True)
+    settle(qt_app, window)
+    assert window.icon_recording and window.latest_state['runtime']['recording']
+
+
+def test_field_help_hover_click_and_keyboard_do_not_edit_settings(window, qt_app, gui_root, monkeypatch):
+    from PySide6.QtCore import QEvent, QPoint, Qt
+    from PySide6.QtGui import QHelpEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QToolTip
+    from core.settings_gui.help_widgets import HelpButton
+    path = gui_root / 'config_client.py'
+    original = path.read_bytes()
+    window.navigate(0)
+    qt_app.processEvents()
+    help_button = next(button for button in window.findChildren(HelpButton) if button.field_name == 'ui_language')
+    assert help_button.isVisible() and help_button.accessibleDescription()
+    point = QPoint(8, 8)
+    qt_app.sendEvent(help_button, QHelpEvent(QEvent.Type.ToolTip, point, help_button.mapToGlobal(point)))
+    assert QToolTip.isVisible() and QToolTip.text() == help_button.toolTip()
+    QToolTip.hideText()
+    opened = []
+    monkeypatch.setattr(QToolTip, 'showText', lambda *args: opened.append(args))
+    help_button.click()
+    help_button.setFocus()
+    QTest.keyClick(help_button, Qt.Key.Key_F1)
+    assert len(opened) == 2 and all(args[1] == help_button.toolTip() for args in opened)
+    assert not window.changes() and not window.autosave.isActive()
+    assert path.read_bytes() == original
+
+
+def test_settings_groups_reflow_without_losing_widgets_or_horizontal_overflow(window, qt_app, gui_root):
+    from core.settings_gui.help_widgets import SettingsGroups
+    from PySide6.QtWidgets import QLabel
+    original = (gui_root / 'config_client.py').read_bytes()
+    controls = {name: widget for name, (widget, _) in window.fields.items()}
+    window.navigate(0)
+    scroll = window.pages.widget(0)
+    groups = scroll.findChild(SettingsGroups)
+    for width, expected_columns in ((1440, 2), (800, 1), (1440, 2)):
+        window.resize(width, 860)
+        for _ in range(8):
+            qt_app.processEvents()
+        assert groups.columns == expected_columns
+        assert scroll.horizontalScrollBar().maximum() == 0, (
+            width, [(frame.minimumSizeHint().width(), frame.width()) for frame in groups.cards],
+            window.fields['input_device'][0].parentWidget().minimumSizeHint().width())
+        assert {name: widget for name, (widget, _) in window.fields.items()} == controls
+        assert all(not widget.accessibleDescription() or not any(
+            label.text() == widget.accessibleDescription() for label in groups.findChildren(QLabel))
+            for widget in controls.values())
+    assert not window.changes() and not window.autosave.isActive()
+    assert (gui_root / 'config_client.py').read_bytes() == original
+
+
+@pytest.mark.parametrize('accept', [False, True])
+def test_exit_dialog_has_safe_default_and_explicit_buttons(window, qt_app, accept):
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QMessageBox
+    from core.settings_gui.window import label
+    inspected = []
+
+    def respond():
+        dialog = QApplication.activeModalWidget()
+        assert isinstance(dialog, QMessageBox)
+        assert dialog.defaultButton().text() == label('cancel')
+        assert dialog.escapeButton() is dialog.defaultButton()
+        inspected.append(dialog.text())
+        next(button for button in dialog.buttons()
+             if button.text() == label('exit_client' if accept else 'cancel')).click()
+
+    window.latest_state['runtime'] = {'recording': True}
+    QTimer.singleShot(0, respond)
+    assert window.confirm_exit() is accept
+    assert label('exit_active') in inspected[0]
+
+
+def test_cancel_exit_keeps_client_running_and_confirmed_exit_flushes_edits(window, qt_app, gui_root, monkeypatch):
+    calls = []
+    dispatch = window.backend.dispatch
+    def controlled(method, params):
+        calls.append(method)
+        return None if method == 'desktop_stop' else dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', controlled)
+    monkeypatch.setattr(window, 'confirm_exit', lambda: False)
+    window.request_exit()
+    assert not window.exit_pending and 'desktop_stop' not in calls
+    window.fields['save_audio'][0].setChecked(True)
+    monkeypatch.setattr(window, 'confirm_exit', lambda: True)
+    monkeypatch.setattr(window, 'finish_exit', lambda: None)
+    window.request_exit()
+    settle(qt_app, window)
+    assert calls.index('save') < calls.index('desktop_stop')
+    assert Backend(gui_root).config()['save_audio'] and not window.changes()
+
+
+def test_exit_is_cancelled_when_pending_autosave_fails(window, qt_app, monkeypatch):
+    dispatch = window.backend.dispatch
+    def controlled(method, params):
+        if method == 'save':
+            raise OSError('synthetic failure')
+        assert method != 'desktop_stop'
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', controlled)
+    monkeypatch.setattr(window, 'confirm_exit', lambda: True)
+    window.fields['save_audio'][0].setChecked(True)
+    window.request_exit()
+    settle(qt_app, window)
+    assert window.save_error and not window.exiting and not window.exit_pending
 
 
 def test_ready_microphone_is_waiting_until_recording_flag_changes(window):
@@ -815,7 +1330,7 @@ def test_history_search_detail_copy_and_file_open_are_explicit(window, qt_app, g
     page = window.history
     assert window.workspace.currentIndex() == 2
     assert page.results.count() == 1 and page.detail.toPlainText() == ''
-    assert window.changes() == {'save_audio': True}
+    assert not window.changes() and Backend(gui_root).config()['save_audio']
     assert not page.copy.isEnabled()
     clipboard.setText.assert_not_called()
     launch.assert_not_called()
@@ -1049,7 +1564,7 @@ def test_history_refresh_keeps_controls_and_content_stable(window, qt_app, gui_r
             return False
     observer = Observer(page)
     controls = (page.search, page.reset, page.period, page.copy_final, page.open_file,
-                window.save_button, window.exit_button, page.tabs)
+                window.advanced, window.exit_button, page.tabs)
     for control in controls:
         control.installEventFilter(observer)
     release = threading.Event()
@@ -1194,7 +1709,7 @@ def test_subtle_buttons_have_visible_hover_and_keyboard_feedback(window, qt_app)
     from PySide6.QtTest import QTest
     window.exit_button.show()
     for button in (window.exit_button, window.advanced, window.history_button):
-        window.navigate(0) if button is window.advanced else window.show_home()
+        window.navigate(5) if button is window.advanced else window.show_home()
         qt_app.processEvents()
         button.ensurePolished()
         QTest.mouseMove(window, QPoint(2, 2))
@@ -1281,6 +1796,7 @@ def test_shutdown_failure_reenables_exit_then_success_reaps_window_worker(window
 
     monkeypatch.setattr(window.backend, 'dispatch', controlled)
     monkeypatch.setattr(QMessageBox, 'warning', Mock())
+    monkeypatch.setattr(window, 'confirm_exit', lambda: True)
     window.desktop_mode = True
     window.request_exit()
     settle(qt_app, window)
@@ -1346,6 +1862,7 @@ def check():
             continue
         if window.backend.phase == 'running' and not observed:
             observed.append(window.backend.session.process)
+            window.confirm_exit = lambda: True
             window.request_exit()
         elif time.monotonic() - started > 12:
             app.exit(2)

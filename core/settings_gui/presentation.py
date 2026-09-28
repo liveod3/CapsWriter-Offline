@@ -23,6 +23,7 @@ QLabel#cardTitle { font-size: 15px; font-weight: 600; }
 QLabel#heroTitle { font-size: 28px; font-weight: 700; }
 QLabel#metric { font-size: 20px; font-weight: 600; }
 QFrame#card { background: #ffffff; border: 1px solid #e7e9f1; border-radius: 12px; }
+QFrame#settingDivider { background: #edf0f5; border: none; }
 QFrame#hero { background: #edeefe; border: 1px solid #dedff6; border-radius: 16px; }
 QWidget#footer { background: #ffffff; border-top: 1px solid #e5e7ee; }
 QLabel#state { color: #626a80; font-size: 11px; padding: 3px 6px; }
@@ -56,6 +57,15 @@ QPushButton#exit { text-align: left; padding: 12px 10px; background: #fafbfe; co
 QPushButton#exit:hover { background: #fff0f1; border-color: #d99aa3; color: #9e3445; }
 QPushButton#exit:pressed { background: #f7dde1; }
 QPushButton#exit:focus { border: 2px solid #7971d9; padding: 11px 9px; }
+QPushButton#fieldHelp { border: 1px solid #b9bfce; border-radius: 10px; color: #777f93;
+    background: transparent; padding: 0; min-height: 0; font-size: 12px; font-weight: 600; }
+QPushButton#fieldHelp:hover { color: #5850c9; border-color: #8c82d6; background: #eeedff; }
+QPushButton#fieldHelp:pressed { background: #ded9f6; }
+QPushButton#fieldHelp:focus { border: 2px solid #7971d9; padding: 0; }
+QPushButton#deviceNotice { border: 1px solid #d9b66e; border-radius: 10px; color: #87540b;
+    background: #fff4dd; padding: 0; min-height: 0; font-size: 12px; font-weight: 600; }
+QPushButton#deviceNotice:hover { background: #ffe9bc; border-color: #b1812c; }
+QPushButton#deviceNotice:focus { border: 2px solid #7971d9; padding: 0; }
 QTabWidget::pane { border: 1px solid #e1e4ee; background: #ffffff; border-radius: 7px; }
 QTabBar::tab { padding: 10px 14px; color: #656d81; border: none; background: transparent; }
 QTabBar::tab:selected { color: #5850c9; border-bottom: 2px solid #7971d9; }

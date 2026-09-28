@@ -47,6 +47,9 @@ class Backend:
         return CatalogEditor(self.root / self.config(effective=True)['llm_config_dir'])
 
     def dispatch(self, method, params):
+        if method == 'input_devices':
+            from .devices import discover_inputs
+            return discover_inputs()
         if method == 'status':
             if not self.operations:
                 return None

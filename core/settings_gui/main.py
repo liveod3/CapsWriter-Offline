@@ -60,6 +60,7 @@ def main(root=None, *, child=False, desktop=False):
         return app.exec()
     finally:
         window.closed.set()
+        window.device_watch.stop()
         window.timer.stop()
         window.poll.stop()
         if desktop:

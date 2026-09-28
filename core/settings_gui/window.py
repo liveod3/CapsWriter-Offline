@@ -9,18 +9,22 @@ import time
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QComboBox, QFormLayout, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QCheckBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
 
-from core.i18n import tr
+from core.i18n import get_language, system_language, tr
 from .backend import safe_error
 from .bridge import Disconnected, RemoteError
+from .choices import ConfigChoice, MicrophoneChoice, RecognitionChoice
+from .device_watch import DeviceWatch
 from .fields import PAGES
+from .help_widgets import DeviceNotice, HelpButton, SettingsGroups, field_caption
 from .history_page import HistoryPage
 from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, card, text
 from .shell import show_window
+from .validation import field_errors
 
 
 def label(key):
@@ -28,7 +32,11 @@ def label(key):
 
 
 def make_input(name, kind):
-    if kind is bool:
+    if name == 'language':
+        widget = RecognitionChoice()
+    elif name == 'input_device':
+        widget = MicrophoneChoice()
+    elif kind is bool:
         widget = Toggle()
         widget.setFixedSize(widget.sizeHint())
     elif isinstance(kind, tuple):
@@ -47,6 +55,13 @@ def make_input(name, kind):
         widget = QLineEdit()
     widget.setObjectName(name)
     widget.setAccessibleName(label(name))
+    if kind in (int, float):
+        widget.setMaximumWidth(160)
+        widget.setKeyboardTracking(False)
+    elif isinstance(kind, tuple):
+        widget.setMaximumWidth(260)
+    elif name == 'port':
+        widget.setMaximumWidth(160)
     return widget
 
 
@@ -64,6 +79,8 @@ def get_value(widget, kind):
 def set_value(widget, kind, value):
     if kind is bool:
         widget.setChecked(bool(value))
+    elif isinstance(widget, ConfigChoice):
+        widget.set_config_value(value)
     elif isinstance(widget, QComboBox):
         index = widget.findData(value)
         if index < 0:
@@ -84,6 +101,22 @@ class SettingsWindow(QMainWindow):
         self.backend = backend
         self.snapshot = None
         self.form_baseline = {}
+        self.startup_language = get_language()
+        self.save_error = None
+        self.input_errors = {}
+        self.confirming_exit = False
+        self.discard_on_exit = False
+        self.close_pending = False
+        self.autosave = QTimer(self)
+        self.autosave.setSingleShot(True)
+        self.autosave.timeout.connect(self.save)
+        self.devices_loaded_once = False
+        self.devices_inflight = False
+        self.devices_pending = False
+        self.device_watch = DeviceWatch(self, self.devices_visible, self.refresh_devices)
+        self.device_retry = QTimer(self)
+        self.device_retry.setSingleShot(True)
+        self.device_retry.timeout.connect(self.refresh_devices)
         self.catalog = None
         self.fields = {}
         self.field_states = {}
@@ -171,20 +204,27 @@ class SettingsWindow(QMainWindow):
             content.setObjectName('workspace')
             content_layout = QVBoxLayout(content)
             content_layout.setContentsMargins(30, 26, 30, 26)
-            content_layout.setSpacing(18)
+            content_layout.setSpacing(14)
             heading = text('page.' + page, 'heading')
             content_layout.addWidget(heading)
             description = text('intro.' + page, 'description')
             content_layout.addWidget(description)
+            groups = SettingsGroups()
+            content_layout.addWidget(groups)
             for name, kind in fields.items():
                 if name in GROUP_STARTS:
-                    group = card(content_layout, GROUP_STARTS[name])
+                    group = groups.add_group(GROUP_STARTS[name])
                     form = QFormLayout()
                     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
                     form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
                     form.setHorizontalSpacing(20)
-                    form.setVerticalSpacing(12)
+                    form.setVerticalSpacing(6 if page == 'general' else 8)
                     group.addLayout(form)
+                if page == 'general' and form.rowCount():
+                    divider = QFrame()
+                    divider.setObjectName('settingDivider')
+                    divider.setFixedHeight(1)
+                    form.addRow(divider)
                 widget = make_input(name, kind)
                 if name == 'llm_default_preset':
                     widget = Choice()
@@ -194,19 +234,33 @@ class SettingsWindow(QMainWindow):
                 row = QWidget()
                 row_layout = QHBoxLayout(row)
                 row_layout.setContentsMargins(0, 0, 0, 0)
-                if kind is bool:
-                    row_layout.addStretch()
-                row_layout.addWidget(widget, 1)
+                row_layout.setSpacing(12)
+                row_layout.addWidget(widget, 0 if kind is bool else 1)
                 state = QLabel()
                 state.setObjectName('state')
+                state.setWordWrap(True)
                 self.field_states[name] = state
-                row_layout.addWidget(state)
-                caption = QLabel(label(name))
-                caption.setWordWrap(True)
-                caption.setMinimumWidth(220)
-                caption.setMaximumWidth(265)
-                caption.setBuddy(widget)
-                form.addRow(caption, row)
+                caption = field_caption(name, widget)
+                row_layout.insertWidget(0, caption)
+                if (kind in (bool, int, float) or isinstance(widget, QComboBox) or name == 'port') \
+                        and name != 'input_device':
+                    row_layout.setStretch(1, 0)
+                    row_layout.insertStretch(1, 1)
+                field = QWidget()
+                field_layout = QVBoxLayout(field)
+                field_layout.setContentsMargins(0, 0, 0, 0)
+                field_layout.setSpacing(5)
+                field_layout.addWidget(row)
+                if name == 'input_device':
+                    self.device_refresh = QPushButton(label('refresh_devices'))
+                    self.device_refresh.setAccessibleName(label('refresh_devices_help'))
+                    self.device_refresh.setToolTip(label('refresh_devices_help'))
+                    self.device_refresh.clicked.connect(self.refresh_devices)
+                    row_layout.addWidget(self.device_refresh)
+                    self.device_notice = DeviceNotice()
+                    row_layout.addWidget(self.device_notice)
+                field_layout.addWidget(state, 0, Qt.AlignmentFlag.AlignLeft)
+                form.addRow(field)
             if page == 'text':
                 self.add_catalog_editor(content_layout, 'presets')
                 self.preview_button = QPushButton(label('preview'))
@@ -254,7 +308,19 @@ class SettingsWindow(QMainWindow):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
             scroll.setWidget(content)
+            groups.bind_viewport(scroll.viewport(), 60)
             self.pages.addWidget(scroll)
+        self.navigation.addItem(label('page.advanced'))
+        advanced_page = QWidget()
+        advanced_layout = QVBoxLayout(advanced_page)
+        advanced_layout.setContentsMargins(30, 26, 30, 26)
+        advanced_layout.addWidget(text('page.advanced', 'heading'))
+        advanced_layout.addWidget(text('advanced_help', 'description'))
+        self.advanced = QPushButton(label('advanced'))
+        self.advanced.clicked.connect(self.open_advanced)
+        advanced_layout.addWidget(self.advanced, 0, Qt.AlignmentFlag.AlignLeft)
+        advanced_layout.addStretch()
+        self.pages.addWidget(advanced_page)
         self.navigation.currentRowChanged.connect(self.navigate)
         self.navigation.itemClicked.connect(lambda _: self.navigate(self.navigation.currentRow()))
         footer_widget = QWidget()
@@ -266,21 +332,16 @@ class SettingsWindow(QMainWindow):
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         footer_layout.addWidget(self.status)
-        footer = QHBoxLayout()
-        self.advanced = QPushButton(label('advanced'))
-        self.advanced.setObjectName('subtle')
-        self.advanced.clicked.connect(self.open_advanced)
-        footer.addWidget(self.advanced)
-        footer.addStretch()
+        self.save_status = text('autosave_help', 'muted')
+        footer_layout.addWidget(self.save_status)
+        self.retry_save = QPushButton(label('retry_save'))
+        self.retry_save.clicked.connect(self.retry_autosave)
+        self.retry_save.hide()
+        footer_layout.addWidget(self.retry_save, 0, Qt.AlignmentFlag.AlignLeft)
         self.resolve_button = QPushButton(label('use_file_version'))
         self.resolve_button.clicked.connect(self.reload)
         self.resolve_button.hide()
         footer_layout.addWidget(self.resolve_button, 0, Qt.AlignmentFlag.AlignLeft)
-        self.save_button = QPushButton(label('save'))
-        self.save_button.setObjectName('primary')
-        self.save_button.clicked.connect(self.save)
-        footer.addWidget(self.save_button)
-        footer_layout.addLayout(footer)
         layout.addWidget(footer_widget)
         self.history = HistoryPage(self.request)
         self.workspace.addWidget(self.history)
@@ -289,6 +350,11 @@ class SettingsWindow(QMainWindow):
         self.show_home()
         self.save_shortcut = QShortcut(QKeySequence.StandardKey.Save, self)
         self.save_shortcut.activated.connect(self.save)
+        for widget, kind in self.fields.values():
+            signal = (widget.toggled if kind is bool else widget.currentIndexChanged
+                      if isinstance(widget, QComboBox) else widget.valueChanged
+                      if kind in (int, float) else widget.textChanged)
+            signal.connect(self.settings_edited)
         self.thread = threading.Thread(target=self.work, daemon=True, name='settings-worker')
         self.thread.start()
         self.timer = QTimer(self)
@@ -301,6 +367,7 @@ class SettingsWindow(QMainWindow):
 
     def add_catalog_editor(self, layout, kind):
         layout = card(layout, kind)
+        layout.addWidget(text('catalog_edit_help', 'muted'))
         selector = Choice()
         selector.setAccessibleName(label(kind))
         layout.addWidget(selector)
@@ -316,7 +383,9 @@ class SettingsWindow(QMainWindow):
         widgets = {}
         identifier = QLineEdit()
         identifier.setAccessibleName(label('identifier'))
-        form.addRow(label('identifier'), identifier)
+        identifier.setToolTip(label('help.identifier'))
+        identifier.setAccessibleDescription(label('help.identifier'))
+        form.addRow(field_caption('identifier', identifier), identifier)
         for name, spec in specs.items():
             widget = QPlainTextEdit() if name in ('system_prompt', 'triggers') else make_input(name, spec)
             if name == 'provider':
@@ -331,13 +400,20 @@ class SettingsWindow(QMainWindow):
             if name == 'api_key':
                 widget.setEchoMode(QLineEdit.EchoMode.Password)
                 widget.setPlaceholderText(label('key_keep'))
-            caption = QLabel(label(name))
-            caption.setBuddy(widget)
+            caption = field_caption(name, widget)
+            widget.setToolTip(label('help.' + name))
+            widget.setAccessibleDescription(label('help.' + name))
             form.addRow(caption, widget)
             widgets[name] = (widget, spec)
         clear_key = QCheckBox(label('key_clear')) if kind == 'providers' else None
         if clear_key:
-            form.addRow(clear_key)
+            clear_key.setToolTip(label('help.key_clear'))
+            clear_key.setAccessibleDescription(label('help.key_clear'))
+            clear_row = QHBoxLayout()
+            clear_row.addWidget(clear_key)
+            clear_row.addWidget(HelpButton('key_clear'))
+            clear_row.addStretch()
+            form.addRow(clear_row)
         buttons = QHBoxLayout()
         for key, callback in [('new', lambda: self.new_entry(kind)),
                               ('delete', lambda: self.save_entry(kind, delete=True)),
@@ -468,6 +544,7 @@ class SettingsWindow(QMainWindow):
             (self.editors['presets'][2]['provider'][0], self.catalog['providers'], False),
         ):
             current = widget.currentData()
+            previous = widget.blockSignals(True)
             widget.clear()
             if empty:
                 widget.addItem(label('triggers_only'), None)
@@ -475,6 +552,7 @@ class SettingsWindow(QMainWindow):
                 widget.addItem(entry, entry)
             if current is not None:
                 set_value(widget, str, current)
+            widget.blockSignals(previous)
 
     def changes(self):
         if not self.snapshot or not self.snapshot.get('saved'):
@@ -497,8 +575,15 @@ class SettingsWindow(QMainWindow):
         self.snapshot = result
         if result.get('saved'):
             for name, (widget, spec) in self.fields.items():
+                previous = widget.blockSignals(True)
                 set_value(widget, spec, result['saved']['ClientConfig'].get(name))
+                widget.blockSignals(previous)
             self.capture_baseline()
+            self.update_device_notice()
+            self.save_error = None
+            self.input_errors = {}
+            self.autosave.stop()
+            self.update_save_status()
 
     def update_state(self, result):
         self.latest_state = result
@@ -514,15 +599,17 @@ class SettingsWindow(QMainWindow):
             qualified = 'ClientConfig.' + name
             if name in changes:
                 message = 'unsaved'
+            elif name == 'ui_language' and self.language_restart():
+                message = 'restart'
             elif qualified in (result.get('restart_required') or []):
                 message = 'restart'
             elif qualified in (result.get('pending') or []):
                 message = 'pending'
             else:
                 message = 'effective' if result.get('effective') else 'saved'
-            state.setText(label(message))
-            state.setVisible(message not in ('saved', 'effective'))
-            changed = message in ('unsaved', 'restart', 'pending')
+            state.setText(self.input_errors.get(name, label(message)))
+            state.setVisible(name in self.input_errors or message not in ('saved', 'effective'))
+            changed = name in self.input_errors or message in ('unsaved', 'restart', 'pending')
             if state.property('changed') != changed:
                 state.setProperty('changed', changed)
                 state.style().unpolish(state)
@@ -534,6 +621,8 @@ class SettingsWindow(QMainWindow):
         self.update_conflict()
 
     def update_runtime(self, runtime):
+        if self.latest_state is not None:
+            self.latest_state['runtime'] = runtime
         result = {**(self.latest_state or {}), 'runtime': runtime}
         self.home.update_snapshot(result)
         desktop = result.get('desktop') or {}
@@ -596,8 +685,62 @@ class SettingsWindow(QMainWindow):
             return
         self.pages.setCurrentIndex(page)
         self.workspace.setCurrentIndex(1)
+        blocked = self.navigation.blockSignals(True)
         self.navigation.setCurrentRow(page)
+        self.navigation.blockSignals(blocked)
         self.update_navigation()
+        if page == 0:
+            self.device_watch.start()
+            self.refresh_devices()
+
+    def devices_visible(self):
+        return (self.isVisible() and self.workspace.currentIndex() == 1 and self.pages.currentIndex() == 0
+                and not self.closed.is_set() and not self.exiting and not self.exit_pending)
+
+    def refresh_devices(self):
+        if self.closed.is_set() or self.exiting or self.exit_pending:
+            return
+        if self.devices_inflight:
+            self.devices_pending = True
+            return
+        if self.busy or self.fields['input_device'][0].view().isVisible():
+            self.device_retry.start(100)
+            return
+        self.device_retry.stop()
+        self.devices_inflight = True
+        self.update_device_notice()
+        self.request('input_devices', {}, self.devices_loaded, quiet=True)
+
+    def devices_loaded(self, result):
+        self.devices_inflight = False
+        self.devices_loaded_once = True
+        widget = self.fields['input_device'][0]
+        if widget.view().isVisible():
+            # A device can change while the menu is open; never move a click target.
+            self.devices_pending = True
+        else:
+            widget.replace_inventory(result)
+        self.update_device_notice()
+        if self.devices_pending:
+            self.devices_pending = False
+            self.device_retry.start(500)
+
+    def update_device_notice(self):
+        widget = self.fields['input_device'][0]
+        result = widget.inventory
+        if result is None:
+            message = None
+        elif result.get('error'):
+            message = 'devices_timeout' if result['error'] == 'timeout' else 'devices_unavailable'
+        elif not result['devices']:
+            message = 'devices_empty'
+        elif not widget.selection_found():
+            message = 'device_not_found'
+        elif result.get('partial'):
+            message = 'devices_partial'
+        else:
+            message = None
+        self.device_notice.set_notice(label(message) if message else None)
 
     def update_navigation(self):
         for button, page in ((self.home_button, 0), (self.history_button, 2)):
@@ -637,15 +780,65 @@ class SettingsWindow(QMainWindow):
         self.request('read', {}, self.loaded)
 
     def save(self):
-        if self.blocked or not self.snapshot or not self.snapshot.get('saved'):
+        self.autosave.stop()
+        if self.closed.is_set() or self.exiting or not self.snapshot or not self.snapshot.get('saved'):
             return
-        self.request('save', {'changes': self.changes(), 'revision': self.snapshot['revision']}, self.saved)
+        if self.save_error or self.config_conflict:
+            return
+        changes = self.changes()
+        self.input_errors = field_errors({**self.snapshot['saved']['ClientConfig'], **changes})
+        if not changes or self.input_errors:
+            if self.input_errors:
+                self.close_pending = False
+            self.update_save_status()
+            return
+        if self.busy:
+            self.autosave.start(100)
+            return
+        submitted = {name: get_value(widget, spec) for name, (widget, spec) in self.fields.items()}
+        self.save_status.setText(label('autosaving'))
+        self.request('save', {'changes': changes, 'revision': self.snapshot['revision']},
+                     lambda result: self.saved(result, submitted), quiet=True)
 
-    def saved(self, result):
+    def saved(self, result, submitted):
+        result = {**{key: (self.latest_state or {}).get(key) for key in ('runtime', 'desktop')}, **result}
         self.snapshot = result
-        self.capture_baseline()
+        # Only acknowledge the submitted draft. Edits made during disk I/O remain dirty.
+        self.form_baseline = submitted
+        self.save_error = None
         self.update_state(result)
-        self.status.setText(label('settings_saved'))
+        self.update_save_status()
+        if self.changes():
+            self.autosave.start(100)
+
+    def settings_edited(self, *_):
+        if not self.snapshot or not self.snapshot.get('saved') or self.loading or self.closed.is_set() or self.exiting:
+            return
+        self.save_error = None
+        self.update_device_notice()
+        self.input_errors = field_errors({**self.snapshot['saved']['ClientConfig'], **self.changes()})
+        self.update_state(self.latest_state or self.snapshot)
+        self.update_save_status()
+        self.autosave.start(600)
+
+    def retry_autosave(self):
+        self.save_error = None
+        self.save()
+
+    def language_restart(self):
+        preference = self.snapshot['saved']['ClientConfig']['ui_language'] if self.snapshot else self.startup_language
+        return (system_language() if preference == 'auto' else preference) != self.startup_language
+
+    def update_save_status(self):
+        self.retry_save.setVisible(bool(self.save_error))
+        if self.save_error:
+            self.save_status.setText(label('autosave_failed') + self.save_error)
+        elif self.input_errors:
+            self.save_status.setText(label('autosave_invalid') + ' · '.join(self.input_errors.values()))
+        elif self.changes():
+            self.save_status.setText(label('autosave_waiting'))
+        else:
+            self.save_status.setText(label('language_restart') if self.language_restart() else label('autosave_help'))
 
     def capture_baseline(self):
         self.form_baseline = {name: get_value(widget, spec) for name, (widget, spec) in self.fields.items()}
@@ -673,7 +866,6 @@ class SettingsWindow(QMainWindow):
 
     def enable_editor(self, enabled):
         self.pages.setEnabled(enabled)
-        self.save_button.setEnabled(enabled)
         self.resolve_button.setEnabled(enabled)
         self.advanced.setEnabled(enabled)
 
@@ -719,15 +911,19 @@ class SettingsWindow(QMainWindow):
         self.busy = False
         if not quiet and not self.active_method.startswith('history_'):
             self.enable_editor(True)
-        if self.exit_pending:
-            self.pending_request = None
-            self.begin_exit()
-            return
         if error is Disconnected:
             self.closed.set()
             self.close()
             return
         if error:
+            if self.active_method == 'input_devices':
+                self.devices_loaded({'devices': [], 'default': -1, 'partial': False, 'error': 'unavailable'})
+            if self.active_method == 'save':
+                self.save_error = error
+                self.autosave.stop()
+                self.exit_pending = False
+                self.close_pending = False
+                self.update_save_status()
             if self.active_method.startswith('history_'):
                 getattr(callback, 'on_error', self.history.show_error)(error)
             if self.active_method == 'desktop_stop':
@@ -747,12 +943,23 @@ class SettingsWindow(QMainWindow):
                 QMessageBox.warning(self, label('failed'), error)
         else:
             callback(result)
+        if self.exit_pending:
+            self.pending_request = None
+            self.continue_exit()
+            return
+        if self.close_pending and not self.busy and not self.changes():
+            self.close_pending = False
+            self.close()
+            return
         if self.pending_request is not None and not self.closed.is_set():
             pending, self.pending_request = self.pending_request, None
             self.request(*pending)
 
     def closeEvent(self, event):
         if self.closed.is_set():
+            self.device_watch.stop()
+            self.device_retry.stop()
+            self.autosave.stop()
             self.history.stop_queries()
             self.timer.stop()
             self.poll.stop()
@@ -765,16 +972,26 @@ class SettingsWindow(QMainWindow):
             else:
                 self.request_exit()
             return
-        saving = self.active_method in ('save', 'catalog_save')
+        saving = self.active_method in ('save', 'catalog_save', 'input_devices')
         queued_save = self.pending_request and self.pending_request[0] in ('save', 'catalog_save')
         if self.busy and (saving or queued_save):
             event.ignore()
+            self.close_pending = True
+            self.status.setText(label('wait'))
+            return
+        if self.changes() and not self.input_errors and not self.save_error and not self.config_conflict:
+            event.ignore()
+            self.close_pending = True
+            self.save()
             self.status.setText(label('wait'))
             return
         if (self.changes() or any(self.entry_dirty(kind) for kind in self.editors)) and not self.confirm_discard():
             event.ignore()
             return
         self.closed.set()
+        self.device_watch.stop()
+        self.device_retry.stop()
+        self.autosave.stop()
         self.history.stop_queries()
         self.timer.stop()
         self.poll.stop()
@@ -782,15 +999,47 @@ class SettingsWindow(QMainWindow):
         event.accept()
 
     def request_exit(self):
-        if self.exiting or self.exit_pending or self.closed.is_set():
+        if self.exiting or self.exit_pending or self.confirming_exit or self.closed.is_set():
             return
-        if (self.changes() or any(self.entry_dirty(kind) for kind in self.editors)) and not self.confirm_discard():
+        self.confirming_exit = True
+        try:
+            if not self.confirm_exit():
+                return
+        finally:
+            self.confirming_exit = False
+        self.discard_on_exit = bool(self.input_errors or self.save_error or self.config_conflict)
+        if ((self.discard_on_exit and self.changes()) or any(self.entry_dirty(kind) for kind in self.editors)) \
+                and not self.confirm_discard():
             return
         self.exit_pending = True
+        self.continue_exit()
+
+    def confirm_exit(self):
+        message = label('exit_confirm')
+        runtime = (self.latest_state or {}).get('runtime') or {}
+        if runtime.get('recording') or runtime.get('processing_count') or runtime.get('file_active'):
+            message += '\n\n' + label('exit_active')
+        dialog = QMessageBox(QMessageBox.Icon.Question, label('exit_client'), message, parent=self)
+        leave = dialog.addButton(label('exit_client'), QMessageBox.ButtonRole.AcceptRole)
+        cancel = dialog.addButton(label('cancel'), QMessageBox.ButtonRole.RejectRole)
+        dialog.setDefaultButton(cancel)
+        dialog.setEscapeButton(cancel)
+        dialog.exec()
+        return dialog.clickedButton() is leave
+
+    def continue_exit(self):
         if not self.busy:
+            if self.changes() and not self.discard_on_exit:
+                self.save()
+                if not self.busy:
+                    self.exit_pending = False
+                return
             self.begin_exit()
 
     def begin_exit(self):
+        self.device_watch.stop()
+        self.device_retry.stop()
+        self.autosave.stop()
         self.history.stop_queries()
         self.exiting = True
         self.exit_pending = False

@@ -2,6 +2,13 @@
 
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
+- Keep microphone rows stable through initial discovery, retries and failures: remove transient loading text and use a fixed inline status-icon slot for persistent error details. Add subtle separators between individual General settings rows.
+- Simplify microphone choices to one preferred endpoint interface, hiding duplicate host APIs and kernel pins. Automatically refresh from Windows audio-device notifications, coalescing bursts, deferring open menus and retaining existing selections; use slow visible-page fallback if subscription is unavailable.
+
+- Offer localized recognition-language choices and automatically discovered microphone inputs, including system default and explicit refresh. Query device metadata in a bounded isolated helper without opening streams; preserve legacy/disconnected choices and edits made during discovery. Device changes autosave and retain restart guidance.
+- Replace permanent setting explanations with circular help buttons beside option labels, with hover/click/keyboard access. Compact form spacing and state badges, and arrange setting groups in two columns when the window is wide enough without rebuilding controls.
+- Confirm explicit GUI exit with Cancel as the default, warn about active tasks and flush valid pending client edits before shutdown. Autosave common client settings with inline validation/failure feedback and revision protection; keep edits made during writes and preserve enabled controls. Add per-option help, compact value inputs, a dedicated Advanced settings page and an explicit GUI-language restart explanation. Preset/provider entries retain separate explicit saves.
+
 - Accept the functional source GUI baseline for commit. Clarify the ready state as Waiting for shortcut, with separate recording/processing instructions and mocked startup/idle-audio regressions. Startup still prepares the microphone; investigation of the user's reported automatic-recording indication awaits clarification.
 - Keep history controls enabled and retain displayed content during reads; preserve unchanged selection on refresh and ignore superseded results/errors. Apply date presets immediately and debounce date/keyword edits, rename Search to Refresh, center the muted empty-detail hint and add direct page entry with Enter/Go.
 - Add a recognition-history workspace with independent calendar-date/keyword filters, pagination, saved processing stages, local request-cost lookup and explicit copy/day-file actions. Bound reads, preserve saving preferences and report unavailable stages, incomplete searches or changed records.

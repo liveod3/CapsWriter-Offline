@@ -9,6 +9,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Parse client arguments before importing and starting the application."""
     import sys
     arguments = list(sys.argv[1:] if argv is None else argv)
+    if arguments == ['--list-input-devices']:
+        from core.settings_gui.devices import probe_main
+        return probe_main()
     if arguments == ['--desktop-worker']:
         from core.settings_gui.worker import main as worker_main
         return worker_main()

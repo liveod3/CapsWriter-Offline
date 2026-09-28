@@ -152,6 +152,8 @@ class DesktopBackend(Backend):
             self.session = None
 
     def dispatch(self, method, params):
+        if method == 'input_devices':
+            return super().dispatch(method, params)
         if method == 'status':
             if self.phase != 'running' or not self.session:
                 return None
