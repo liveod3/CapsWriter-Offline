@@ -19,7 +19,7 @@ from .backend import safe_error
 from .bridge import Disconnected, RemoteError
 from .choices import ConfigChoice, MicrophoneChoice, RecognitionChoice
 from .device_watch import DeviceWatch
-from .fields import PAGES
+from .fields import PAGES, page_index
 from .help_widgets import DeviceNotice, SettingsGroups, field_caption
 from .history_page import HistoryPage
 from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, text
@@ -221,9 +221,9 @@ class SettingsWindow(QMainWindow):
                     form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
                     form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
                     form.setHorizontalSpacing(20)
-                    form.setVerticalSpacing(6 if page in ('general', 'text') else 8)
+                    form.setVerticalSpacing(6 if page in ('general', 'dictation', 'text') else 8)
                     group.addLayout(form)
-                if page in ('general', 'text') and form.rowCount():
+                if page in ('general', 'dictation', 'text') and form.rowCount():
                     divider = QFrame()
                     divider.setObjectName('settingDivider')
                     divider.setFixedHeight(1)
@@ -695,6 +695,8 @@ class SettingsWindow(QMainWindow):
             self.request('status', {}, self.update_runtime, quiet=True)
 
     def navigate(self, page):
+        if isinstance(page, str):
+            page = page_index(page)
         if page < 0:
             return
         self.pages.setCurrentIndex(page)
@@ -703,12 +705,12 @@ class SettingsWindow(QMainWindow):
         self.navigation.setCurrentRow(page)
         self.navigation.blockSignals(blocked)
         self.update_navigation()
-        if page == 0:
+        if page == page_index('dictation'):
             self.device_watch.start()
             self.refresh_devices()
 
     def devices_visible(self):
-        return (self.isVisible() and self.workspace.currentIndex() == 1 and self.pages.currentIndex() == 0
+        return (self.isVisible() and self.workspace.currentIndex() == 1 and self.pages.currentIndex() == page_index('dictation')
                 and not self.closed.is_set() and not self.exiting and not self.exit_pending)
 
     def refresh_devices(self):

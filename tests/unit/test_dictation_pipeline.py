@@ -104,3 +104,73 @@ def test_final_output_preserves_plain_asr_and_respects_cancel_and_focus(
         processor._save.assert_called_once()
 
     asyncio.run(run())
+
+
+
+@pytest.mark.parametrize('mode, llm_text, expected', [
+    ('success', '软件。', '軟體'),
+    ('translation', 'Hello.', 'Hello'),
+    ('disabled', '软件测试。', '軟體測試。'),
+    ('failure', '软件测试。', '軟體測試。'),
+])
+def test_final_formatting_follows_llm_and_preserves_all_recording_stages(monkeypatch, mode, llm_text, expected):
+    async def run():
+        from core.client.output.result_processor import Config
+        original = '软件测试。'
+        for key, value in dict(traditional_convert=True, traditional_locale='zh-tw',
+                               trash_punc='。.', trash_punc_thresh=2, trash_punc_apps=[],
+                               enter_apps=[], paste=True, paste_apps=[], save_audio=False,
+                               save_transcripts=True, transcript_save_original=True,
+                               save_llm_records=True, save_llm_context=False).items():
+            monkeypatch.setattr(Config, key, value)
+        monkeypatch.setattr('core.client.output.result_processor.foreground_window', lambda: 42)
+        monkeypatch.setattr('core.client.output.result_processor.get_active_window_info', lambda: {})
+        udp = Mock()
+        monkeypatch.setattr('core.client.output.result_processor.broadcast_output_udp', udp)
+        monkeypatch.setattr('core.ui.show_status_hint', Mock())
+        processed = mode in ('success', 'translation')
+        result = TextResult(llm_text, original, preset_id='translate' if mode == 'translation' else 'correct_asr',
+                            processed=processed, error='TimeoutError' if mode == 'failure' else '')
+        state = ClientState(task_contexts={'id': ('', 42)})
+        state.set_output_text = Mock()
+        app = SimpleNamespace(progress=Mock(), state=state, diary=Mock(),
+                              llm=SimpleNamespace(process=AsyncMock(return_value=result)),
+                              output=SimpleNamespace(output=AsyncMock()))
+        processor = ResultProcessor(app)
+        message = SimpleNamespace(task_id='id', text=original, time_start=1)
+        await processor._handle_final(message)
+        assert app.llm.process.call_args.args[0] == original
+        assert result.text == llm_text
+        assert state.last_recognition_text == original
+        state.set_output_text.assert_called_once_with(expected)
+        app.output.output.assert_awaited_once_with(expected, paste=True)
+        udp.assert_called_once_with(expected)
+        archive = app.diary.write.call_args
+        assert archive.args[0] == expected
+        assert archive.kwargs['original'] == original
+        assert archive.kwargs['action_input'] == (original if processed else None)
+        assert archive.kwargs['action_output'] == (llm_text if processed else None)
+
+    asyncio.run(run())
+
+
+def test_disabled_final_formatting_keeps_llm_output(monkeypatch):
+    async def run():
+        from core.client.output.result_processor import Config
+        monkeypatch.setattr(Config, 'traditional_convert', False)
+        monkeypatch.setattr(Config, 'trash_punc', '')
+        monkeypatch.setattr(Config, 'enter_apps', [])
+        monkeypatch.setattr('core.client.output.result_processor.get_active_window_info', lambda: {})
+        monkeypatch.setattr('core.client.output.result_processor.broadcast_output_udp', Mock())
+        state = ClientState(task_contexts={'id': ('', 0)})
+        state.set_output_text = Mock()
+        app = SimpleNamespace(progress=Mock(), state=state,
+                              llm=SimpleNamespace(process=AsyncMock(return_value=TextResult('软件。', '原文'))),
+                              output=SimpleNamespace(output=AsyncMock()))
+        processor = ResultProcessor(app)
+        processor._save = Mock()
+        await processor._handle_final(SimpleNamespace(task_id='id', text='原文'))
+        state.set_output_text.assert_called_once_with('软件。')
+        assert app.output.output.call_args.args[0] == '软件。'
+
+    asyncio.run(run())

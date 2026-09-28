@@ -2,6 +2,27 @@
 
 Date: 2026-09-27; acceptance updated 2026-09-28. Status: the user accepted the functional source GUI baseline and authorized committing it. Physical desktop and complete packaged-release checks remain separate follow-ups. The reported startup recording symptom still needs clarification between an actual Recording/red-dot state and Windows microphone-use indication. The preceding composable-prompt work was accepted and committed as `58727c6`; this record concerns the GUI, client desktop entry and integrated Tk shutdown work.
 
+## Dictation organization and final output formatting
+
+Accepted by the user on 2026-09-28 with commit authorized. General contains interface
+preferences; Dictation separates capture, formatting and insertion; Records owns
+save preferences. The LLM page uses the label LLM processing. Page-ID navigation
+keeps home shortcuts and device watch/discovery on the correct pages.
+
+Traditional conversion and punctuation removal now run after optional LLM
+processing. Synthetic pipeline checks cover successful cleanup/translation,
+disabled/failure fallback, final-text length thresholds and disabled formatting.
+Insertion, UDP, cached output and final archives agree; raw ASR and action stages
+remain intact. Existing cancellation/focus tests passed. Final default suite:
+**1024 passed, 11 deselected**, using the existing Python 3.11.15 environment.
+Syntax, Ruff, configured mypy, internal-language/docs and diff checks passed.
+General, Dictation, LLM processing and Records were rendered in English/Chinese
+at 800x600, 1120x860 and 1440x900; no horizontal overflow remained. A smaller
+recognition-choice minimum width accommodates the narrow scrolled Dictation page.
+Synthetic device visibility/home-link/group-ownership checks passed. Real audio,
+LLM requests and actual user configuration were excluded; physical mixed-DPI
+interaction remains manual validation.
+
 ## Provider selection autosave
 
 Accepted by the user on 2026-09-28 with commit authorized, covering the final

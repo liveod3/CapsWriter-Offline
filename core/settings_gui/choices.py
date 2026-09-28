@@ -45,7 +45,7 @@ class RecognitionChoice(ConfigChoice):
         for code in RECOGNITION_LANGUAGES:
             self.addItem(tr('gui.asr_language.' + code), code)
         longest = max(self.fontMetrics().horizontalAdvance(self.itemText(index)) for index in range(self.count()))
-        self.setMinimumWidth(min(260, max(160, longest + 56)))
+        self.setMinimumWidth(min(240, max(160, longest + 56)))
         self.setMaximumWidth(260)
 
 

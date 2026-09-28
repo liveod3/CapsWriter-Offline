@@ -160,16 +160,16 @@ class ClientConfig:
     # (Executable, delay in seconds): press Enter after output, for example to select a stock.
     enter_apps = [('happ.exe', 0.5), ('hexin.exe', 0.5)]
 
-    # Trailing punctuation to remove from recognition results.
+    # Trailing punctuation to remove from final dictation text after optional LLM processing.
     trash_punc = '，。,.'
 
-    # Remove trailing punctuation below this word-count threshold.
+    # Remove trailing punctuation at or below this semantic-unit limit; zero means unlimited.
     trash_punc_thresh = 8
 
     # Always remove trailing punctuation in these applications.
     trash_punc_apps = ['WeiXin.exe', ]
 
-    # Convert recognition results to Traditional Chinese.
+    # Convert final dictation text to Traditional Chinese after optional LLM processing.
     traditional_convert = False
 
     # Traditional locale: 'zh-hant' (standard), 'zh-tw' (Taiwan), or 'zh-hk' (Hong Kong).

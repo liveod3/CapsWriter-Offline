@@ -99,11 +99,13 @@ permissions and the punctuation module are enabled. Missing reference data still
 uses the no-reference instruction; the base never authorizes copying surrounding
 text into the result.
 
-Upstream transformations are independent: server `format_num` may already have
-normalized numbers, and the client's `TextOutput.strip_punc` runs before LLM
-processing. Disabling a prompt module preserves what the LLM receives; it cannot
-recover an earlier number spelling or removed punctuation. Existing Traditional
-Chinese conversion and translation routing also remain independent.
+Server `format_num` may already have normalized numbers; disabling a prompt
+module cannot recover earlier number spelling. Client dictation formatting runs
+later: Traditional conversion and `TextOutput.strip_punc` apply to the text
+returned by the optional LLM action. These independent output preferences also
+apply when LLM is disabled, skipped or fails. Archived LLM output remains the raw
+action response, while final output includes these deterministic formatting rules.
+Translation routing remains independent, with the same final output preferences.
 
 Invalid composition preserves the original action input without sending a request.
 Existing timeout, cancellation, provider errors and output fallback behavior

@@ -211,22 +211,23 @@ class ResultProcessor:
     async def _handle_final(self, message: RecognitionMessage):
         self.app.progress.update(message.task_id, 'status.prepare_text')
         original = message.text
-        text = original
         log_content(logger, 'dictation.asr_text', task_id=message.task_id, asr_text=original)
-        if Config.traditional_convert:
-            from core.tools.zhconv import convert
-
-            text = convert(text, Config.traditional_locale)
-        text = TextOutput.strip_punc(text)
         self.state.last_recognition_text = original
         context, target_window = self.state.task_contexts.pop(message.task_id, ("", 0))
         logger.info(Notice('diagnostic.result_processor.final_transcription_task_chars'), message.task_id[:8], len(original))
         result = await self.app.llm.process(
-            text, context=context, task_id=message.task_id,
+            original, context=context, task_id=message.task_id,
             progress_callback=lambda stage: self.app.progress.update(message.task_id, stage),
         )
         self.app.progress.finish(message.task_id)
         final_text = result.text
+        # Apply output preferences to success, skipped and fallback text alike;
+        # retain result.text as the unmodified model response for archives.
+        if Config.traditional_convert:
+            from core.tools.zhconv import convert
+
+            final_text = convert(final_text, Config.traditional_locale)
+        final_text = TextOutput.strip_punc(final_text)
         log_content(logger, 'dictation.final_text', task_id=message.task_id,
                     request_id=getattr(result, 'request_id', None), final_text=final_text)
         # Archive before external text insertion/UDP can fail. No extra UI reads.

@@ -248,7 +248,7 @@ class HomePage(QWidget):
         shortcuts.addWidget(text('shortcuts_hint', 'muted'))
         links = QHBoxLayout()
         links.setSpacing(12)
-        for title, page in (('tune_text', 1), ('page.records', 3), ('recent', 4)):
+        for title, page in (('tune_text', 'text'), ('page.records', 'records'), ('recent', 'diagnostics')):
             button = QPushButton(tr('gui.' + title))
             button.clicked.connect(lambda _checked=False, page=page: navigate(page))
             links.addWidget(button)
@@ -310,6 +310,6 @@ GROUP_STARTS = {
     'llm_enabled': 'group.llm', 'llm_correction_level': 'group.correction',
     'llm_correction_numbers': 'group.cleanup_details',
     'caret_context_enabled': 'group.context', 'addr': 'group.connection',
-    'paste': 'group.output', 'save_transcripts': 'group.history', 'save_audio': 'group.audio',
+    'traditional_convert': 'group.formatting', 'paste': 'group.insertion', 'save_transcripts': 'group.history', 'save_audio': 'group.audio',
     'save_diagnostic_logs': 'group.diagnostics',
 }

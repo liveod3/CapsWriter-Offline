@@ -4,9 +4,13 @@
 PAGES = {
     'general': {
         'ui_language': ('auto', 'zh-CN', 'en'), 'enable_tray': bool, 'start_minimized': bool,
+    },
+    'dictation': {
         'language': str, 'input_device': None,
         'enable_idle_suspend': bool, 'idle_suspend_seconds': float,
         'mic_seg_duration': float, 'mic_seg_overlap': float,
+        'traditional_convert': bool, 'traditional_locale': ('zh-hant', 'zh-tw', 'zh-hk'),
+        'trash_punc': str, 'trash_punc_thresh': int, 'paste': bool, 'restore_clip': bool,
     },
     'text': {
         'llm_enabled': bool, 'llm_correction_level': ('minimal', 'natural', 'fluent'),
@@ -17,9 +21,7 @@ PAGES = {
     },
     'services': {'addr': str, 'port': str, 'use_tls': bool, 'tls_ca_file': str},
     'records': {
-        'paste': bool, 'restore_clip': bool, 'traditional_convert': bool,
-        'traditional_locale': ('zh-hant', 'zh-tw', 'zh-hk'), 'trash_punc': str,
-        'trash_punc_thresh': int, 'save_transcripts': bool, 'transcript_dir': str,
+        'save_transcripts': bool, 'transcript_dir': str,
         'transcript_save_original': bool, 'save_llm_records': bool, 'save_llm_context': bool,
         'save_audio': bool, 'audio_dir': str, 'audio_name_len': int,
     },
@@ -29,3 +31,8 @@ PAGES = {
         'llm_cost_tracking': bool,
     },
 }
+
+
+def page_index(name):
+    """Resolve stable page IDs for shortcuts and page-specific behavior."""
+    return (*PAGES, 'advanced').index(name)

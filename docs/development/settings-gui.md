@@ -32,7 +32,25 @@ Client fields autosave after a 600 ms debounce; numeric editing commits on compl
 
 GUI labels retain their startup locale. Language edits save automatically and show a GUI restart explanation, even when the hidden client can publish the locale between tasks. Fully quitting and reopening updates the window and desktop tray; hiding to the tray does not. Common client fields and catalog inputs have adjacent circular help buttons with accessible names/descriptions. Native Qt tooltips display escaped, width-bounded title/body text on hover, with click and keyboard access. Errors and changed-state badges remain inline, while permanent explanations are removed. Short numeric/code/choice fields use bounded widths. Settings groups use two columns once their available width reaches 920 logical pixels and return to one column below it; reflow moves the existing cards without rebuilding fields, changing drafts or dispatching writes.
 
-## Text processing
+## Settings page organization and final formatting
+
+General owns interface/startup preferences. Dictation contains three separate cards:
+Microphone and capture, Text formatting, and Output method. Records owns only
+persistence preferences. The former Text processing page is labeled LLM processing;
+its stable internal `text` ID is retained. Navigation shortcuts resolve page IDs
+rather than positional indices. Device discovery/watch visibility follows Dictation.
+Moving fields does not change saved keys, values, autosave or restart requirements.
+Final formatting controls stay independent of the LLM master switch.
+
+Microphone result handling passes the unmodified ASR result into the optional LLM
+action. It then applies Traditional conversion and trailing-punctuation trimming
+to the returned text, including skipped/failed actions. The length limit counts
+final text. The final formatted value goes to insertion, UDP, cached output and
+final history; ASR, LLM input and raw LLM output remain distinct archive stages.
+Existing cancellation/focus guards and save permissions remain unchanged. File
+transcription/subtitle paths are unaffected.
+
+## LLM processing
 
 The common page uses Text cleanup as the user-facing name for the built-in
 `correct_asr` action. Stable IDs, correction prompt composition and capability
@@ -90,7 +108,7 @@ General-page entry, debounced device notifications and explicit Refresh dispatch
 
 The normal menu includes system default and readable endpoint names from one preferred backend: WASAPI, then DirectSound or MME if unavailable. This hides alternate host interfaces and kernel pins rather than guessing physical identity by similar names. Output-only devices are excluded. Full metadata remains available for validating existing nonpreferred selectors, which remain visible when selected. New explicit selections persist the exact `name, host API` selector instead of an unstable discovery index. Exact duplicate selectors are disabled; legacy indices, empty defaults, custom selectors and disconnected selections retain their types and values. Refresh suppresses edit signals and preserves the current draft, so metadata arrival cannot write settings or discard edits made during discovery. Repeated in-flight refreshes coalesce; busy dispatch retries through one timer. Normal window closure waits for the bounded active probe; actual exit stops retries. Microphone selection retains the existing restart requirement. Device metadata remains local and is not added to diagnostic archives or model requests.
 
-`device_watch.py` subscribes to Windows Core Audio notifications on the Qt owner thread using the isolated `endpoint_notifications.py` binding. The callback publishes only a bounded marker; it performs no I/O, widget mutation or COM operations. A Qt timer drains and debounces changes for 500 ms, retaining dirtiness while settings are hidden. Registration failure falls back to a 15-second visible-page refresh. Repeated events during discovery request one follow-up; busy work and open device menus defer queries. If a menu opens during a query, the result is deferred by requerying after it closes. Identical inventories keep the existing model. Discovery never inserts a loading row, including first use. Persistent device errors use a fixed inline status-icon slot with retained hidden space and accessible hover/click/keyboard details, so success/failure/retry cannot move adjacent settings. General groups use subtle separators between their rows. Actual close/exit unregisters notifications before releasing references, stops timers and ignores late callbacks. Hiding to the tray retains the subscription without periodic device probes. Audio-stream monitoring and recovery remain owned by the client and are unchanged; following system default differs from pinning an explicit microphone.
+`device_watch.py` subscribes to Windows Core Audio notifications on the Qt owner thread using the isolated `endpoint_notifications.py` binding. The callback publishes only a bounded marker; it performs no I/O, widget mutation or COM operations. A Qt timer drains and debounces changes for 500 ms, retaining dirtiness while settings are hidden. Registration failure falls back to a 15-second visible-page refresh. Repeated events during discovery request one follow-up; busy work and open device menus defer queries. If a menu opens during a query, the result is deferred by requerying after it closes. Identical inventories keep the existing model. Discovery never inserts a loading row, including first use. Persistent device errors use a fixed inline status-icon slot with retained hidden space and accessible hover/click/keyboard details, so success/failure/retry cannot move adjacent settings. General, Dictation and LLM groups use subtle separators between their rows. Actual close/exit unregisters notifications before releasing references, stops timers and ignores late callbacks. Hiding to the tray retains the subscription without periodic device probes. Audio-stream monitoring and recovery remain owned by the client and are unchanged; following system default differs from pinning an explicit microphone.
 
 Native callback layout and lifetime rules follow Microsoft's [IMMNotificationClient contract](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nn-mmdeviceapi-immnotificationclient) and [registration contract](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nf-mmdeviceapi-immdeviceenumerator-registerendpointnotificationcallback). Native tests register read-only notifications and exercise the callback ABI with synthetic IDs, including the by-value property key; they never change a system default or open audio streams.
 

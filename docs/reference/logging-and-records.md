@@ -69,7 +69,7 @@ Console diagnostics normally start at WARNING. `console_handled` prevents duplic
 | `dictation.asr_text` | Client, text opt-in | Received ASR text and `task_id` |
 | `llm.request_text` | Client, text opt-in | Prepared LLM input and system prompt; reference only with context opt-in |
 | `llm.response_text` | Client, text opt-in | Successful provider result and `request_id` |
-| `dictation.final_text` | Client, text opt-in | Final/fallback text, task and available request IDs, before insertion |
+| `dictation.final_text` | Client, text opt-in | Final/fallback text after dictation output formatting, task and available request IDs, before insertion |
 | `file.final_text` | Client, text opt-in | File recognition text before output serialization |
 
 Each `content` field has `{text, chars, truncated}`. JSON escaping prevents embedded newlines from creating fake physical records. The bounded allowlist accepts text snapshots, not authentication headers, provider configuration objects, API keys, endpoint URLs or audio bytes. User-authored text may itself contain sensitive material; this is an explicit content archive when enabled.

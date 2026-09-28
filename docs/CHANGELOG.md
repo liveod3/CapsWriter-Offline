@@ -2,6 +2,7 @@
 
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
+- Split General, Dictation and Records; separate Dictation capture, text formatting and output method cards, and rename Text processing to LLM processing. Apply deterministic dictation formatting after optional LLM processing while retaining raw recognition/action archive stages.
 - Accept the final Text processing simplification and provider autosave for commit after user review. Validation: 1018 tests passed, 11 deselected; static checks and bilingual layouts passed.
 - Save configured provider selection automatically on dropdown activation. Remove the separate save button, show inline failures with retry by reselecting, preserve conflict checks and finish pending writes before close/exit.
 - Hide provider management from the GUI; select existing locally configured connections with credential-readiness guidance and no network probes. Disable related provider, cleanup, context and LLM record options when the master LLM switch is off, preserving all values and drafts.

@@ -196,7 +196,7 @@ def test_widgets_save_keyboard_and_no_unintended_writes(window, qt_app, gui_root
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     assert not window.changes()
-    assert window.catalog and window.navigation.count() == 6
+    assert window.catalog and window.navigation.count() == 7
     window.navigation.setFocus()
     QTest.keyClick(window.navigation, Qt.Key.Key_Down)
     assert window.pages.currentIndex() == 1
@@ -265,7 +265,7 @@ def test_language_and_microphone_choices_save_canonical_values(window, qt_app, g
     language = window.fields['language'][0]
     microphone = window.fields['input_device'][0]
     assert not language.isEditable() and not microphone.isEditable()
-    window.navigate(0)
+    window.navigate('dictation')
     settle(qt_app, window)
     assert window.devices_loaded_once and not window.changes()
     language.setCurrentIndex(language.findData('english'))
@@ -284,7 +284,7 @@ def test_device_refresh_preserves_missing_selection_and_never_writes(window, qt_
     microphone.set_config_value('Saved disconnected microphone')
     settle(qt_app, window)
     before = (gui_root / 'config_client.py').read_bytes()
-    window.navigate(0)
+    window.navigate('dictation')
     settle(qt_app, window)
     assert microphone.currentData() == 'Saved disconnected microphone'
     assert not microphone.selection_found() and not window.device_notice.isHidden()
@@ -315,13 +315,13 @@ def test_microphone_initial_query_failure_and_recovery_keep_field_geometry(windo
         return inventory
     monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
     window.resize(width, 860)
-    window.pages.setCurrentIndex(0)
+    window.pages.setCurrentIndex(1)
     window.workspace.setCurrentIndex(1)
     def geometry():
         for _ in range(5):
             qt_app.processEvents()
         return [(widget.mapTo(window, QPoint()), widget.size())
-                for name in PAGES['general'] for widget, _ in [window.fields[name]]]
+                for name in PAGES['dictation'] for widget, _ in [window.fields[name]]]
     baseline = geometry()
     window.refresh_devices()
     assert entered.wait(2)
@@ -352,7 +352,7 @@ def test_device_refresh_retains_edits_made_while_loading(window, qt_app, gui_roo
         assert release.wait(3)
         return {'devices': [], 'default': -1, 'partial': False, 'error': None}
     monkeypatch.setattr('core.settings_gui.devices.discover_inputs', discover)
-    window.navigate(0)
+    window.navigate('dictation')
     assert entered.wait(2)
     try:
         assert window.fields['input_device'][0].isEnabled()
@@ -514,7 +514,7 @@ def test_device_event_during_probe_runs_one_followup_query(window, qt_app, monke
 
 def test_device_refresh_defers_open_menu_and_unchanged_inventory_keeps_model(window, qt_app):
     microphone = window.fields['input_device'][0]
-    window.navigate(0)
+    window.navigate('dictation')
     settle(qt_app, window)
     item = microphone.model().item(1)
     microphone.showPopup()
@@ -743,7 +743,7 @@ def test_desktop_closing_window_hides_without_stopping_client(window, qt_app):
 def test_modern_switch_keeps_keyboard_semantics(window, qt_app):
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
-    window.navigate(1)
+    window.navigate('text')
     toggle = window.fields['llm_enabled'][0]
     before = toggle.isChecked()
     toggle.setFocus()
@@ -1126,7 +1126,7 @@ def test_client_options_have_bilingual_help_and_language_restart_is_explicit(win
     assert not hasattr(window, 'save_button')
     window.navigate(0)
     assert not window.advanced.isVisible()
-    window.navigate(5)
+    window.navigate('advanced')
     assert window.advanced.isVisible()
     window.startup_language = 'en'
     widget = window.fields['ui_language'][0]
@@ -1174,8 +1174,8 @@ def test_settings_groups_reflow_without_losing_widgets_or_horizontal_overflow(wi
     from PySide6.QtWidgets import QLabel
     original = (gui_root / 'config_client.py').read_bytes()
     controls = {name: widget for name, (widget, _) in window.fields.items()}
-    window.navigate(0)
-    scroll = window.pages.widget(0)
+    window.navigate('dictation')
+    scroll = window.pages.widget(1)
     groups = scroll.findChild(SettingsGroups)
     for width, expected_columns in ((1440, 2), (800, 1), (1440, 2)):
         window.resize(width, 860)
@@ -1711,7 +1711,7 @@ def test_subtle_buttons_have_visible_hover_and_keyboard_feedback(window, qt_app)
     from PySide6.QtTest import QTest
     window.exit_button.show()
     for button in (window.exit_button, window.advanced, window.history_button):
-        window.navigate(5) if button is window.advanced else window.show_home()
+        window.navigate('advanced') if button is window.advanced else window.show_home()
         qt_app.processEvents()
         button.ensurePolished()
         QTest.mouseMove(window, QPoint(2, 2))
@@ -1949,7 +1949,7 @@ def test_fixed_cleanup_editor_can_restore_absent_builtin_without_altering_advanc
 
 def test_text_page_keeps_advanced_preset_controls_out_of_normal_ui(window, qt_app):
     from PySide6.QtWidgets import QFrame
-    window.navigate(1)
+    window.navigate('text')
     qt_app.processEvents()
     assert set(window.editors['presets'][2]) == {'provider'}
     assert not {'llm_default_preset', 'llm_correction_enabled', 'llm_translation_enabled'} & window.fields.keys()
@@ -2031,7 +2031,7 @@ def test_llm_master_gates_related_controls_and_retains_values_through_refresh(wi
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     from core.settings_gui.window import get_value
-    window.navigate(1)
+    window.navigate('text')
     master = window.fields['llm_enabled'][0]
     names = ['llm_correction_level', 'llm_correction_numbers', 'llm_correction_punctuation',
              'llm_correction_fillers', 'llm_correction_english', 'llm_correction_homophones',
@@ -2140,7 +2140,7 @@ def test_provider_keyboard_selection_autosaves_and_refresh_does_not_write(window
             writes.append(params)
         return dispatch(method, params)
     monkeypatch.setattr(window.backend, 'dispatch', capture)
-    window.navigate(1)
+    window.navigate('text')
     provider = window.editors['presets'][2]['provider'][0]
     provider.setFocus()
     QTest.keyClick(provider, Qt.Key.Key_End)
@@ -2281,3 +2281,34 @@ def test_provider_autosave_finishes_before_close_or_exit(window, qt_app, gui_roo
         assert events == (['save', 'exit'] if exiting else ['save'])
         if not exiting:
             assert window.closed.is_set()
+
+
+
+def test_settings_pages_separate_dictation_groups_and_keep_home_links(window, qt_app, gui_root):
+    from PySide6.QtWidgets import QLabel, QPushButton
+    from core.settings_gui.fields import PAGES, page_index
+    from core.settings_gui.help_widgets import SettingsGroups
+    from core.settings_gui.window import label
+    original = (gui_root / 'config_client.py').read_bytes()
+    assert list(PAGES) == ['general', 'dictation', 'text', 'services', 'records', 'diagnostics']
+    window.navigate('general')
+    assert not window.fields['input_device'][0].isVisible() and not window.devices_visible()
+    window.navigate('dictation')
+    settle(qt_app, window)
+    assert window.devices_visible()
+    groups = window.pages.currentWidget().findChild(SettingsGroups)
+    assert [card.findChild(QLabel, 'cardTitle').text() for card in groups.cards] == [
+        label('group.microphone'), label('group.formatting'), label('group.insertion')]
+    for group, names in zip(groups.cards, [
+        ('language', 'input_device'), ('traditional_convert', 'traditional_locale', 'trash_punc', 'trash_punc_thresh'),
+        ('paste', 'restore_clip')]):
+        assert all(group.isAncestorOf(window.fields[name][0]) for name in names)
+    assert not window.fields['llm_enabled'][0].isChecked()
+    assert all(window.fields[name][0].isEnabled() for name in PAGES['dictation'])
+    window.navigate('records')
+    assert not window.fields['paste'][0].isVisible()
+    for title, page in [('tune_text', 'text'), ('page.records', 'records'), ('recent', 'diagnostics')]:
+        button = next(b for b in window.home.findChildren(QPushButton) if b.text() == label(title))
+        button.click()
+        assert window.pages.currentIndex() == page_index(page)
+    assert (gui_root / 'config_client.py').read_bytes() == original
