@@ -15,6 +15,8 @@
 
 发行包可能落后于当前源码。查看[更新日志](docs/CHANGELOG.md)区分未发布改动与历史版本。源码用户从[开发环境](docs/development/setup.md)开始。
 
+当前源码已提供带概览、设置和托盘的[桌面客户端](docs/user/settings-gui.md)，支持自动连接与静默启动。新版构建的无终端入口为 `CapsWriter.exe`；服务端仍独立运行。
+
 ## 按任务查找说明
 
 | 要完成的任务 | 文档 |

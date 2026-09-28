@@ -66,10 +66,6 @@ def _text(data: dict, name: str, default=None) -> str:
 
 
 def load_catalog(directory: Path) -> Catalog:
-    from urllib.parse import urlsplit
-
-    providers = {}
-    presets = {}
     provider_path = directory / "providers.toml"
     if not provider_path.exists():
         provider_path = directory / "providers.template.toml"
@@ -77,6 +73,19 @@ def load_catalog(directory: Path) -> Catalog:
         provider_data = tomllib.load(stream).get("providers", {})
     with (directory / "presets.toml").open("rb") as stream:
         preset_data = tomllib.load(stream).get("presets", {})
+    return parse_catalog(provider_data, preset_data)
+
+
+def parse_catalog(provider_data: dict, preset_data: dict) -> Catalog:
+    """Validate in-memory editor candidates using the request loader's contract."""
+    from urllib.parse import urlsplit
+
+    providers = {}
+    presets = {}
+    if not isinstance(provider_data, dict) or not isinstance(preset_data, dict):
+        raise ValueError(Notice('gui.invalid_catalog'))
+    if any(not isinstance(data, dict) for data in (*provider_data.values(), *preset_data.values())):
+        raise ValueError(Notice('gui.invalid_catalog'))
     for identifier, data in provider_data.items():
         kind = _text(data, "kind")
         if kind not in {"ollama", "openai"}:

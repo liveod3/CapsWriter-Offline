@@ -44,7 +44,7 @@ jobs:
         shell: pwsh
         run: |
           $releaseDir = Join-Path $PWD "dist\CapsWriter-Offline"
-          $expected = @("start_client.exe", "start_server.exe")
+          $expected = @("CapsWriter.exe", "start_client.exe", "start_server.exe")
           foreach ($entryPoint in $expected) {
             $target = Join-Path $releaseDir $entryPoint
             if (-not (Test-Path -LiteralPath $target -PathType Leaf)) {

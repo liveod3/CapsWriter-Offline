@@ -1,5 +1,28 @@
 # Changelog
 
+## 2026-09-28 - Unreleased, desktop interaction refinements
+
+- Accept the functional source GUI baseline for commit. Clarify the ready state as Waiting for shortcut, with separate recording/processing instructions and mocked startup/idle-audio regressions. Startup still prepares the microphone; investigation of the user's reported automatic-recording indication awaits clarification.
+- Keep history controls enabled and retain displayed content during reads; preserve unchanged selection on refresh and ignore superseded results/errors. Apply date presets immediately and debounce date/keyword edits, rename Search to Refresh, center the muted empty-detail hint and add direct page entry with Enter/Go.
+- Add a recognition-history workspace with independent calendar-date/keyword filters, pagination, saved processing stages, local request-cost lookup and explicit copy/day-file actions. Bound reads, preserve saving preferences and report unavailable stages, incomplete searches or changed records.
+- Fix selected-record paging/search requests being lost when list clearing launches an unintended detail request. Distinguish history loading from settings loading, report page totals and preserve query state when requests cannot be accepted.
+- Make subtle and sidebar buttons visibly respond to hover, press and keyboard focus. Align Exit client as an outlined sidebar action and remove the redundant local-settings footer; retain the deferred Chinese font policy.
+
+- Restore the existing microphone icon across the desktop, window and tray, with a recording badge and lightweight runtime updates. Increase settings text sizes and let wheel gestures scroll past numeric and closed choice controls without editing values.
+- Remove the permanent reload action. Refresh clean forms automatically, preserve drafts on external changes and offer confirmed conflict recovery only when needed. Keep background polling from flashing save controls, and queue a foreground action clicked during a poll.
+- Source implementation is under user review; see the [GUI validation record](validation/P1-settings-gui.md).
+- Following feedback about soft Chinese text, restore system UI font selection and glyph fallbacks while retaining enlarged text sizes; the earlier stylesheet had changed both size and family.
+- Subsequent user review requests the original compact sizes as well: restore body, small-label and card-title sizes, retain the interaction fixes, and defer further visual work in favor of behavior and user expectations.
+
+## 2026-09-27 - Unreleased, client desktop and settings
+
+- Add a five-page Qt settings window, provider/preset editing, composed prompt controls and draft preview, saved/effective status, independent record controls, and explicit local diagnostics/cost queries. Reuse shared validation/reload and preserve external edits and credentials.
+- Add a styled main overview, automatic client startup/connection, optional start-in-tray, single desktop instance per installation and explicit Quit. The server remains independently managed. Source launch uses windowed Python; packaging adds `CapsWriter.exe`, retaining explicit console/automation entry points.
+- Correct a desktop worker finalization crash exposed by user-reported Python error dialogs. Shutdown now releases buffered stdin and joins control threads; regressions require zero exit status rather than process termination alone.
+- Preserve separate console and desktop Python entries. Unify PowerShell launch helpers as `start.ps1` with explicit server/client selections, no-argument help and `-WhatIf` previews. Correct native window hiding caused by the launcher: tray activation now verifies Windows visibility, with native regressions beyond offscreen Qt state checks.
+- Keep Qt and the audio/Tk client in separate processes, retain standalone file editing and legacy tray entry, and integrate owner-thread Tk stop/reference cleanup/destroy/join. Closing the desktop to an available tray leaves dictation running.
+- Source implementation and focused GUI packaging are checked; user acceptance, physical mixed-DPI/focus/accessibility and clean-machine validation remain pending. See the [validation record](validation/P1-settings-gui.md).
+
 ## 2026-09-27 - Unreleased, composable correction prompts accepted
 
 - Compose one correction prompt from mandatory content-preservation rules, five independent modules and three editing levels. Share validated client preferences, safe reload, request snapshots and explicit prompt inspection. Preserve complete custom prompts and translation routing.

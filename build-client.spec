@@ -80,7 +80,7 @@ hiddenimports += [
 ]
 
 a_2 = Analysis(
-    ['start_client.py'],
+    ['start_client.py', 'start_desktop.pyw'],
     pathex=[],
     binaries=binaries,
     datas=datas,
@@ -89,7 +89,7 @@ a_2 = Analysis(
     hooksconfig={},
     runtime_hooks=['build_hook.py'],
     excludes=['IPython',
-              'PySide6', 'PySide2', 'PyQt5',
+              'PySide2', 'PyQt5', 'PyQt6',
               'matplotlib', 'wx',
               ],
     noarchive=True,
@@ -145,7 +145,7 @@ pyz_2 = PYZ(a_2.pure)
 
 exe_2 = EXE(
     pyz_2,
-    a_2.scripts,
+    [entry for entry in a_2.scripts if entry[0] != 'start_desktop'],
     [],
     exclude_binaries=True,
     name='start_client',
@@ -164,7 +164,14 @@ exe_2 = EXE(
     contents_directory='internal',
 )
 
+desktop_exe = EXE(
+    pyz_2, [entry for entry in a_2.scripts if entry[0] != 'start_client'], [], exclude_binaries=True,
+    name='CapsWriter', console=False, contents_directory='internal',
+    icon=['assets/client-icon.ico'],
+)
+
 coll = COLLECT(
+    desktop_exe,
     exe_2,
     a_2.binaries,
     a_2.datas,

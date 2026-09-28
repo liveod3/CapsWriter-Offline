@@ -56,6 +56,7 @@ def test_start_and_stop_are_idempotent(query_devices, input_stream, thread_cls) 
 
 def test_audio_callback_marks_stream_ready_without_recording() -> None:
     manager = make_manager()
+    manager.state.capture = Mock()
     ready_event = manager.get_ready_event()
 
     manager._audio_callback(
@@ -67,6 +68,8 @@ def test_audio_callback_marks_stream_ready_without_recording() -> None:
     )
 
     assert ready_event.is_set()
+    assert not manager.state.recording
+    manager.state.capture.push_audio.assert_not_called()
 
 
 def test_stale_audio_ready_waiter_does_not_show_recording_ui() -> None:

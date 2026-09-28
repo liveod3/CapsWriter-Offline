@@ -106,6 +106,8 @@ class CapsWriterClient:
         )
         from core.client.operations import ClientOperations
         self.operations = ClientOperations(self)
+        from core.settings_gui.bridge import SettingsProcess
+        self.settings_window = SettingsProcess(self.base_dir, self.operations)
 
     def _report_config(self, message):
         from core.i18n import localize_notice
@@ -327,6 +329,8 @@ class CapsWriterClient:
                 logger.warning(Notice('diagnostic.app.shutdown_operation_failed'), type(exc).__name__)
 
         await release(self.stop_idle_suspend_monitor)
+        if hasattr(self, 'settings_window'):
+            await release(self.settings_window.stop)
         await release(self.udp.stop)
         await release(self.shortcut.stop)
         await release(self.caret_context.close)
@@ -349,6 +353,8 @@ class CapsWriterClient:
             self._runner_task.cancel()
             await asyncio.gather(self._runner_task, return_exceptions=True)
         await release(self.state.reset)
+        from core.ui.status_host import StatusUIHost
+        await release(StatusUIHost.stop_existing)
         logger.info(Notice('diagnostic.app.client_resource_cleanup_complete'))
 
 

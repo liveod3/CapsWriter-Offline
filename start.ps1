@@ -1,14 +1,26 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
-    [switch]$ServerOnly,
-    [switch]$ClientOnly
+    [switch]$Server,
+    [ValidateSet('Gui', 'Console')]
+    [ValidateNotNullOrEmpty()]
+    [string]$Client,
+    [Alias('h')]
+    [switch]$Help
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-if ($ServerOnly -and $ClientOnly) {
-    throw '-ServerOnly and -ClientOnly are mutually exclusive.'
+# Help must work before Python/environment discovery or local configuration loading.
+$catalog = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'core\i18n\launcher.json') `
+    -Raw -Encoding UTF8 | ConvertFrom-Json
+$messages = $catalog.en
+if ((Get-UICulture).Name -like 'zh*') {
+    $messages = $catalog.'zh-CN'
+}
+if ($Help -or (-not $Server -and -not $Client)) {
+    $messages.help -join [Environment]::NewLine
+    return
 }
 
 function Resolve-CapsWriterPython {
@@ -37,10 +49,7 @@ function Resolve-CapsWriterPython {
         }
     }
 
-    throw @'
-Cannot find the capswriter Conda environment.
-Create it first or register it in %USERPROFILE%\.conda\environments.txt.
-'@
+    throw $messages.environment_missing
 }
 
 function ConvertTo-PowerShellLiteral {
@@ -63,6 +72,8 @@ function New-ChildCommand {
     $environmentLiteral = ConvertTo-PowerShellLiteral $EnvironmentPath
     $pythonLiteral = ConvertTo-PowerShellLiteral $PythonPath
     $entryLiteral = ConvertTo-PowerShellLiteral $EntryPath
+    $environmentMessage = ConvertTo-PowerShellLiteral $messages.environment
+    $exitMessage = ConvertTo-PowerShellLiteral $messages.exit_code
 
     return @"
 `$Host.UI.RawUI.WindowTitle = $titleLiteral
@@ -80,10 +91,10 @@ Set-Location -LiteralPath $rootLiteral
 `$env:CONDA_PREFIX = `$environmentPath
 `$env:CONDA_SHLVL = '1'
 `$env:PATH = (`$environmentBins -join [IO.Path]::PathSeparator) + [IO.Path]::PathSeparator + `$env:PATH
-Write-Host 'Conda environment: capswriter' -ForegroundColor DarkGray
+Write-Host $environmentMessage -ForegroundColor DarkGray
 & $pythonLiteral $entryLiteral
 if (`$LASTEXITCODE -ne 0) {
-    Write-Host "Process exited with code: `$LASTEXITCODE" -ForegroundColor Red
+    Write-Host ($exitMessage -f `$LASTEXITCODE) -ForegroundColor Red
 }
 "@
 }
@@ -92,40 +103,53 @@ $projectRoot = $PSScriptRoot
 $pythonPath = Resolve-CapsWriterPython
 $environmentPath = Split-Path -Parent $pythonPath
 
-$terminalCommand = Get-Command 'pwsh.exe' -ErrorAction SilentlyContinue
-if (-not $terminalCommand) {
-    $terminalCommand = Get-Command 'powershell.exe' -ErrorAction Stop
-}
-$terminalPath = $terminalCommand.Source
-
-$launches = @(
-    @{
-        Title = 'CapsWriter Server'
+$launches = @()
+if ($Server) {
+    $launches += @{
+        Title = $messages.server_title
         Entry = Join-Path $projectRoot 'start_server.py'
-    },
-    @{
-        Title = 'CapsWriter Client'
-        Entry = Join-Path $projectRoot 'start_client.py'
+        Gui = $false
     }
-)
-
-if ($ServerOnly) {
-    $launches = @($launches | Where-Object { $_.Title -eq 'CapsWriter Server' })
 }
-elseif ($ClientOnly) {
-    $launches = @($launches | Where-Object { $_.Title -eq 'CapsWriter Client' })
+if ($Client -eq 'Console') {
+    $launches += @{
+        Title = $messages.console_title
+        Entry = Join-Path $projectRoot 'start_client.py'
+        Gui = $false
+    }
+}
+if ($Client -eq 'Gui') {
+    $launches += @{
+        Title = $messages.gui_title
+        Entry = Join-Path $projectRoot 'start_desktop.pyw'
+        Gui = $true
+    }
 }
 
-Write-Host "Project directory: $projectRoot"
-Write-Host "Python: $pythonPath"
+Write-Host ($messages.project -f $projectRoot)
+Write-Host ($messages.python -f $pythonPath)
 
+# Validate and prepare every selected launch before starting any process.
 foreach ($launch in $launches) {
     $title = $launch.Title
     $entryPath = $launch.Entry
     if (-not (Test-Path -LiteralPath $entryPath -PathType Leaf)) {
-        throw "Cannot find entry script: $entryPath"
+        throw ($messages.entry_missing -f $entryPath)
     }
-
+    if ($launch.Gui) {
+        $windowedPython = Join-Path $environmentPath 'pythonw.exe'
+        if (-not (Test-Path -LiteralPath $windowedPython -PathType Leaf)) {
+            throw $messages.pythonw_missing
+        }
+        $launch.Executable = $windowedPython
+        $launch.Arguments = @('"' + $entryPath + '"')
+        $launch.Action = $messages.gui_action -f $entryPath
+        continue
+    }
+    $terminalCommand = Get-Command 'pwsh.exe' -ErrorAction SilentlyContinue
+    if (-not $terminalCommand) {
+        $terminalCommand = Get-Command 'powershell.exe' -ErrorAction Stop
+    }
     $childCommand = New-ChildCommand `
         -Title $title `
         -ProjectRoot $projectRoot `
@@ -141,18 +165,30 @@ foreach ($launch in $launches) {
         [ref]$parseErrors
     )
     if ($parseErrors.Count -gt 0) {
-        throw "Generated terminal command has a syntax error: $($parseErrors[0].Message)"
+        throw ($messages.syntax_error -f $parseErrors[0].Message)
     }
 
     $encodedCommand = [Convert]::ToBase64String(
         [Text.Encoding]::Unicode.GetBytes($childCommand)
     )
 
-    if ($PSCmdlet.ShouldProcess($title, "Run in a new terminal: $entryPath")) {
-        Start-Process `
-            -FilePath $terminalPath `
-            -ArgumentList @('-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand', $encodedCommand) `
-            -WorkingDirectory $projectRoot `
-            -WindowStyle Normal
+    $launch.Executable = $terminalCommand.Source
+    $launch.Arguments = @('-NoLogo', '-NoProfile', '-NoExit', '-EncodedCommand', $encodedCommand)
+    $launch.Action = $messages.terminal_action -f $entryPath
+}
+
+foreach ($launch in $launches) {
+    if ($PSCmdlet.ShouldProcess($launch.Title, $launch.Action)) {
+        $previousPath = $env:PATH
+        try {
+            if ($launch.Gui) {
+                $env:PATH = "$environmentPath;$environmentPath\Library\bin;$environmentPath\Scripts;$previousPath"
+            }
+            Start-Process -FilePath $launch.Executable -ArgumentList $launch.Arguments `
+                -WorkingDirectory $projectRoot -WindowStyle Normal
+        }
+        finally {
+            $env:PATH = $previousPath
+        }
     }
 }

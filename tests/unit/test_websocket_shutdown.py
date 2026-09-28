@@ -196,6 +196,23 @@ def test_shutdown_waits_for_actual_recording_cleanup_after_future_cancellation()
     asyncio.run(run())
 
 
+@pytest.mark.parametrize('desktop_mode', [False, True])
+def test_microphone_startup_waits_for_a_trigger(monkeypatch, desktop_mode):
+    from core.client.manager.mic_runner import MicRunner
+    monkeypatch.setattr('core.client.manager.mic_runner.TipsDisplay.show_mic_tips', Mock())
+    monkeypatch.setattr('core.client.manager.mic_runner.Config.udp_control', False)
+    app = SimpleNamespace(state=ClientState(), desktop_mode=desktop_mode, _stopping=False,
+                          stream=SimpleNamespace(start=Mock()), tray=SimpleNamespace(start=Mock()),
+                          shortcut=SimpleNamespace(start=Mock()), udp=SimpleNamespace(start=Mock()),
+                          llm=SimpleNamespace(start=Mock()), start_idle_suspend_monitor=Mock())
+    asyncio.run(MicRunner(app).start_resources())
+    app.stream.start.assert_called_once()
+    app.shortcut.start.assert_called_once()
+    assert not app.state.recording
+    assert app.state.recording_owner is None and app.state.capture is None
+    assert app.state.recording_tasks == set() and app.state.recorder_by_id == {}
+
+
 def test_shutdown_during_microphone_start_does_not_restart_listeners(monkeypatch):
     from core.client.manager.mic_runner import MicRunner
 

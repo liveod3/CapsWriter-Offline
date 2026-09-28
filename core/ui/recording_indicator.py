@@ -283,6 +283,17 @@ class _RecordingIndicator:
 _indicator: Optional[_RecordingIndicator] = None
 
 
+def close_on_owner(root) -> None:
+    """Release timers and widget references on the host thread before Tcl teardown."""
+    global _indicator
+    indicator = _indicator
+    if indicator is not None and indicator._root is root:
+        indicator._hide_impl()
+        indicator._hide_hint_impl()
+        indicator._root = None
+        _indicator = None
+
+
 def _post_indicator(action) -> None:
     """Enqueue Tk work without blocking shortcut or asyncio threads on root readiness."""
     def apply(root):

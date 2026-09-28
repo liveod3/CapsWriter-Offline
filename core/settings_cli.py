@@ -19,6 +19,7 @@ def configure_parser(parser):
     commands = parser.add_subparsers(dest='action', required=True)
     commands.add_parser('show', help=tr('settings.cli.show'))
     commands.add_parser('check', help=tr('settings.cli.check'))
+    commands.add_parser('gui', help=tr('gui.gui_cli'))
     prompt = commands.add_parser('prompt', help=tr('settings.cli.prompt'))
     prompt.add_argument('--preset', default='correct_asr', help=tr('settings.cli.preset'))
     edit = commands.add_parser('set', help=tr('settings.cli.set'))
@@ -54,6 +55,11 @@ def main(argv=None, *, root=None):
     parser = LocalizedArgumentParser(prog='start_client settings', description=tr('settings.cli.description'))
     configure_parser(parser)
     args = parser.parse_args(argv)
+    if args.action == 'gui':
+        if args.server:
+            parser.error(tr('validation.prompt.client_only'))
+        from core.settings_gui.main import main as gui_main
+        return gui_main(root)
     service = SettingsService.standalone(root / 'config_server.py', server=True) if args.server else client
     try:
         if args.action == 'set':

@@ -7,8 +7,14 @@ import sys
 import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
+import pytest
 
 from core.ui.status_host import StatusUIHost
+
+
+@pytest.fixture(autouse=True)
+def active_host_lifetime(monkeypatch):
+    monkeypatch.setattr(StatusUIHost, '_stopped', False)
 
 
 def host():
@@ -112,3 +118,51 @@ assert not hasattr(core.ui, 'ToastMessageManager')
 '''
     result = subprocess.run([sys.executable, '-c', script], cwd=root, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_stop_before_root_readiness_rejects_work_and_destroys_on_owner(monkeypatch):
+    instance = host()
+    instance.thread = Mock()
+    root = Mock()
+    monkeypatch.setattr('core.ui.status_host.tk.Tk', lambda: root)
+    pending = Mock()
+    instance.post_ui(pending)
+    instance.stop()
+    instance.post_ui(pending)
+    instance._run()
+    pending.assert_not_called()
+    root.mainloop.assert_not_called()
+    root.destroy.assert_called_once()
+    instance.thread.join.assert_called_once_with(timeout=2)
+
+
+def test_stop_existing_does_not_start_an_unused_host(monkeypatch):
+    monkeypatch.setattr(StatusUIHost, '_instance', None)
+    thread = Mock()
+    monkeypatch.setattr('core.ui.status_host.threading.Thread', thread)
+    StatusUIHost.stop_existing()
+    StatusUIHost().post_ui(Mock())
+    thread.assert_not_called()
+
+
+def test_stop_from_queue_does_not_enter_mainloop_after_quit(monkeypatch):
+    instance = host()
+    instance.thread = threading.current_thread()
+    root = Mock()
+    monkeypatch.setattr('core.ui.status_host.tk.Tk', lambda: root)
+    instance.post_ui(lambda _: instance.stop())
+    instance._run()
+    root.mainloop.assert_not_called()
+    root.destroy.assert_called_once()
+
+
+def test_owner_close_releases_overlay_references_before_tcl_teardown(monkeypatch):
+    from core.ui import recording_indicator
+    root = Mock()
+    indicator = Mock()
+    indicator._root = root
+    monkeypatch.setattr(recording_indicator, '_indicator', indicator)
+    recording_indicator.close_on_owner(root)
+    indicator._hide_impl.assert_called_once()
+    indicator._hide_hint_impl.assert_called_once()
+    assert recording_indicator._indicator is None and indicator._root is None

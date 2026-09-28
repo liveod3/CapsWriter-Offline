@@ -23,6 +23,7 @@ class StatusUIHost:
 
     _instance = None
     _lock = threading.Lock()
+    _stopped = False
 
     def __new__(cls):
         with cls._lock:
@@ -37,9 +38,12 @@ class StatusUIHost:
                 return
             self._initialized = True
             self.ui_queue = Queue()
-            self._ui_closed = False
+            self._ui_closed = self._stopped
             self.is_running = False
             self.root = None
+            self.thread = None
+            if self._ui_closed:
+                return
             self.thread = threading.Thread(target=self._run, daemon=True, name='StatusUIThread')
             self.thread.start()
 
@@ -49,9 +53,14 @@ class StatusUIHost:
             self.root.withdraw()
             self.root.tk.call('tk', 'scaling', 2)
             self.root.protocol('WM_DELETE_WINDOW', self._on_close)
+            with self._lock:
+                closed = self._ui_closed
+            if closed:
+                return
             self.is_running = True
             self._process_queue()
-            self.root.mainloop()
+            if self.is_running:
+                self.root.mainloop()
         except Exception as exc:
             logger.warning(Notice('diagnostic.status_host.failed'), type(exc).__name__)
         finally:
@@ -69,6 +78,29 @@ class StatusUIHost:
             if not self._ui_closed:
                 self.ui_queue.put(callback)
 
+    @classmethod
+    def stop_existing(cls):
+        """Do not create a UI thread just to shut down an unused host."""
+        with cls._lock:
+            cls._stopped = True
+            instance = cls._instance
+        if instance is not None:
+            instance.stop()
+
+    def stop(self):
+        """Reject new work immediately; quit/destroy only on the Tk owner."""
+        with self._lock:
+            if not self._ui_closed:
+                self._ui_closed = True
+                while True:
+                    try:
+                        self.ui_queue.get_nowait()
+                    except Empty:
+                        break
+                self.ui_queue.put(lambda _: self._on_close())
+        if self.thread is not None and self.thread is not threading.current_thread():
+            self.thread.join(timeout=2)
+
     def _on_close(self):
         """Run only on the owning Tk thread, including initialization failure."""
         with self._lock:
@@ -80,6 +112,8 @@ class StatusUIHost:
                 except Empty:
                     break
         if self.root is not None:
+            from .recording_indicator import close_on_owner
+            close_on_owner(self.root)
             try:
                 self.root.quit()
             except tk.TclError:

@@ -38,6 +38,9 @@ class ClientConfig:
     # Enable the client tray icon.
     enable_tray = True
 
+    # Desktop entry only: start in the tray when a tray is available. Restart required.
+    start_minimized = False
+
     # ----------------------------------------------------------------------------
     # 02  User records
     # Reload between tasks. User-owned content is NEVER automatically expired. See

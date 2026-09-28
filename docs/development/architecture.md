@@ -28,6 +28,8 @@ publishes live values at application-owned task boundaries. See the
 | Client audio manager | PortAudio lifecycle and device monitoring under a lifecycle lock |
 | Client event loop | Upload/result tasks, deadlines, LLM requests, and bounded cleanup |
 | Tk host thread | Windows and UI mutations through queued work |
+| Desktop Qt process | Main window, settings and tray; one owned hidden client via bounded inherited JSON pipes |
+| Legacy settings Qt child | Settings-only window attached to an explicit console client |
 | Server event loop | Connections, input validation, and bounded result delivery |
 | Recognition subprocess | ASR, punctuation, session state, and scheduling |
 | Aligner sibling process | On-demand alignment model and its native GPU resources |
@@ -36,6 +38,14 @@ publishes live values at application-owned task boundaries. See the
 PortAudio callbacks must not block. Blocking queue reads run through an executor. Aligner IPC uses neutral pickleable records rather than backend implementation objects. Idle alignment cleanup exits the entire process; abnormal exit or timeout triggers bounded service failure rather than an unlimited wait.
 
 ## Separate text paths
+
+`start_desktop.pyw` opens the Qt desktop, which automatically starts
+one hidden client and connects to the configured independent ASR service.
+The original `start_client.py` keeps its no-argument console microphone behavior.
+`settings gui` is a standalone static file editor; the console client's tray can
+also open an attached settings-only Qt child. These editor modes start no capture or inference. See
+[settings desktop ownership](settings-gui.md) for the transition from Tk overlays,
+configuration transactions and shutdown.
 
 `text` uses [text overlap merging](text-merging.md) independently of timestamps. `text_accu`, tokens, and timestamps support timed output. EngineCapabilities determines whether punctuation or alignment assistance is needed. Model/contract limits and timestamp-quality labeling still have open work in [TODO](../../TODO.md).
 

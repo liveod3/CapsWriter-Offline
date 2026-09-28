@@ -11,28 +11,36 @@ Use this guide to start a source checkout. For environment selection, dependency
 
 ## Start recognition
 
-Open two terminals in the repository root. Start the server in the first:
+Start the independently managed server from the repository root:
 
 ```powershell
 python start_server.py
 ```
 
-Wait for model readiness, then start the microphone client in the second:
+Wait for model readiness, then open the desktop client without a persistent client terminal:
 
 ```powershell
-python start_client.py mic
+./start.ps1 -Client Gui
 ```
 
-No client arguments also select microphone mode. This starts real audio, shortcut, and UI resources; use help commands for argument inspection without launching them.
+The unified helper locates the registered `capswriter` environment and uses `pythonw start_desktop.pyw` for the GUI client. It opens the main GUI and automatically connects to the configured service without managing the server. These launch commands start real audio, shortcut and UI resources; use help for argument inspection. The original console entry remains `python start_client.py` (or explicit `mic`).
 
-The Windows helper can locate the registered environment and open both terminals:
+The Windows helper requires an explicit launch selection:
 
 ```powershell
-./start_capswriter.ps1 -WhatIf
-./start_capswriter.ps1
+./start.ps1                              # Help only; no environment required
+./start.ps1 -Help                        # Help only
+./start.ps1 -Server                      # Server terminal only
+./start.ps1 -Client Console              # Console client only
+./start.ps1 -Client Gui                  # GUI client only
+./start.ps1 -Server -Client Gui          # Server terminal and GUI client
+./start.ps1 -Server -Client Console      # Server and client terminals
+./start.ps1 -Server -Client Gui -WhatIf  # Preview without launching
 ```
 
-`-ServerOnly` and `-ClientOnly` select one process and are mutually exclusive. `-WhatIf` previews generated launch commands without starting applications.
+`start.ps1` replaces `start_capswriter.ps1` and `start_desktop.ps1`; update existing shortcuts or commands. Select `-Server`, `-Client Gui|Console`, or both. No target (including `-WhatIf` alone) prints help and starts nothing. Help and launcher messages use the system UI language (English or Simplified Chinese) without executing local Python configuration. A selected `-WhatIf` checks the environment and entry scripts but starts no applications. All selected entries are checked before any launch. Combining targets launches the server first without waiting for model readiness; the client uses its configured endpoint and existing reconnect behavior. The helper does not detect or stop an already running server.
+
+GUI launch uses a normal window startup state; `pythonw` itself avoids a console. The saved tray preference alone controls initial GUI visibility. Close an existing console client before starting desktop mode. See [desktop usage](../user/settings-gui.md) for start-in-tray, closing and explicit exit behavior.
 
 ## Use the command line
 

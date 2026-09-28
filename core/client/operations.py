@@ -41,6 +41,17 @@ class ClientOperations:
     async def read_settings(self):
         return await asyncio.to_thread(self.settings.read)
 
+    async def read_status(self):
+        """Capture content-free runtime flags on the application loop."""
+        return {
+            'connected': self.app.state.is_connected,
+            'recording': self.app.state.recording,
+            'paused': self.app.state.dictation_paused,
+            'file_active': self.app._file_active,
+            'microphone_ready': self.app.stream.is_ready() if hasattr(self.app, 'stream') else None,
+            'processing_count': len(getattr(self.app.state, 'task_contexts', {})),
+        }
+
     async def validate_settings(self, changes, *, revision):
         return await asyncio.to_thread(self.settings.validate, changes, revision=revision)
 

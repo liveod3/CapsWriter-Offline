@@ -122,6 +122,9 @@ class TrayManager:
                         ],
                     ),
                     MenuAction(
+                        lazy('gui.open'), self._open_settings, icon='settings',
+                    ),
+                    MenuAction(
                         lazy('tray.client_settings'),
                         lambda: self._open(root / "config_client.py"),
                         lazy('tray.client_settings.tip'),
@@ -172,6 +175,8 @@ class TrayManager:
         ]
 
     def start(self):
+        if getattr(self.app, 'desktop_mode', False):
+            return
         if not Config.enable_tray:
             return
         from ..ui import enable_min_to_tray
@@ -188,6 +193,8 @@ class TrayManager:
         self._open(recording_directory(Config, self.app.base_dir))
 
     def stop(self):
+        if getattr(self.app, 'desktop_mode', False):
+            return
         if Config.enable_tray:
             from ..ui import stop_tray
 
@@ -195,6 +202,10 @@ class TrayManager:
 
     def _toggle_pause(self):
         self._schedule(self.app.operations.toggle_pause())
+
+    def _open_settings(self):
+        import asyncio
+        self._schedule(asyncio.to_thread(self.app.settings_window.open))
 
     def _reconnect(self):
         async def reopen():
