@@ -22,13 +22,13 @@ PAGES = {
     'services': {'addr': str, 'port': str, 'use_tls': bool, 'tls_ca_file': str},
     'records': {
         'save_transcripts': bool, 'transcript_dir': str,
-        'transcript_save_original': bool, 'save_llm_records': bool, 'save_llm_context': bool,
+        'transcript_save_original': bool, 'save_llm_records': bool, 'save_llm_context': bool, 'llm_cost_tracking': bool,
         'save_audio': bool, 'audio_dir': str, 'audio_name_len': int,
     },
+    'status': {},
     'diagnostics': {
         'save_diagnostic_logs': bool, 'log_level': ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'),
         'diagnostic_include_text': bool, 'diagnostic_include_context': bool,
-        'llm_cost_tracking': bool,
     },
 }
 

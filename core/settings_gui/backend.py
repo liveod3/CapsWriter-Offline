@@ -47,6 +47,11 @@ class Backend:
         return CatalogEditor(self.root / self.config(effective=True)['llm_config_dir'])
 
     def dispatch(self, method, params):
+        if method in ('dashboard_read', 'dashboard_copy'):
+            from .status_data import dashboard, copy_result
+            config = self.config(effective=True)
+            return (dashboard(self.root, config, **params) if method == 'dashboard_read'
+                    else copy_result(self.root, config, params))
         if method == 'input_devices':
             from .devices import discover_inputs
             return discover_inputs()

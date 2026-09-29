@@ -170,7 +170,8 @@ def settle(app, window):
     def pending():
         return (window.busy or window.history.inflight or window.history.pending is not None
                 or window.history.auto_search.isActive() or window.autosave.isActive()
-                or window.device_retry.isActive() or window.devices_inflight)
+                or window.device_retry.isActive() or window.devices_inflight
+                or window.dashboard.inflight or window.dashboard.pending is not None)
     while pending() and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
@@ -196,7 +197,7 @@ def test_widgets_save_keyboard_and_no_unintended_writes(window, qt_app, gui_root
     from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     assert not window.changes()
-    assert window.catalog and window.navigation.count() == 7
+    assert window.catalog and window.navigation.count() == 8
     window.navigation.setFocus()
     QTest.keyClick(window.navigation, Qt.Key.Key_Down)
     assert window.pages.currentIndex() == 1
@@ -2290,7 +2291,7 @@ def test_settings_pages_separate_dictation_groups_and_keep_home_links(window, qt
     from core.settings_gui.help_widgets import SettingsGroups
     from core.settings_gui.window import label
     original = (gui_root / 'config_client.py').read_bytes()
-    assert list(PAGES) == ['general', 'dictation', 'text', 'services', 'records', 'diagnostics']
+    assert list(PAGES) == ['general', 'dictation', 'text', 'services', 'records', 'status', 'diagnostics']
     window.navigate('general')
     assert not window.fields['input_device'][0].isVisible() and not window.devices_visible()
     window.navigate('dictation')
@@ -2307,8 +2308,173 @@ def test_settings_pages_separate_dictation_groups_and_keep_home_links(window, qt
     assert all(window.fields[name][0].isEnabled() for name in PAGES['dictation'])
     window.navigate('records')
     assert not window.fields['paste'][0].isVisible()
-    for title, page in [('tune_text', 'text'), ('page.records', 'records'), ('recent', 'diagnostics')]:
+    for title, page in [('tune_text', 'text'), ('page.status', 'status'), ('recent', 'diagnostics')]:
         button = next(b for b in window.home.findChildren(QPushButton) if b.text() == label(title))
         button.click()
         assert window.pages.currentIndex() == page_index(page)
+        settle(qt_app, window)
     assert (gui_root / 'config_client.py').read_bytes() == original
+
+
+
+def test_status_page_loads_only_when_open_and_copies_full_final_text(window, qt_app, gui_root, monkeypatch):
+    from datetime import datetime
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication
+    from core.client.diary.diary_writer import DiaryWriter
+    from core.settings_gui.fields import PAGES
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    directory = gui_root / Backend(gui_root).config()['transcript_dir']
+    final = 'Synthetic final words. ' * 30
+    DiaryWriter(directory).write(final, datetime.now().timestamp(), system_prompt='PRIVATE PROMPT')
+    reads = []
+    dispatch = window.backend.dispatch
+    def capture(method, params):
+        reads.append(method)
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', capture)
+    window.poll_state()
+    settle(qt_app, window)
+    assert 'dashboard_read' not in reads
+    window.navigate('status')
+    settle(qt_app, window)
+    assert reads.count('dashboard_read') == 1
+    assert window.dashboard.metrics['today'][0].text() == '1'
+    assert window.dashboard.entries.count() == 1
+    assert 'PRIVATE' not in window.dashboard.entries.itemAt(0).widget().accessibleName()
+    clipboard.setText.assert_not_called()
+    window.dashboard.entries.itemAt(0).widget().click()
+    settle(qt_app, window)
+    clipboard.setText.assert_called_once_with(final.strip())
+    assert 'llm_cost_tracking' in PAGES['records'] and 'llm_cost_tracking' not in PAGES['diagnostics']
+    window.navigate('diagnostics')
+    assert not window.dashboard.timer.isActive()
+    count = reads.count('dashboard_read')
+    window.dashboard.refresh()
+    settle(qt_app, window)
+    assert reads.count('dashboard_read') == count
+    window.show_report([{'timestamp': 'Synthetic time', 'level': 'INFO', 'message': 'Safe event',
+                         'content': {'text': 'PRIVATE TEXT'}}])
+    assert 'Safe event' in window.report.toPlainText() and 'PRIVATE' not in window.report.toPlainText()
+    window.copy_report.click()
+    assert clipboard.setText.call_args.args[0] == window.report.toPlainText()
+
+
+def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_root, monkeypatch):
+    import threading
+    from datetime import datetime
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication
+    from core.client.diary.diary_writer import DiaryWriter
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    DiaryWriter(gui_root / Backend(gui_root).config()['transcript_dir']).write('Saved final', datetime.now().timestamp())
+    window.navigate('status')
+    settle(qt_app, window)
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    def delayed(method, params):
+        if method == 'dashboard_copy':
+            entered.set()
+            assert release.wait(3)
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    window.dashboard.entries.itemAt(0).widget().click()
+    assert entered.wait(2)
+    window.navigate('general')
+    release.set()
+    settle(qt_app, window)
+    clipboard.setText.assert_not_called()
+    assert not window.dashboard.retry.isActive()
+
+
+def test_status_busy_retry_and_errors_keep_page_usable(window, qt_app, monkeypatch):
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QMessageBox
+    from core.settings_gui.window import label
+    dispatch = window.backend.dispatch
+    failed = True
+    def action(method, params):
+        if method == 'dashboard_read' and failed:
+            raise OSError('Synthetic failure')
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', action)
+    warning = Mock()
+    monkeypatch.setattr(QMessageBox, 'warning', warning)
+    window.request('read', {}, window.polled, quiet=True)
+    window.navigate('status')
+    settle(qt_app, window)
+    assert window.dashboard.note.text().startswith(label('dashboard_failed'))
+    assert window.dashboard.refresh_button.isEnabled()
+    warning.assert_not_called()
+    failed = False
+    window.dashboard.refresh_button.click()
+    settle(qt_app, window)
+    assert not window.dashboard.note.text().startswith(label('dashboard_failed'))
+    assert window.dashboard.metrics['tokens'][0].text() == '—'
+
+
+
+def test_status_refresh_preserves_rows_and_latest_filter_then_keyboard_copy(window, qt_app, gui_root, monkeypatch):
+    import threading
+    from datetime import datetime, timedelta
+    from unittest.mock import Mock
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QLabel
+    from core.client.diary.diary_writer import DiaryWriter
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    writer = DiaryWriter(gui_root / Backend(gui_root).config()['transcript_dir'])
+    moment = datetime.now()
+    writer.write('Yesterday final', (moment - timedelta(days=1)).timestamp())
+    writer.write('Today final', moment.timestamp())
+    window.navigate('status')
+    settle(qt_app, window)
+    page = window.dashboard
+    original = page.entries.itemAt(0).widget()
+    page.refresh()
+    settle(qt_app, window)
+    assert page.entries.itemAt(0).widget() is original
+    assert all(label.isVisible() and label.height() > 0 for label in original.findChildren(QLabel))
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    def delayed(method, params):
+        result = dispatch(method, params)
+        if method == 'dashboard_read' and params['period'] == 'recent':
+            entered.set()
+            assert release.wait(3)
+        return result
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    page.refresh()
+    assert entered.wait(2)
+    page.period.setCurrentIndex(page.period.findData('today'))
+    release.set()
+    settle(qt_app, window)
+    assert page.entries.count() == 1
+    button = page.entries.itemAt(0).widget()
+    button.setFocus()
+    QTest.keyClick(button, Qt.Key.Key_Return)
+    settle(qt_app, window)
+    clipboard.setText.assert_called_once_with('Today final')
+
+
+def test_close_waits_for_status_read_and_stops_refresh(window, qt_app, monkeypatch):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    def delayed(method, params):
+        if method == 'dashboard_read':
+            entered.set()
+            assert release.wait(3)
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    window.navigate('status')
+    assert entered.wait(2)
+    window.close()
+    assert window.close_pending and not window.closed.is_set()
+    release.set()
+    settle(qt_app, window)
+    assert window.closed.is_set() and window.dashboard.stopped
+    assert not window.dashboard.timer.isActive() and not window.dashboard.retry.isActive()

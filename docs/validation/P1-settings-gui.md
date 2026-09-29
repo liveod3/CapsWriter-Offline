@@ -2,6 +2,32 @@
 
 Date: 2026-09-27; acceptance updated 2026-09-28. Status: the user accepted the functional source GUI baseline and authorized committing it. Physical desktop and complete packaged-release checks remain separate follow-ups. The reported startup recording symptom still needs clarification between an actual Recording/red-dot state and Windows microphone-use indication. The preceding composable-prompt work was accepted and committed as `58727c6`; this record concerns the GUI, client desktop entry and integrated Tk shutdown work.
 
+## Status dashboard and diagnostic workspace
+
+Accepted by the user on 2026-09-28, followed by a request for paused startup. Status now shows today's
+saved dictations and recorded token usage, monthly LLM costs, and the latest ten
+saved results with a Today filter and explicit complete-result copy. Cost sources,
+currencies, missing usage and partial reads remain distinct. Diagnostics groups
+logging options, runtime actions and readable metadata reports with explicit copy;
+accounting preferences move to Records.
+
+Validation used the existing Python 3.11.15 environment: **1035 passed, 11
+deselected** in the default suite. Synthetic cases cover actual versus estimated
+usage, adjacent-month timezone boundaries, unknown/currency distinctions, malformed
+and bounded reads, empty/unavailable ledgers, latest-ten/today filters, changed or
+truncated copy targets, visible-only refresh, busy retries, stale callbacks,
+keyboard copy, stable rows, metadata-only reports and close during active reads.
+Syntax, Ruff, configured mypy, internal-language, documentation and diff checks
+passed. English and Simplified Chinese Status/Diagnostics were rendered at
+800x600, 1120x860 and 1440x900 without horizontal overflow. Preview row height was
+corrected after inspecting the first render; subsequent captures show readable
+timestamps and wrapped result text. Fixtures used synthetic transcripts, usage and
+diagnostics only; no real audio, provider requests, user records or clipboard
+contents were read. Physical mixed-DPI interaction remains manual validation.
+
+The preceding Dictation changes were accepted and committed as `d224e65` before
+this implementation began.
+
 ## Dictation organization and final output formatting
 
 Accepted by the user on 2026-09-28 with commit authorized. General contains interface

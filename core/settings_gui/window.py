@@ -1,6 +1,5 @@
 """Qt settings window. All widgets live on the process main thread."""
 
-from datetime import datetime
 import json
 from queue import Empty, Queue
 import threading
@@ -9,7 +8,7 @@ import time
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractSpinBox, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
+    QAbstractSpinBox, QApplication, QComboBox, QFormLayout, QFrame, QHBoxLayout, QLabel,
     QLineEdit, QListWidget, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
     QScrollArea, QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -22,6 +21,7 @@ from .device_watch import DeviceWatch
 from .fields import PAGES, page_index
 from .help_widgets import DeviceNotice, SettingsGroups, field_caption
 from .history_page import HistoryPage
+from .status_page import StatusPage
 from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, text
 from .shell import show_window
 from .validation import field_errors
@@ -267,37 +267,48 @@ class SettingsWindow(QMainWindow):
                     self.cleanup_notice = text('cleanup_advanced', 'muted')
                     self.cleanup_notice.hide()
                     group.addWidget(self.cleanup_notice)
+            if page == 'status':
+                self.dashboard = StatusPage(self.request, self.show_status_history)
+                content_layout.addWidget(self.dashboard)
             if page == 'diagnostics':
-                self.runtime = QLabel(label('standalone'))
-                self.runtime.setWordWrap(True)
-                content_layout.addWidget(self.runtime)
-                runtime_actions = QHBoxLayout()
+                tools_layout = groups.add_group('diagnostic_tools')
+                self.runtime = text('standalone', 'muted')
+                tools_layout.addWidget(self.runtime)
                 self.runtime_buttons = []
                 for action in ('toggle_pause', 'reconnect_microphone'):
+                    row = QVBoxLayout()
                     button = QPushButton(label(action))
                     button.setEnabled(False)
                     button.clicked.connect(lambda _checked=False, action=action: self.request(
                         'action', {'name': action}, lambda result: self.status.setText(result or label('action_sent'))))
                     self.runtime_buttons.append(button)
-                    runtime_actions.addWidget(button)
-                content_layout.addLayout(runtime_actions)
+                    row.addWidget(button, 0, Qt.AlignmentFlag.AlignLeft)
+                    row.addWidget(text('debug_' + action, 'muted'))
+                    tools_layout.addLayout(row)
+                report_frame = QFrame()
+                report_frame.setObjectName('card')
+                report_layout = QVBoxLayout(report_frame)
+                report_layout.setContentsMargins(18, 16, 18, 16)
+                report_layout.setSpacing(10)
+                report_layout.addWidget(text('diagnostic_report', 'cardTitle'))
+                report_layout.addWidget(text('diagnostic_report_hint', 'muted'))
                 actions = QHBoxLayout()
                 diagnostic = QPushButton(label('recent'))
                 diagnostic.clicked.connect(lambda: self.request('diagnostics', {}, self.show_report))
                 actions.addWidget(diagnostic)
-                self.month = QLineEdit(datetime.now().strftime('%Y-%m'))
-                self.month.setAccessibleName(label('month'))
-                self.month.setMaximumWidth(100)
-                actions.addWidget(self.month)
-                costs = QPushButton(label('costs'))
-                costs.clicked.connect(lambda: self.request('costs', {'month': self.month.text()}, self.show_report))
-                actions.addWidget(costs)
-                content_layout.addLayout(actions)
+                self.copy_report = QPushButton(label('diagnostic_copy'))
+                self.copy_report.setEnabled(False)
+                self.copy_report.clicked.connect(lambda: QApplication.clipboard().setText(self.report.toPlainText()))
+                actions.addWidget(self.copy_report)
+                actions.addStretch()
+                report_layout.addLayout(actions)
                 self.report = QPlainTextEdit()
                 self.report.setReadOnly(True)
                 self.report.setAccessibleName(label('report'))
+                self.report.setPlaceholderText(label('diagnostic_report_empty'))
                 self.report.setMinimumHeight(260)
-                content_layout.addWidget(self.report)
+                report_layout.addWidget(self.report)
+                content_layout.addWidget(report_frame)
             content_layout.addStretch()
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
@@ -769,6 +780,11 @@ class SettingsWindow(QMainWindow):
         self.navigation.setCurrentRow(-1)
         self.update_navigation()
 
+    def show_status_history(self, period):
+        self.show_history()
+        value = 'today' if period == 'today' else 'all'
+        self.history.period.setCurrentIndex(self.history.period.findData(value))
+
     def show_history(self):
         self.workspace.setCurrentIndex(2)
         self.navigation.setCurrentRow(-1)
@@ -860,7 +876,14 @@ class SettingsWindow(QMainWindow):
         self.form_baseline = {name: get_value(widget, spec) for name, (widget, spec) in self.fields.items()}
 
     def show_report(self, result):
-        self.report.setPlainText(json.dumps(result, ensure_ascii=False, indent=2))
+        lines = []
+        for record in result:
+            lines.append(f"{record.get('timestamp', '')}  [{record.get('level', '')}]  {record.get('message', '')}")
+            details = {key: value for key, value in record.items() if key not in ('timestamp', 'level', 'message', 'content')}
+            if details:
+                lines.append(json.dumps(details, ensure_ascii=False))
+        self.report.setPlainText('\n\n'.join(lines) or label('diagnostic_no_events'))
+        self.copy_report.setEnabled(bool(lines))
 
     def open_advanced(self):
         # File launch belongs to the parent adapter; never execute a Python association.
@@ -938,9 +961,12 @@ class SettingsWindow(QMainWindow):
                 self.update_save_status()
             if self.active_method.startswith('history_'):
                 getattr(callback, 'on_error', self.history.show_error)(error)
+            if self.active_method.startswith('dashboard_'):
+                callback.on_error(error)
             if self.active_method == 'desktop_stop':
                 self.exiting = False
                 self.history.stopped = False
+                self.dashboard.stopped = False
                 self.exit_button.setEnabled(True)
                 self.home.setEnabled(True)
                 self.navigation.setEnabled(True)
@@ -976,6 +1002,7 @@ class SettingsWindow(QMainWindow):
             self.device_watch.stop()
             self.device_retry.stop()
             self.autosave.stop()
+            self.dashboard.stop()
             self.history.stop_queries()
             self.timer.stop()
             self.poll.stop()
@@ -988,7 +1015,7 @@ class SettingsWindow(QMainWindow):
             else:
                 self.request_exit()
             return
-        saving = self.active_method in ('save', 'catalog_save', 'input_devices')
+        saving = self.active_method in ('save', 'catalog_save', 'input_devices', 'dashboard_read', 'dashboard_copy')
         queued_save = self.pending_request and self.pending_request[0] in ('save', 'catalog_save')
         if self.busy and (saving or queued_save):
             event.ignore()
@@ -1008,6 +1035,7 @@ class SettingsWindow(QMainWindow):
         self.device_watch.stop()
         self.device_retry.stop()
         self.autosave.stop()
+        self.dashboard.stop()
         self.history.stop_queries()
         self.timer.stop()
         self.poll.stop()
@@ -1059,6 +1087,7 @@ class SettingsWindow(QMainWindow):
         self.device_watch.stop()
         self.device_retry.stop()
         self.autosave.stop()
+        self.dashboard.stop()
         self.history.stop_queries()
         self.exiting = True
         self.exit_pending = False

@@ -130,9 +130,45 @@ When a saved request ID exists, detail loading uses an indexed, read-only SQLite
 
 Subtle and sidebar buttons have explicit hover/pressed/focus styles that override their ID-specific base rules. GUI buttons use pointing-hand cursors. Exit client is a full-width, left-aligned outlined action at the bottom of the sidebar; the redundant local-settings footer has been removed. This addresses discoverability without revisiting the deferred Chinese font policy.
 
+## Status dashboard
+
+Status is separate from Diagnostics. `status_data.py` reads existing transcript
+archives and accounting ledgers; it neither collects new content nor changes save
+permissions. The daily count includes saved entries only. Recent and Today filters
+show at most ten previews and link to the matching full-history filter. Explicit
+copy reopens the digest-validated record and copies only the complete final stage;
+changed, empty or truncated results are rejected. Clipboard contents are never read.
+
+Usage queries inspect the current and adjacent monthly SQLite files read-only,
+convert aware request timestamps to the current local timezone, and aggregate only
+the current day/month. Reads are bounded to 10,000 records, 65,536 characters per
+record, twelve currencies, a one-second lock timeout and a two-second execution
+budget per database. Partial, malformed and unavailable data remain explicit.
+Daily tokens use recorded provider totals or known input plus output, without
+adding cached/reasoning subsets or heuristic estimates. Monthly amounts retain
+currency and provider/rate/token/possible-cost provenance; missing usage or charges
+never imply zero. Cost tracking preferences live in Records.
+
+`StatusPage` uses the existing serialized background worker, one active request
+and one coalesced pending action. It refreshes on entry, manually and every thirty
+seconds while visible. Hidden pages stop timers and reject obsolete callbacks;
+generation checks also protect filter changes and explicit copy. Busy-worker
+retries preserve the current view, errors remain inline, and unchanged rows retain
+their widgets. Closing waits for bounded active reads/copies and stops refresh.
+Metric cards adapt to one, two or three columns; preview rows support mouse,
+Enter and Space activation with plain-text labels.
+
 ## Diagnostics and packaging
 
-Recent diagnostics inspect only the latest month directories and up to four newest diagnostic files, reading at most 128 KiB from each and displaying at most 80 events. Partial JSON lines are skipped and the `content` field is excluded. Cost queries reuse the existing read-only monthly ledger query and retain currency/provenance distinctions. Neither view collects new user content or contacts a provider.
+Diagnostics separates logging controls, runtime checks/actions and a full-width
+report card. Pause/resume and microphone reconnect retain the running-client
+requirement. Recent diagnostics inspect only the latest month directories and up
+to four newest diagnostic files, reading at most 128 KiB from each and displaying
+at most 80 events. Partial JSON lines are skipped and the `content` field is
+excluded. The report renders timestamp, level, message and remaining metadata as
+readable blocks; its copy action writes only that displayed report. Monthly cost
+summaries now belong to Status, while historical-month queries remain available
+through the CLI. Neither view collects new user content or contacts a provider.
 
 The client dependency set adds pinned `PySide6-Essentials`, `tomlkit` and Windows `pywin32`; QtWidgets needs no Addons package. Client PyInstaller analyses collect both entry scripts and filter each EXE's script table so windowed `CapsWriter.exe` executes only `start_desktop.pyw` and console `start_client.exe` executes only `start_client.py`, preserving common runtime hooks. Server analysis continues to exclude Qt. The release smoke workflow checks all three combined-package entry points. All local configuration and credentials remain excluded by the existing packaging policy. Qt's [high-DPI support](https://doc.qt.io/qt-6/highdpi.html) informs the layout, but synthetic scale-factor renders do not verify physical monitor movement, focus, accessibility clients or clean-machine release behavior. Renaming remains a separate TODO item.
 

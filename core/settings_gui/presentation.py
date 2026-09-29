@@ -43,6 +43,9 @@ QPushButton:disabled { background: #f5f6f9; border-color: #e8eaf0; color: #9ca2b
 QPushButton#primary { background: #6658cc; border-color: #6658cc; color: white; }
 QPushButton#primary:hover { background: #5749b7; }
 QPushButton#primary:disabled { background: #b9b3de; border-color: #b9b3de; }
+QPushButton#recordCard { text-align: left; background: #f8f9fc; border-color: #edf0f5; padding: 0; }
+QPushButton#recordCard:hover { background: #f0effc; border-color: #b8b1e6; }
+QPushButton#recordCard:focus { border: 2px solid #7971d9; }
 QPushButton#home { text-align: left; border: none; background: transparent; padding: 12px 10px; }
 QPushButton#home[active="true"] { background: #eeedff; color: #5850c9; font-weight: 600; }
 QPushButton#home:hover { background: #e3e0f9; color: #463b9f; }
@@ -248,7 +251,7 @@ class HomePage(QWidget):
         shortcuts.addWidget(text('shortcuts_hint', 'muted'))
         links = QHBoxLayout()
         links.setSpacing(12)
-        for title, page in (('tune_text', 'text'), ('page.records', 'records'), ('recent', 'diagnostics')):
+        for title, page in (('tune_text', 'text'), ('page.status', 'status'), ('recent', 'diagnostics')):
             button = QPushButton(tr('gui.' + title))
             button.clicked.connect(lambda _checked=False, page=page: navigate(page))
             links.addWidget(button)

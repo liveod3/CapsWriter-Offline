@@ -13,6 +13,8 @@ Keep one entry per outcome, with scope and a completion criterion. Implement and
 
 ## P1 — Requested features
 
+- [x] **Separate the Status dashboard and Diagnostics workspace (2026-09-28).** Implemented daily saved-dictation and recorded-token cards, monthly LLM costs with currency/provenance/unknown distinctions, latest-ten/today previews with explicit full-result copy, and a filtered history link. Diagnostics groups logging controls, runtime actions and readable metadata reports with copy. Reuse existing archives and bounded read-only ledgers; stop visible-page refresh and invalidate stale callbacks on hide/close. Validation: 1035 default tests passed, 11 deselected; static gates and synthetic bilingual layouts at three widths passed. Accepted by the user on 2026-09-28; physical mixed-DPI interaction remains manual. See [validation](docs/validation/P1-settings-gui.md#status-dashboard-and-diagnostic-workspace).
+
 ### Desktop workflow and diagnostic detail
 
 Requested on 2026-09-27. The user confirmed the order, authorized starting item 1, and subsequently accepted its implementation for commit on the same date. Items 1-3 are accepted at their documented validation scopes; item 4 is authorized; items 5-6 remain planned. The primary diagnostic requirement is richer data fields and finer event granularity, not merely revised Toast wording or larger raw dumps. Existing accepted work and unrelated open audit items retain their status.

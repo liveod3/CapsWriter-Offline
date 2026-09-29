@@ -21,6 +21,14 @@ Startup directory failure leaves console feedback available. The file handler re
 
 ## Diagnostic settings
 
+The desktop Status page summarizes existing saved dictations and local LLM usage
+ledgers without creating additional records or enabling collection. Daily tokens
+use recorded provider usage, and monthly costs preserve currencies and estimate
+provenance. Missing data remains explicit. Clicking a recent dictation copies its
+complete saved final result after checking that the record has not changed. The
+separate Diagnostics page displays metadata-only reports and copies them only on
+explicit request; neither page reads clipboard contents.
+
 Both `ClientConfig` and `ServerConfig` own these fields, except the client-only reference switch. Every diagnostic setting requires a process restart; worker replacements retain the server startup snapshot.
 
 | Field | Template default | Contract |

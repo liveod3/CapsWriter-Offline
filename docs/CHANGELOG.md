@@ -2,6 +2,8 @@
 
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
+- Separate Status from Diagnostics: add daily saved-dictation/token cards, monthly LLM costs with explicit currency and estimate provenance, and latest-ten/today results with full-result copy. Group diagnostic logging controls, runtime actions and readable reports; move accounting preferences to Records. Reuse existing records with bounded reads and visible-page refresh only. Validation: 1035 tests passed, 11 deselected; bilingual layout checks passed. Accepted by the user before the paused-startup follow-up.
+
 - Split General, Dictation and Records; separate Dictation capture, text formatting and output method cards, and rename Text processing to LLM processing. Apply deterministic dictation formatting after optional LLM processing while retaining raw recognition/action archive stages.
 - Accept the final Text processing simplification and provider autosave for commit after user review. Validation: 1018 tests passed, 11 deselected; static checks and bilingual layouts passed.
 - Save configured provider selection automatically on dropdown activation. Remove the separate save button, show inline failures with retry by reselecting, preserve conflict checks and finish pending writes before close/exit.
