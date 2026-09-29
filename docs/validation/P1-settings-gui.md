@@ -2,6 +2,26 @@
 
 Date: 2026-09-27; acceptance updated 2026-09-28. Status: the user accepted the functional source GUI baseline and authorized committing it. Physical desktop and complete packaged-release checks remain separate follow-ups. The reported startup recording symptom still needs clarification between an actual Recording/red-dot state and Windows microphone-use indication. The preceding composable-prompt work was accepted and committed as `58727c6`; this record concerns the GUI, client desktop entry and integrated Tk shutdown work.
 
+## Paused dictation startup
+
+Corrected on 2026-09-29 after the user clarified that startup should use idle
+suspension, not manual pause. Desktop and console microphone clients start with
+the input stream closed and manual pause disabled. The first shortcut follows the
+existing asynchronous resume path and records without a separate resume action.
+Failed wakeup remains retryable through the shortcut. Deliberate manual pause
+still blocks shortcut wakeup. The overview and console distinguish standby from
+manual pause; file modes and existing UDP pause rules are unchanged. Accepted by
+the user on 2026-09-29 with commit authorized.
+
+The prior manual-pause implementation passed 1042 default tests but did not match
+the intended behavior. New mock checks exercise real constructor state through
+shortcut launch, resume-before-record, failed-wakeup retry and manual-pause
+rejection, plus separate overview guidance. Focused validation: 26 passed.
+Final default suite: **1045 passed, 11 deselected** on Python 3.11.15. Syntax,
+Ruff, configured mypy, internal-language, documentation and diff checks passed.
+No real microphone, global input or network service was used; physical wakeup
+remains manual validation.
+
 ## Status dashboard and diagnostic workspace
 
 Accepted by the user on 2026-09-28, followed by a request for paused startup. Status now shows today's

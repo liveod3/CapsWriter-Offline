@@ -265,11 +265,14 @@ class HomePage(QWidget):
         self.mark.update_recording(bool(runtime.get('recording')))
         config = (snapshot.get('effective') or snapshot.get('saved') or {}).get('ClientConfig', {})
         desktop = snapshot.get('desktop') or {}
+        standby = runtime.get('paused') and not runtime.get('manually_paused', True)
         state = ('recording' if runtime.get('recording') else 'paused' if runtime.get('paused') else
                  'home_processing' if runtime.get('processing_count') else
                  'home_microphone' if runtime.get('microphone_ready') is False else
                  'home_ready' if runtime.get('connected') else 'home_connecting' if runtime else 'home_stopped')
         self.headline.setText(tr('gui.' + state))
+        if standby and not runtime.get('recording'):
+            self.headline.setText(tr('mic.standby'))
         hint = ('recording_hint' if runtime.get('recording') else
                 'processing_hint' if runtime.get('processing_count') else
                 'home_ready_hint' if runtime.get('connected') else 'home_start_hint')
@@ -284,7 +287,7 @@ class HomePage(QWidget):
         elif runtime and not runtime.get('connected'):
             self.detail.setText(tr('gui.connection_hint'))
         elif runtime.get('paused'):
-            self.detail.setText(tr('gui.paused_hint'))
+            self.detail.setText(tr('mic.standby_help' if standby else 'gui.paused_hint'))
         elif runtime.get('microphone_ready') is False:
             self.detail.setText(tr('gui.microphone_hint'))
         elif not runtime and not desktop:

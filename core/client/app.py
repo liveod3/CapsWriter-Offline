@@ -63,7 +63,9 @@ class CapsWriterClient:
         asyncio.set_event_loop(self.loop)
             
         # Initialize shared state.
-        self.state = ClientState(app=self)
+        start_paused = command.mode is ClientMode.MIC
+        # Start like idle suspension: release hardware but allow shortcut wakeup.
+        self.state = ClientState(app=self, dictation_paused=start_paused)
 
         self.llm = TextActionService(Config, self.base_dir, status_callback=show_status_hint)
         from core.client.processing_status import ProcessingStatus

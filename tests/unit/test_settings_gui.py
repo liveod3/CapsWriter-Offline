@@ -1270,6 +1270,20 @@ def test_ready_microphone_is_waiting_until_recording_flag_changes(window):
     assert window.home.mark.recording is False
 
 
+def test_standby_and_manual_pause_have_distinct_guidance(window):
+    from core.i18n import tr
+
+    runtime = {'connected': True, 'recording': False, 'paused': True,
+               'manually_paused': False, 'microphone_ready': False}
+    window.home.update_snapshot({'runtime': runtime})
+    assert window.home.headline.text() == tr('mic.standby')
+    assert window.home.detail.text() == tr('mic.standby_help')
+    runtime['manually_paused'] = True
+    window.home.update_snapshot({'runtime': runtime})
+    assert window.home.headline.text() == tr('gui.paused')
+    assert window.home.detail.text() == tr('gui.paused_hint')
+
+
 def history_dates(page, start='2026-09-01', end='2026-09-30'):
     from PySide6.QtCore import QDate
     page.period.setCurrentIndex(page.period.findData('custom'))

@@ -4,6 +4,7 @@ from core.i18n import Notice
 import asyncio
 from . import logger
 from ..ui import TipsDisplay
+from core.ui import set_dictation_paused
 from config_client import ClientConfig as Config, __version__
 
 
@@ -28,17 +29,20 @@ class MicRunner:
         return self.app.tray
 
     async def start_resources(self):
-        """Initialize microphone hardware, shortcuts, and the tray UI."""
+        """Initialize controls; leave microphone hardware closed while paused."""
         if self.app._stopping:
             return
         # 1. Tray.
         self.tray_manager.start()
+        set_dictation_paused(self.state.dictation_paused)
 
         # 2. UI feedback.
-        TipsDisplay.show_mic_tips()
+        TipsDisplay.show_mic_tips(paused=self.state.dictation_paused,
+                                 manually_paused=self.state.dictation_manually_paused)
 
         # 3. Audio stream and shortcut listeners.
-        await asyncio.to_thread(self.app.stream.start)
+        if not self.state.dictation_paused:
+            await asyncio.to_thread(self.app.stream.start)
         if self.app._stopping:
             return
         self.app.shortcut.start()

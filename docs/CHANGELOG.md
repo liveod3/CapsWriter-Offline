@@ -2,6 +2,8 @@
 
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
+- Start desktop and console dictation in idle standby, without opening the microphone. As clarified on 2026-09-29, the first shortcut wakes the microphone and starts dictation without a separate resume action; deliberate manual pause still blocks shortcut wakeup. Show distinct standby guidance and retain retry after failed wakeup. File transcription is unchanged.
+
 - Separate Status from Diagnostics: add daily saved-dictation/token cards, monthly LLM costs with explicit currency and estimate provenance, and latest-ten/today results with full-result copy. Group diagnostic logging controls, runtime actions and readable reports; move accounting preferences to Records. Reuse existing records with bounded reads and visible-page refresh only. Validation: 1035 tests passed, 11 deselected; bilingual layout checks passed. Accepted by the user before the paused-startup follow-up.
 
 - Split General, Dictation and Records; separate Dictation capture, text formatting and output method cards, and rename Text processing to LLM processing. Apply deterministic dictation formatting after optional LLM processing while retaining raw recognition/action archive stages.

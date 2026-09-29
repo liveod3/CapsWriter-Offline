@@ -58,7 +58,7 @@ class TipsDisplay:
     """
     
     @staticmethod
-    def show_mic_tips() -> None:
+    def show_mic_tips(*, paused: bool = False, manually_paused: bool = False) -> None:
         """Display microphone-mode startup tips."""
         shortcuts_display = _get_shortcuts_display()
 
@@ -68,7 +68,8 @@ class TipsDisplay:
         details.add_row(tr('tips.shortcuts'), shortcuts_display)
         details.add_row(tr('tips.server'), f'{Config.addr}:{Config.port}')
         details.add_row(tr('tips.directory'), os.getcwd())
-        details.add_row(tr('tips.status'), tr('tips.waiting'))
+        state = 'mic.paused' if manually_paused else 'mic.standby' if paused else 'tips.waiting'
+        details.add_row(tr('tips.status'), tr(state))
         console.print()
         console.print(Panel(
             details,
@@ -77,7 +78,8 @@ class TipsDisplay:
             border_style='ui.border',
             padding=(0, 2),
         ))
-        console.print(tr('tips.instructions'))
+        hint = 'mic.paused_help' if manually_paused else 'mic.standby_help' if paused else 'tips.instructions'
+        console.print(tr(hint))
 
         logger.debug(Notice('diagnostic.tips.microphone_startup_tips_displayed'))
     

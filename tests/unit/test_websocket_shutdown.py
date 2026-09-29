@@ -7,6 +7,7 @@ from websockets.exceptions import ConnectionClosedError, ConnectionClosedOK
 from websockets.frames import Close
 
 from core.client.app import CapsWriterClient
+from core.client.operations import ClientOperations
 from core.client.connection.websocket_manager import CommunicationError, WebSocketManager
 from core.client.output.result_processor import ResultProcessor
 from core.client.state import ClientState
@@ -197,20 +198,136 @@ def test_shutdown_waits_for_actual_recording_cleanup_after_future_cancellation()
 
 
 @pytest.mark.parametrize('desktop_mode', [False, True])
-def test_microphone_startup_waits_for_a_trigger(monkeypatch, desktop_mode):
+@pytest.mark.parametrize('paused', [False, True])
+def test_microphone_startup_respects_pause(monkeypatch, desktop_mode, paused):
     from core.client.manager.mic_runner import MicRunner
     monkeypatch.setattr('core.client.manager.mic_runner.TipsDisplay.show_mic_tips', Mock())
     monkeypatch.setattr('core.client.manager.mic_runner.Config.udp_control', False)
-    app = SimpleNamespace(state=ClientState(), desktop_mode=desktop_mode, _stopping=False,
+    publish = Mock()
+    monkeypatch.setattr('core.client.manager.mic_runner.set_dictation_paused', publish)
+    app = SimpleNamespace(state=ClientState(dictation_paused=paused, dictation_manually_paused=paused),
+                          desktop_mode=desktop_mode, _stopping=False,
                           stream=SimpleNamespace(start=Mock()), tray=SimpleNamespace(start=Mock()),
                           shortcut=SimpleNamespace(start=Mock()), udp=SimpleNamespace(start=Mock()),
                           llm=SimpleNamespace(start=Mock()), start_idle_suspend_monitor=Mock())
+    publish.side_effect = lambda _: app.tray.start.assert_called_once()
     asyncio.run(MicRunner(app).start_resources())
-    app.stream.start.assert_called_once()
+    assert app.stream.start.call_count == (0 if paused else 1)
+    publish.assert_called_once_with(paused)
     app.shortcut.start.assert_called_once()
     assert not app.state.recording
     assert app.state.recording_owner is None and app.state.capture is None
     assert app.state.recording_tasks == set() and app.state.recorder_by_id == {}
+
+
+@pytest.fixture
+def isolated_client(monkeypatch):
+    import core.client.app as module
+
+    for name in ('TextActionService', 'CaretContextCapture', 'TextOutput', 'DiaryWriter',
+                 'WebSocketManager', 'TrayManager', 'AudioStreamManager', 'ShortcutManager',
+                 'UDPController', 'empty_current_working_set'):
+        monkeypatch.setattr(module, name, Mock())
+    monkeypatch.setattr(module.os, 'chdir', Mock())
+    monkeypatch.setattr('core.client.operations.ClientOperations', Mock())
+    monkeypatch.setattr('core.config_reload.ConfigReloader', Mock())
+    monkeypatch.setattr('core.settings_gui.bridge.SettingsProcess', Mock())
+    monkeypatch.setattr(module, 'set_dictation_paused', Mock())
+    clients = []
+
+    def create(mode):
+        from core.client.cli import ClientCommand
+        client = CapsWriterClient(ClientCommand(mode))
+        clients.append(client)
+        return client
+
+    yield create
+    for client in clients:
+        client.loop.close()
+    asyncio.set_event_loop(None)
+
+
+@pytest.mark.parametrize('mode', ['mic', 'transcribe', 'rebuild-srt'])
+def test_client_initial_pause_applies_only_to_dictation(isolated_client, mode):
+    from core.client.cli import ClientMode
+
+    app = isolated_client(ClientMode(mode))
+    assert app.state.dictation_paused == (mode == 'mic')
+    assert not app.state.dictation_manually_paused
+    assert not app.state.recording
+    app.stream.start.assert_not_called()
+
+
+@pytest.mark.parametrize('succeeds', [False, True])
+def test_initial_standby_requires_successful_resume(isolated_client, succeeds):
+    from core.client.cli import ClientMode
+
+    app = isolated_client(ClientMode.MIC)
+    app.stream.start.return_value = object() if succeeds else None
+    assert app.resume_dictation(show_hint=False) == succeeds
+    assert app.state.dictation_paused == (not succeeds)
+    assert not app.state.dictation_manually_paused
+    assert not app.state.recording
+    app.stream.start.assert_called_once_with(silent=True, force=True)
+    if succeeds:
+        assert app.resume_dictation(show_hint=False)
+        app.stream.start.assert_called_once()
+    else:
+        app.stream.start.return_value = object()
+        assert app.resume_dictation(show_hint=False)
+        assert not app.state.dictation_paused
+        assert not app.state.dictation_manually_paused
+
+
+@pytest.mark.parametrize('first_open_fails', [False, True])
+def test_first_shortcut_wakes_startup_standby_and_records(isolated_client, monkeypatch, first_open_fails):
+    from core.client.cli import ClientMode
+    from core.client.shortcut.task import ShortcutTask
+
+    app = isolated_client(ClientMode.MIC)
+    app.progress = Mock()
+    for name in ('show_status_hint', 'hide_status_hint', 'show_recording_indicator',
+                 'hide_recording_indicator', 'set_recording_state', 'Status', 'Thread'):
+        monkeypatch.setattr(f'core.client.shortcut.task.{name}', Mock())
+    monkeypatch.setattr('core.client.caret_context.foreground_window', lambda: 0)
+    app.stream.is_ready.return_value = False
+    recorded = []
+
+    class Recorder:
+        task_id = 'startup-test'
+
+        def __init__(self, app):
+            pass
+
+        async def record_and_send(self, capture):
+            assert not app.state.dictation_paused
+            assert app.stream.start.called
+            recorded.append(capture)
+
+    async def run():
+        runtime = await ClientOperations.read_status(SimpleNamespace(app=app))
+        assert runtime['paused'] and not runtime['manually_paused']
+        task = ShortcutTask(app, SimpleNamespace(key='ctrl_r'), recorder_class=Recorder)
+        app.stream.start.return_value = None if first_open_fails else object()
+        assert task.launch()
+        if first_open_fails:
+            with pytest.raises(RuntimeError, match='MicrophoneResumeFailed'):
+                await asyncio.wrap_future(task.task)
+            assert app.state.dictation_paused and not app.state.dictation_manually_paused
+            assert not recorded
+            app.stream.start.return_value = object()
+            assert task.launch()
+        await asyncio.wrap_future(task.task)
+        assert len(recorded) == 1
+        assert not app.state.recording and app.state.recording_owner is None
+        assert not app.state.dictation_paused
+        assert app.pause_dictation(show_hint=False)
+        assert app.state.dictation_manually_paused
+        calls = app.stream.start.call_count
+        assert not task.launch()
+        assert app.stream.start.call_count == calls
+
+    app.loop.run_until_complete(run())
 
 
 def test_shutdown_during_microphone_start_does_not_restart_listeners(monkeypatch):
@@ -220,6 +337,8 @@ def test_shutdown_during_microphone_start_does_not_restart_listeners(monkeypatch
 
     async def run():
         app = make_shutdown_app([])
+        app.state.dictation_paused = False
+        app.state.dictation_manually_paused = False
         app.tray.start = Mock()
         app.shortcut.start = Mock()
         app.udp.start = Mock()

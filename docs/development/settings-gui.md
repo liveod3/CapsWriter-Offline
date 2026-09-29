@@ -4,6 +4,15 @@ The desktop is a PySide6 QtWidgets main window with an overview and integrated s
 
 ## Process and thread boundaries
 
+Each microphone-mode client starts with `dictation_paused=True` and
+`dictation_manually_paused=False` before publishing runtime state or creating
+resource managers. `MicRunner` skips stream startup. This is the existing idle
+suspension state: the first shortcut opens the microphone and records through the
+normal asynchronous resume path. Failed wakeup leaves standby retryable. Runtime
+snapshots include `manually_paused` so the overview distinguishes standby with
+shortcut guidance from deliberate manual pause, which still blocks shortcuts.
+File transcription, subtitle rebuilding and existing UDP pause rules are unchanged.
+
 Qt widgets and QApplication belong to the GUI process main thread. This follows [Qt's GUI threading requirement](https://doc.qt.io/qt-6/threads-qobject.html) and isolates Qt's DPI behavior from the existing Tk process settings. A worker performs blocking file/pipe operations; a 50 ms main-thread timer consumes its bounded result queue. Requests are serialized. A two-second poll reads settings/catalog revisions; between those reads, desktop mode checks content-free runtime flags at 200 ms intervals without reading configuration files. Busy operations skip polling rather than accumulating requests. Background polling leaves controls enabled and queues at most one foreground action; client autosaves keep controls enabled while catalog mutations remain explicit foreground actions. Explicit desktop exit always asks for confirmation, with Cancel as the default, then flushes valid client edits before shutdown. A failed write cancels exit rather than losing drafts.
 
 The window, overview and Qt tray reuse `assets/client-icon.ico`. Recording adds the console client's red badge with a light outline; stopping or losing runtime status clears it. The icon is only replaced on recording-state changes, while tooltip text conveys readiness, pause and connection state. At the user's request, font sizes return to the earlier compact scale: 12 logical pixels for body controls, 11 for small state labels and 15 for card titles. Font selection follows the system UI font and its glyph fallbacks rather than forcing Microsoft YaHei UI for every control. Closed choices and numeric controls ignore wheel events even when focused, allowing the surrounding page to scroll; direct typing and keyboard editing remain available, and an open choice popup retains list scrolling.
