@@ -40,7 +40,7 @@ if (!(Test-Path config_client.py)) { Copy-Item config_templates/config_client_te
 if (!(Test-Path config_server.py)) { Copy-Item config_templates/config_server_template.py config_server.py }
 ```
 
-Use [source setup](docs/development/setup.md) for launch commands. `start.ps1` requires explicit `-Server` and/or `-Client Gui|Console` targets; no targets display help. Selected targets start applications unless `-WhatIf` is supplied; a launch is not an ordinary static check. Server startup normally requires complete models. Do not download large models for code checks. File transcription requires FFmpeg; missing ffprobe degrades duration estimates.
+Use [source setup](docs/development/setup.md) for launch commands. `start.ps1` requires explicit `-Server`, `-Client Gui|Console`, and/or `-Transcribe` targets; no targets display help. `-Transcribe` opens the independent file transcription GUI. Selected targets start applications unless `-WhatIf` is supplied; a launch is not an ordinary static check. Server startup normally requires complete models. Do not download large models for code checks. File transcription requires FFmpeg; missing ffprobe degrades duration estimates.
 
 ## Locate the implementation
 

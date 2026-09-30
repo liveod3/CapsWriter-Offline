@@ -32,10 +32,12 @@ from config_client import ClientConfig as Config
 from core.client.state import console
 from core.client.connection import CommunicationError, WebSocketManager
 from core.constants import AudioFormat
+from core.file_progress import ProgressEstimator, ProgressSnapshot, format_duration
 from core.protocol import AudioMessage, RecognitionMessage
 from .media_tool import MediaTool
 from .result_handler import ResultHandler
 from .lifecycle import complete_cleanup, open_process, positive_timeout, reap_process
+from .events import notify_file_progress
 from . import logger
 
 if TYPE_CHECKING:
@@ -45,16 +47,6 @@ if TYPE_CHECKING:
 
 class MediaDecodeError(RuntimeError):
     """The decoder exited without completing a usable audio stream."""
-
-
-def format_duration(seconds: float) -> str:
-    """Format seconds as a compact terminal duration."""
-    seconds = max(0.0, seconds)
-    hours, remainder = divmod(int(seconds + 0.5), 3600)
-    minutes, whole_seconds = divmod(remainder, 60)
-    if hours:
-        return f'{hours:d}:{minutes:02d}:{whole_seconds:02d}'
-    return f'{minutes:02d}:{whole_seconds:02d}'
 
 
 @dataclass(frozen=True)
@@ -78,78 +70,17 @@ class TranscriptionSummary:
         return self.elapsed / self.audio_duration if self.audio_duration > 0 else 0.0
 
 
-@dataclass
-class ProgressEstimator:
-    """Smooth throughput and ETA using cumulative and recent progress."""
-
-    started_at: float
-    completed: float = 0.0
-    last_completed: float = 0.0
-    last_updated_at: float | None = None
-    smoothed_speed: float = 0.0
-    eta_deadline: float | None = None
-
-    def update(
-        self,
-        completed: float,
-        total: float | None,
-        *,
-        now: float | None = None,
-    ) -> None:
-        now = time.perf_counter() if now is None else now
-        completed = max(0.0, completed)
-        elapsed = max(now - self.started_at, 1e-6)
-        overall_speed = completed / elapsed
-
-        previous_at = self.last_updated_at or self.started_at
-        delta_time = max(now - previous_at, 1e-6)
-        delta_audio = max(0.0, completed - self.last_completed)
-        recent_speed = delta_audio / delta_time if delta_audio else overall_speed
-
-        # Cumulative speed limits chunk jitter; recent speed tracks load changes.
-        # Apply EWMA to smooth ETA changes between chunks.
-        measurement = overall_speed * 0.65 + recent_speed * 0.35
-        if self.smoothed_speed > 0:
-            lower = self.smoothed_speed / 3
-            upper = self.smoothed_speed * 3
-            measurement = min(max(measurement, lower), upper)
-            self.smoothed_speed = self.smoothed_speed * 0.7 + measurement * 0.3
-        else:
-            self.smoothed_speed = measurement
-
-        self.completed = completed
-        self.last_completed = completed
-        self.last_updated_at = now
-        if total is not None and self.smoothed_speed > 0:
-            remaining = max(0.0, total - completed)
-            self.eta_deadline = now + remaining / self.smoothed_speed
-        else:
-            self.eta_deadline = None
-
-    def live_speed(self, *, now: float | None = None) -> float:
-        """Return confirmed audio duration divided by elapsed time at each refresh."""
-        now = time.perf_counter() if now is None else now
-        elapsed = max(now - self.started_at, 1e-6)
-        return self.completed / elapsed
-
-    def eta_seconds(self, *, now: float | None = None) -> float | None:
-        """Return smoothed ETA, counting down by wall time between progress updates."""
-        if self.eta_deadline is None:
-            return None
-        now = time.perf_counter() if now is None else now
-        return max(0.0, self.eta_deadline - now)
-
-
 class LiveMetricsColumn(ProgressColumn):
     """Render ETA and throughput relative to real time."""
 
     def render(self, task) -> Text:
         estimator: ProgressEstimator = task.fields['estimator']
         now = time.perf_counter()
-        elapsed = max(0.0, now - estimator.started_at)
-        eta = estimator.eta_seconds(now=now)
+        snapshot = estimator.snapshot(now=now)
+        elapsed = snapshot.elapsed_seconds
+        eta = snapshot.eta_seconds
         eta_text = format_duration(eta) if eta is not None else tr('file.calculating')
-        speed = estimator.live_speed(now=now)
+        speed = snapshot.speed
         speed_text = f'{speed:.2f}×' if speed > 0 else tr('file.calculating')
         return Text.from_markup(
             tr('file.live_metrics', value0=format_duration(elapsed), value1=eta_text, value2=speed_text)
@@ -206,6 +137,7 @@ class FileTranscriber:
         self._result_timeout = positive_timeout(Config, 'file_result_timeout', 600.0)
         self._audio_duration: float = 0.0
         self._decoded_duration: float = 0.0
+        self._processed_duration: float = 0.0
         self._started_at: float | None = None
         self.summary: TranscriptionSummary | None = None
         self._progress: Progress | None = None
@@ -219,6 +151,10 @@ class FileTranscriber:
 
     def _start_progress(self) -> None:
         """Start single-line progress; keep noninteractive output quiet to bound log size."""
+        started_at = self._started_at or time.perf_counter()
+        if self._progress_estimator is None:
+            self._progress_estimator = ProgressEstimator(started_at=started_at)
+        self._emit_progress('transcribing')
         if not console.is_terminal or self._progress is not None:
             return
         self._progress = Progress(
@@ -242,8 +178,6 @@ class FileTranscriber:
         )
         self._progress.start()
         total = self._audio_duration if self._audio_duration > 0 else None
-        started_at = self._started_at or time.perf_counter()
-        self._progress_estimator = ProgressEstimator(started_at=started_at)
         self._progress_task_id = self._progress.add_task(
             tr('file.transcribe'),
             total=total,
@@ -255,8 +189,8 @@ class FileTranscriber:
 
     def _update_progress(self, processed: float, *, finished: bool = False) -> None:
         """Update progress from server-confirmed processed audio duration."""
-        if self._progress is None or self._progress_task_id is None:
-            return
+        self._processed_duration = max(self._processed_duration, processed)
+        processed = self._processed_duration
         total = self._audio_duration if self._audio_duration > 0 else None
         if finished:
             total = total or max(processed, self._decoded_duration)
@@ -268,7 +202,10 @@ class FileTranscriber:
         displayed = completed if finished else processed
         remaining_seconds = max(0.0, total - displayed) if total is not None else None
         if self._progress_estimator is not None:
-            self._progress_estimator.update(displayed, total)
+            self._progress_estimator.update(processed, total)
+        self._emit_progress('transcribing')
+        if self._progress is None or self._progress_task_id is None:
+            return
         self._progress.update(
             self._progress_task_id,
             completed=completed,
@@ -282,6 +219,20 @@ class FileTranscriber:
             ),
             refresh=True,
         )
+
+    def _emit_progress(self, stage: str) -> None:
+        """Expose confirmed recognition progress even when stdout is redirected."""
+        now = time.perf_counter()
+        elapsed = max(0.0, now - self._started_at) if self._started_at is not None else 0.0
+        total = self._audio_duration if self._audio_duration > 0 else None
+        estimator = self._progress_estimator
+        snapshot = (estimator.snapshot(total, now=now) if estimator is not None else
+                    ProgressSnapshot(self._processed_duration, total, elapsed))
+        notify_file_progress(self.app, {
+            'type': 'progress',
+            'stage': stage,
+            **snapshot.as_metrics(),
+        })
 
     def _stop_progress(self, *, discard=False) -> None:
         if self._progress is not None:
@@ -303,6 +254,7 @@ class FileTranscriber:
     
     async def check(self) -> bool:
         """Check transcription prerequisites."""
+        self._emit_progress('checking')
         # Check that the file exists.
         if not self.file.exists():
             self.failure_code = 'missing_file'
@@ -315,9 +267,15 @@ class FileTranscriber:
             return False
 
         # Check the server connection.
-        if not await asyncio.wait_for(
-            self._ws_manager.connect(announce=False), self._io_timeout
-        ):
+        self._emit_progress('connecting')
+        try:
+            connected = await asyncio.wait_for(
+                self._ws_manager.connect(announce=False),
+                positive_timeout(self.app, 'file_connect_timeout', self._io_timeout),
+            )
+        except asyncio.TimeoutError:
+            connected = False
+        if not connected:
             self.failure_code = 'connection_failed'
             logger.error(Notice('diagnostic.file_transcriber.file_connection_failed'), extra={'console_handled': True})
             return False
@@ -329,7 +287,10 @@ class FileTranscriber:
         """Stream audio asynchronously to the server."""
         
         # 1. Probe duration.
+        self._emit_progress('probing')
         self._audio_duration = await MediaTool.get_audio_duration(self.file)
+        if not math.isfinite(self._audio_duration) or self._audio_duration < 0:
+            self._audio_duration = 0.0
         
         logger.info(Notice('diagnostic.file_transcriber.file_transcription_started_task'), self.task_id[:8])
         time_start = time.time()
@@ -411,6 +372,7 @@ class FileTranscriber:
             
             if self._audio_duration == 0:
                 self._audio_duration = progress
+            self._emit_progress('awaiting_result')
 
             logger.debug(Notice('diagnostic.file_transcriber.audio_data_transmission_completed'))
             return True
@@ -497,6 +459,7 @@ class FileTranscriber:
 
         log_content(logger, 'file.final_text', task_id=self.task_id, final_text=message.text)
         # Format and save through the result handler.
+        self._emit_progress('saving')
         try:
             text_display, sequence, output_paths = ResultHandler.save_results(
                 self.file,

@@ -18,6 +18,7 @@ from config_client import BASE_DIR, ClientConfig as Config
 from ..state import console
 from ..transcribe.lifecycle import complete_cleanup
 from ..transcribe.feedback import print_file_failure
+from ..transcribe.events import notify_file_progress
 
 
 DEFAULT_MEDIA_EXTENSIONS = frozenset({
@@ -244,6 +245,17 @@ class FileRunner:
                 if summary is not None:
                     succeeded_count += 1
                     summaries.append(summary)
+                    notify_file_progress(self.app, {
+                        'type': 'completed',
+                        'processed_seconds': summary.audio_duration,
+                        'total_seconds': summary.audio_duration,
+                        'elapsed_seconds': summary.elapsed,
+                        'speed': summary.speed_ratio,
+                        'rtf': summary.rtf,
+                        'text_length': summary.text_length,
+                        'sequence': summary.sequence,
+                        'output_paths': [str(path) for path in summary.output_paths],
+                    })
                     speed_style = 'ui.success' if summary.speed_ratio >= 1 else 'ui.warning'
                     console.print(tr('file.done', value0=file.name))
                     console.print(
@@ -263,6 +275,10 @@ class FileRunner:
                     logger.info(Notice('diagnostic.file_runner.file_processing_completed_index_total'), index, total)
                 else:
                     failed_count += 1
+                    notify_file_progress(self.app, {
+                        'type': 'failed',
+                        'code': self._failure_code or 'unexpected',
+                    })
                     print_file_failure(console, file, self._failure_code, has_next=index < total)
                     logger.error(Notice('diagnostic.file_runner.file_task_failed_code'), self._failure_code or 'unexpected',
                                  extra={'console_handled': True})

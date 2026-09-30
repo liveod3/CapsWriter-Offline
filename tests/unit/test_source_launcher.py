@@ -48,7 +48,7 @@ def launch(tmp_path):
     (checkout / "core/i18n").mkdir(parents=True)
     shutil.copyfile(ROOT / "start.ps1", checkout / "start.ps1")
     shutil.copyfile(ROOT / "core/i18n/launcher.json", checkout / "core/i18n/launcher.json")
-    for name in ("start_server.py", "start_client.py", "start_desktop.pyw"):
+    for name in ("start_server.py", "start_client.py", "start_desktop.pyw", "start_transcribe.pyw"):
         (checkout / name).touch()
     environment = tmp_path / "env user's copy" / "capswriter"
     environment.mkdir(parents=True)
@@ -79,19 +79,26 @@ def launch(tmp_path):
 
 
 @pytest.mark.parametrize("options", [{}, {"Help": True}, {"WhatIf": True}, {"Server": False},
-                                       {"Server": True, "Client": "Gui", "Help": True}])
+                                       {"Transcribe": False},
+                                       {"Server": True, "Client": "Gui", "Transcribe": True,
+                                        "Help": True}])
 @pytest.mark.parametrize("culture", ["en-US", "zh-CN"])
 def test_help_needs_no_environment_and_launches_nothing(launch, options, culture):
     result, output = launch(options, prepared=False, culture=culture)
     assert result["failure"] is None
     assert result["calls"] == []
-    assert b"-Client Gui" in output and b"-Server" in output
+    assert b"-Client Gui" in output and b"-Server" in output and b"-Transcribe" in output
 
 
 @pytest.mark.parametrize("options,entries", [
     ({"Server": True}, ["start_server.py"]),
     ({"Client": "Console"}, ["start_client.py"]),
     ({"Client": "Gui"}, ["start_desktop.pyw"]),
+    ({"Transcribe": True}, ["start_transcribe.pyw"]),
+    ({"Server": True, "Transcribe": True}, ["start_server.py", "start_transcribe.pyw"]),
+    ({"Client": "Gui", "Transcribe": True}, ["start_desktop.pyw", "start_transcribe.pyw"]),
+    ({"Server": True, "Client": "Console", "Transcribe": True},
+     ["start_server.py", "start_client.py", "start_transcribe.pyw"]),
     ({"Server": True, "Client": "Console"}, ["start_server.py", "start_client.py"]),
     ({"Server": True, "Client": "gui"}, ["start_server.py", "start_desktop.pyw"]),
 ])
@@ -120,12 +127,14 @@ def test_invalid_selection_cannot_launch(launch, options):
     assert result["failure"] and result["calls"] == []
 
 
-def test_preflight_all_targets_before_starting_server(launch):
-    result, _ = launch({"Server": True, "Client": "Gui"}, missing="start_desktop.pyw")
+@pytest.mark.parametrize("missing", ["start_desktop.pyw", "start_transcribe.pyw"])
+def test_preflight_all_targets_before_starting_server(launch, missing):
+    result, _ = launch({"Server": True, "Client": "Gui", "Transcribe": True}, missing=missing)
     assert result["failure"] and result["calls"] == []
 
 
-def test_gui_failure_restores_parent_environment(launch):
-    result, _ = launch({"Client": "Gui"}, fail=True)
+@pytest.mark.parametrize("options", [{"Client": "Gui"}, {"Transcribe": True}])
+def test_gui_failure_restores_parent_environment(launch, options):
+    result, _ = launch(options, fail=True)
     assert result["failure"] == "Synthetic launch failure"
     assert len(result["calls"]) == 1 and result["restored"]

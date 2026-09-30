@@ -4,6 +4,7 @@ param(
     [ValidateSet('Gui', 'Console')]
     [ValidateNotNullOrEmpty()]
     [string]$Client,
+    [switch]$Transcribe,
     [Alias('h')]
     [switch]$Help
 )
@@ -18,7 +19,7 @@ $messages = $catalog.en
 if ((Get-UICulture).Name -like 'zh*') {
     $messages = $catalog.'zh-CN'
 }
-if ($Help -or (-not $Server -and -not $Client)) {
+if ($Help -or (-not $Server -and -not $Client -and -not $Transcribe)) {
     $messages.help -join [Environment]::NewLine
     return
 }
@@ -123,6 +124,15 @@ if ($Client -eq 'Gui') {
         Title = $messages.gui_title
         Entry = Join-Path $projectRoot 'start_desktop.pyw'
         Gui = $true
+        ActionFormat = $messages.gui_action
+    }
+}
+if ($Transcribe) {
+    $launches += @{
+        Title = $messages.transcribe_title
+        Entry = Join-Path $projectRoot 'start_transcribe.pyw'
+        Gui = $true
+        ActionFormat = $messages.transcribe_action
     }
 }
 
@@ -143,7 +153,7 @@ foreach ($launch in $launches) {
         }
         $launch.Executable = $windowedPython
         $launch.Arguments = @('"' + $entryPath + '"')
-        $launch.Action = $messages.gui_action -f $entryPath
+        $launch.Action = $launch.ActionFormat -f $entryPath
         continue
     }
     $terminalCommand = Get-Command 'pwsh.exe' -ErrorAction SilentlyContinue

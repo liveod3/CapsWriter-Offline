@@ -480,3 +480,43 @@ def test_failed_progress_is_removed_while_successful_progress_is_retained(factor
         progress.stop.assert_called_once()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize('save_fails', [False, True])
+def test_file_events_finish_only_after_output_and_owned_cleanup(factory, monkeypatch, save_fails):
+    async def run():
+        process = FakeProcess(b'\0' * 6400)
+        transcriber, runner, ws, save = factory(process)
+        events = []
+        final_cleanup = []
+        runner.files = [Path('synthetic.wav')]
+
+        def observe(event):
+            events.append(event)
+            if event['type'] in {'completed', 'failed'}:
+                final_cleanup.append((process.reaped, ws.close.await_count))
+
+        runner.app.file_progress_callback = observe
+        if save_fails:
+            save.side_effect = PermissionError('synthetic output failure')
+
+        async def receive():
+            await transcriber._send_complete.wait()
+            return result(transcriber.task_id, final=True)
+
+        ws.receive.side_effect = receive
+        monkeypatch.setattr('core.client.manager.file_runner.sys.stdin',
+                            SimpleNamespace(isatty=lambda: False))
+        monkeypatch.setattr('core.client.ui.TipsDisplay.show_file_tips', Mock())
+        assert await runner.run() is not save_fails
+        assert final_cleanup == [(True, 1)]
+        assert any(event.get('stage') == 'saving' for event in events)
+        assert [event['type'] for event in events if event['type'] != 'progress'] == [
+            'failed' if save_fails else 'completed'
+        ]
+        if save_fails:
+            assert events[-1] == {'type': 'failed', 'code': 'output_failed'}
+        else:
+            assert events[-1]['output_paths'] == ['synthetic.txt']
+
+    asyncio.run(run())

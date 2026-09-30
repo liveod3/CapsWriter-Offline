@@ -2,7 +2,7 @@ import asyncio
 import logging
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from pathlib import Path
 
@@ -87,3 +87,37 @@ def test_file_batch_cannot_override_disabled_diagnostic_persistence(tmp_path, mo
     assert task_log.start() is None
     task_log.close()
     assert not list(tmp_path.iterdir())
+
+
+def test_file_callback_reports_actual_outputs_or_controlled_failure(tmp_path, monkeypatch):
+    from core.client.transcribe.file_transcriber import TranscriptionSummary
+
+    events = []
+    app = SimpleNamespace(base_dir=tmp_path, file_progress_callback=events.append)
+    runner = FileRunner(app, [Path('good.wav'), Path('failed.wav')],
+                        output_formats=frozenset({'txt'}))
+    summary = TranscriptionSummary(60.0, 15.0, 42, (tmp_path / 'good.txt',), 1)
+
+    async def process(file):
+        if file.name == 'good.wav':
+            assert not events
+            return summary
+        runner._failure_code = 'recognition_failed'
+        return None
+
+    monkeypatch.setattr(runner, '_process_file', AsyncMock(side_effect=process))
+    with (
+        patch('core.client.manager.file_runner.sys.stdin', NonInteractiveStdin()),
+        patch('core.client.ui.TipsDisplay.show_file_tips'),
+    ):
+        assert asyncio.run(runner.run()) is False
+
+    assert events == [
+        {
+            'type': 'completed', 'processed_seconds': 60.0, 'total_seconds': 60.0,
+            'elapsed_seconds': 15.0, 'speed': 4.0, 'rtf': 0.25,
+            'text_length': 42, 'sequence': 1,
+            'output_paths': [str(tmp_path / 'good.txt')],
+        },
+        {'type': 'failed', 'code': 'recognition_failed'},
+    ]
