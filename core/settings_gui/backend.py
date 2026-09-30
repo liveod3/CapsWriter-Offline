@@ -40,7 +40,11 @@ class Backend:
         if snapshot.error:
             raise CandidateError(snapshot.error)
         values = snapshot.effective if effective and snapshot.effective else snapshot.saved
-        return values['ClientConfig']
+        config = dict(values['ClientConfig'])
+        runtime = getattr(getattr(self.operations, 'app', None), 'activity', None)
+        if effective and runtime is not None and runtime.path is not None:
+            config['_activity_directory'] = str(runtime.path.parent)
+        return config
 
     def editor(self):
         # The running service owns its directory until restart, even after a saved edit.
@@ -80,7 +84,8 @@ class Backend:
                 from .history_detail import request_cost
                 result = read_history_entry(directory, **params)
                 result['cost'] = request_cost(self.root, config.get('llm_config_dir', 'LLM'),
-                                              params['day'], result['stages']['request'])
+                                              params['day'], result['stages']['request'],
+                                              directory=config.get('_activity_directory'))
                 return result
             path = day_path(directory, params.get('day'))
             if not path.is_file():

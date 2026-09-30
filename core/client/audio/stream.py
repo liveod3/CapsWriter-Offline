@@ -156,6 +156,8 @@ class AudioStreamManager:
         if self._shutdown.is_set() or event is not self._ready_event:
             return
         if not event.is_set():
+            # Capture the boundary here; readiness polling must not add latency to the measurement.
+            event.ready_ns = time.perf_counter_ns()
             event.set()
 
         # Process samples only while recording.

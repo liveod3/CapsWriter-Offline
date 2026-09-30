@@ -43,15 +43,24 @@ def parse_record(text, *, truncated=False):
     return result
 
 
-def request_cost(root, llm_directory, day, request_id):
+def request_cost(root, llm_directory, day, request_id, *, directory=None):
     """Read an indexed request from the recording month or its immediate neighbors."""
     if not request_id or len(request_id) > 256:
         return {'state': 'unlinked'}
     try:
         config = load_cost_config(root / llm_directory)
-        directory = root / config['tracking']['directory']
+        from core.diagnostics import storage_path
+        directory = storage_path(root, directory or config['tracking']['directory'])
         moment = date.fromisoformat(day)
         month_index = moment.year * 12 + moment.month - 1
+        from core.activity.store import NAME, connection
+        unified = directory / NAME
+        if unified.is_file():
+            with connection(unified, readonly=True) as db:
+                row = db.execute('SELECT record FROM requests WHERE id=? AND length(record)<=65536 LIMIT 1',
+                                 (request_id,)).fetchone()
+                if row:
+                    return cost_view(json.loads(row[0]))
         for index in (month_index, month_index + 1, month_index - 1):
             year, month = divmod(index, 12)
             if not 1 <= year <= 9999:

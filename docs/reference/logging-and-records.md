@@ -2,6 +2,12 @@
 
 This is the configuration and data contract for schema 2.7. The [user guide](../user/logs-and-records.md) provides concise Chinese instructions. Defaults describe tracked templates, not an existing installation.
 
+Content-free dictation timing and new LLM accounting use the unified
+[activity database](activity-database.md), with its own version-one schema and independent
+`save_runtime_statistics` switch. Log severity and log cleanup do not filter or delete
+those database observations. The database reference is authoritative for its complete
+field dictionary, timing boundaries and old-ledger compatibility.
+
 ## Ownership and directories
 
 | Category | Owner | Default destination | Format |
@@ -175,7 +181,7 @@ The GUI's [recognition history](../user/settings-gui.md) reads these existing ar
 
 Archive saving occurs before text insertion and UDP output, so insertion failure does not skip the enabled record. Disk/archive failure is reported without discarding usable text. The daily Markdown writer uses a thread lock and a cross-process file lock with a two-second acquisition limit. An adjacent `.lock` file is synchronization metadata, not another content copy. There is no claim of transaction-level durability after power loss.
 
-Audio uses existing streaming ownership: FFmpeg MP3 at 192 kbit/s, or 16-bit WAV when unavailable/startup fails. Existing audio paths and links remain valid. Paths are never moved merely because a setting changes. LLM cost accounting remains its independent monthly SQLite store; file TXT/SRT/JSON outputs remain beside their source output destination. Neither is subject to diagnostic expiry.
+Audio uses existing streaming ownership: FFmpeg MP3 at 192 kbit/s, or 16-bit WAV when unavailable/startup fails. Existing audio paths and links remain valid. Paths are never moved merely because a setting changes. LLM accounting switches remain independent, but new records share the activity database with runtime statistics. Old monthly SQLite ledgers stay readable without automatic migration. File TXT/SRT/JSON outputs remain beside their source output destination. These stores are not subject to diagnostic expiry.
 
 ## Rotation, retention and safe cleanup
 

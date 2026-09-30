@@ -67,7 +67,11 @@ class CapsWriterClient:
         # Start like idle suspension: release hardware but allow shortcut wakeup.
         self.state = ClientState(app=self, dictation_paused=start_paused)
 
+        from core.activity.runtime import ActivityRecorder
+        self.activity = ActivityRecorder(self.base_dir, Config, app_version='source')
         self.llm = TextActionService(Config, self.base_dir, status_callback=show_status_hint)
+        self.llm.activity = self.activity
+        self.llm.costs.database_path = self.activity.path
         from core.client.processing_status import ProcessingStatus
         from core.ui.recording_indicator import set_processing_status
         self.progress = ProcessingStatus(set_processing_status)
@@ -355,6 +359,8 @@ class CapsWriterClient:
             self._runner_task.cancel()
             await asyncio.gather(self._runner_task, return_exceptions=True)
         await release(self.state.reset)
+        if hasattr(self, 'activity'):
+            await release(self.activity.close)
         from core.ui.status_host import StatusUIHost
         await release(StatusUIHost.stop_existing)
         logger.info(Notice('diagnostic.app.client_resource_cleanup_complete'))

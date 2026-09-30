@@ -25,6 +25,7 @@ LLM 用量与费用：[查询费用记录](user/llm-costs.md)。
 - [Configuration reference](reference/configuration.md): reload field matrix and storage semantics.
 - [Correction prompts](reference/correction-prompts.md): modules, editing levels, legacy compatibility and prompt inspection.
 - [Logging and records](reference/logging-and-records.md): settings, event fields, content permissions and retention.
+- [Activity database](reference/activity-database.md): complete tables, fields, timing semantics and ledger compatibility; [user instructions](user/runtime-statistics.md).
 - [Development setup](development/setup.md): source environment and entry points.
 - [Architecture](development/architecture.md): component ownership and task flow.
 - [Settings desktop](development/settings-gui.md): Qt process, shared transactions, drafts and shutdown.

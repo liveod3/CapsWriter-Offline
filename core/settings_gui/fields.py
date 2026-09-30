@@ -27,6 +27,7 @@ PAGES = {
     },
     'status': {},
     'diagnostics': {
+        'save_runtime_statistics': bool,
         'save_diagnostic_logs': bool, 'log_level': ('DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'),
         'diagnostic_include_text': bool, 'diagnostic_include_context': bool,
     },

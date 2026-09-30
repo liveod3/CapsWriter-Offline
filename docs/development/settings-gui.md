@@ -35,11 +35,26 @@ TOML edits use TOML Kit to preserve comments and unrelated fields, sharing the r
 
 Only changed visible fields are written. Opening and saving another field preserves original numeric/string types and precision; rendering a numeric value does not authorize normalizing it. Existing provider keys are represented only by a presence flag. An empty replacement leaves the key unchanged; explicit clear writes an empty key. Environment-variable precedence remains unchanged. Failed saves retain drafts and never print raw parser exceptions or values.
 
-There is no permanent reload button. Background revision changes refresh clean client forms and clean catalog editors automatically, preserving catalog selection. Client drafts block automatic client-form replacement; either catalog draft blocks catalog replacement. Conflicts preserve the old revision so a save cannot silently overwrite external edits. Only a detected conflict reveals the contextual **Use file version** action, with confirmation before discarding drafts. The ordinary footer shows autosave status and exposes Retry only after a failure. Advanced-file access is on a dedicated sixth settings page.
+There is no permanent reload button. Background revision changes refresh clean client forms and clean catalog editors automatically, preserving catalog selection. Client drafts block automatic client-form replacement; either catalog draft blocks catalog replacement. Conflicts preserve the old revision so a save cannot silently overwrite external edits. Only a detected conflict reveals the contextual **Use file version** action, with confirmation before discarding drafts. The ordinary footer shows autosave status and exposes Retry only after a failure. Advanced-file access is on a dedicated settings page.
 
 Client fields autosave after a 600 ms debounce; numeric editing commits on completion. Immediate field validation checks the displayed draft, and the shared service still validates the entire revision-checked atomic write. Invalid drafts block the write. Errors remain inline without modal retry loops. A completed write acknowledges only its submitted values, preserving edits made during I/O for the next save. Programmatic population and catalog choice refresh suppress edit signals. Provider selection saves immediately on user activation of the dropdown. Client and catalog writes remain separate operations. The GUI does not promise atomic changes across them. The backend and CLI retain explicit prompt inspection, but the common GUI no longer exposes arbitrary preset editing or prompt preview. Provider selection edits only the built-in cleanup action provider field; custom prompt text and context permissions remain untouched.
 
 GUI labels retain their startup locale. Language edits save automatically and show a GUI restart explanation, even when the hidden client can publish the locale between tasks. Fully quitting and reopening updates the window and desktop tray; hiding to the tray does not. Common client fields and catalog inputs have adjacent circular help buttons with accessible names/descriptions. Native Qt tooltips display escaped, width-bounded title/body text on hover, with click and keyboard access. Errors and changed-state badges remain inline, while permanent explanations are removed. Short numeric/code/choice fields use bounded widths. Settings groups use two columns once their available width reaches 920 logical pixels and return to one column below it; reflow moves the existing cards without rebuilding fields, changing drafts or dispatching writes.
+
+Field captions prefer their measured single-line text width and wrap only when space
+requires it. They no longer impose the former 180-pixel label minimum or 290-pixel
+caption maximum. Label bounds update after font/style changes and when shown; the
+help icon stays six pixels from the text box instead of following an expanded label.
+All common-settings groups use the same subtle row dividers and spacing, including
+Records, recognition-service connection and Diagnostics. Troubleshooting actions
+also have separators.
+
+Advanced uses a scrollable page with client-configuration and LLM-preset action cards,
+followed by a separate file-change guidance panel. Cards are side by side from 700
+logical pixels of available content width and stacked below it. In two-column mode
+they share a compact content-driven height and align their action buttons. A short
+intro and normal-contrast descriptions replace the long muted introductory block;
+existing file-open routes and conflict/restart behavior are unchanged.
 
 ## Settings page organization and final formatting
 
@@ -117,7 +132,7 @@ General-page entry, debounced device notifications and explicit Refresh dispatch
 
 The normal menu includes system default and readable endpoint names from one preferred backend: WASAPI, then DirectSound or MME if unavailable. This hides alternate host interfaces and kernel pins rather than guessing physical identity by similar names. Output-only devices are excluded. Full metadata remains available for validating existing nonpreferred selectors, which remain visible when selected. New explicit selections persist the exact `name, host API` selector instead of an unstable discovery index. Exact duplicate selectors are disabled; legacy indices, empty defaults, custom selectors and disconnected selections retain their types and values. Refresh suppresses edit signals and preserves the current draft, so metadata arrival cannot write settings or discard edits made during discovery. Repeated in-flight refreshes coalesce; busy dispatch retries through one timer. Normal window closure waits for the bounded active probe; actual exit stops retries. Microphone selection retains the existing restart requirement. Device metadata remains local and is not added to diagnostic archives or model requests.
 
-`device_watch.py` subscribes to Windows Core Audio notifications on the Qt owner thread using the isolated `endpoint_notifications.py` binding. The callback publishes only a bounded marker; it performs no I/O, widget mutation or COM operations. A Qt timer drains and debounces changes for 500 ms, retaining dirtiness while settings are hidden. Registration failure falls back to a 15-second visible-page refresh. Repeated events during discovery request one follow-up; busy work and open device menus defer queries. If a menu opens during a query, the result is deferred by requerying after it closes. Identical inventories keep the existing model. Discovery never inserts a loading row, including first use. Persistent device errors use a fixed inline status-icon slot with retained hidden space and accessible hover/click/keyboard details, so success/failure/retry cannot move adjacent settings. General, Dictation and LLM groups use subtle separators between their rows. Actual close/exit unregisters notifications before releasing references, stops timers and ignores late callbacks. Hiding to the tray retains the subscription without periodic device probes. Audio-stream monitoring and recovery remain owned by the client and are unchanged; following system default differs from pinning an explicit microphone.
+`device_watch.py` subscribes to Windows Core Audio notifications on the Qt owner thread using the isolated `endpoint_notifications.py` binding. The callback publishes only a bounded marker; it performs no I/O, widget mutation or COM operations. A Qt timer drains and debounces changes for 500 ms, retaining dirtiness while settings are hidden. Registration failure falls back to a 15-second visible-page refresh. Repeated events during discovery request one follow-up; busy work and open device menus defer queries. If a menu opens during a query, the result is deferred by requerying after it closes. Identical inventories keep the existing model. Discovery never inserts a loading row, including first use. Persistent device errors use a fixed inline status-icon slot with retained hidden space and accessible hover/click/keyboard details, so success/failure/retry cannot move adjacent settings. All common-settings groups use subtle separators between their rows. Actual close/exit unregisters notifications before releasing references, stops timers and ignores late callbacks. Hiding to the tray retains the subscription without periodic device probes. Audio-stream monitoring and recovery remain owned by the client and are unchanged; following system default differs from pinning an explicit microphone.
 
 Native callback layout and lifetime rules follow Microsoft's [IMMNotificationClient contract](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nn-mmdeviceapi-immnotificationclient) and [registration contract](https://learn.microsoft.com/en-us/windows/win32/api/mmdeviceapi/nf-mmdeviceapi-immdeviceenumerator-registerendpointnotificationcallback). Native tests register read-only notifications and exercise the callback ABI with synthetic IDs, including the by-value property key; they never change a system default or open audio streams.
 
@@ -135,26 +150,38 @@ Detail requests carry a validated day, byte range and SHA-256 digest. Changed/de
 
 `history_detail.py` parses saved stages for the Processing, Saved request and Raw record tabs. Missing stages remain explicitly unavailable, including ambiguous deduplication of original text. Only a complete successful action record permits reconstructing omitted identical LLM output from the final text. Actual saved prompts are shown without reading current presets. No new archive fields or save permissions are introduced.
 
-When a saved request ID exists, detail loading uses an indexed, read-only SQLite lookup in the configured ledger directory for the recording month and its two neighboring months. Each query has a one-second lock timeout and rejects records longer than 65,536 SQLite characters. The GUI receives only allowed model/status/duration/usage/amount/provenance fields, never raw rate or endpoint metadata. Provider charges, rate estimates, token estimates and possible incomplete-request costs remain distinct; absent IDs, absent rows, invalid settings and unavailable ledgers do not imply zero and cannot block viewing the transcript. No retrospective rate calculation or network call is made.
+When a saved request ID exists, detail loading first uses the unified activity database's indexed accounting view, then the recording month and neighboring legacy ledgers. Unified connections have a two-second lock timeout; legacy lookups retain a one-second timeout. Records longer than 65,536 SQLite characters are rejected. The GUI receives only allowed model/status/duration/usage/amount/provenance fields, never raw rate or endpoint metadata. Provider charges, rate estimates, token estimates and possible incomplete-request costs remain distinct; absent IDs, absent rows, invalid settings and unavailable ledgers do not imply zero and cannot block viewing the transcript. No retrospective rate calculation or network call is made.
+
+The Statistics page also reads the independent [activity database](../reference/activity-database.md)
+for dictation timing, recent task outcomes, median/P95 and unavailable counts. LLM timing
+groups preserve provider/model identity. Diagnostics exposes `save_runtime_statistics`
+separately from log severity. Opening the page never enables collection or performs extra
+audio, UI-context or provider reads.
 
 Subtle and sidebar buttons have explicit hover/pressed/focus styles that override their ID-specific base rules. GUI buttons use pointing-hand cursors. Exit client is a full-width, left-aligned outlined action at the bottom of the sidebar; the redundant local-settings footer has been removed. This addresses discoverability without revisiting the deferred Chinese font policy.
 
-## Status dashboard
+## Statistics dashboard
 
-Status is separate from Diagnostics. `status_data.py` reads existing transcript
+Statistics is separate from Diagnostics. Its internal `status` route and `StatusPage`
+class remain stable. `status_data.py` reads existing transcript
 archives and accounting ledgers; it neither collects new content nor changes save
-permissions. The daily count includes saved entries only. Recent and Today filters
+permissions. Accepted runtime tasks and saved text entries have separate cards.
+Today, this-week (Monday start), this-month, this-year, seven-day and thirty-day
+calendar windows include today and scope all summary cards, timing
+distributions and accounting groups. The independent Recent and Today preview filters
 show at most ten previews and link to the matching full-history filter. Explicit
 copy reopens the digest-validated record and copies only the complete final stage;
 changed, empty or truncated results are rejected. Clipboard contents are never read.
 
-Usage queries inspect the current and adjacent monthly SQLite files read-only,
-convert aware request timestamps to the current local timezone, and aggregate only
-the current day/month. Reads are bounded to 10,000 records, 65,536 characters per
-record, twelve currencies, a one-second lock timeout and a two-second execution
-budget per database. Partial, malformed and unavailable data remain explicit.
-Daily tokens use recorded provider totals or known input plus output, without
-adding cached/reasoning subsets or heuristic estimates. Monthly amounts retain
+Usage queries inspect the unified file and intersecting/adjacent monthly SQLite
+files read-only, including January for a thirty-day window spanning a short February.
+Aware request timestamps are filtered against the shared half-open window. Reads are
+bounded to 10,000 records per month and 30,000 per complete query,
+65,536 characters per record, twelve currencies,
+128 accounting groups, a two-second lock timeout and a two-second execution budget
+per database. Partial, malformed and unavailable data remain explicit.
+Tokens use recorded provider totals or known input plus output, without
+adding cached/reasoning subsets or heuristic estimates. Amounts retain
 currency and provider/rate/token/possible-cost provenance; missing usage or charges
 never imply zero. Cost tracking preferences live in Records.
 
@@ -164,8 +191,27 @@ seconds while visible. Hidden pages stop timers and reject obsolete callbacks;
 generation checks also protect filter changes and explicit copy. Busy-worker
 retries preserve the current view, errors remain inline, and unchanged rows retain
 their widgets. Closing waits for bounded active reads/copies and stops refresh.
-Metric cards adapt to one, two or three columns; preview rows support mouse,
+Four overview cards adapt to one, two or four columns. Two dedicated timing cards
+show a highlighted latest observation, an exceptional-outcome badge and task timestamp,
+then four separate median/mean/maximum/P95 tiles. Units appear in the header;
+sample counts appear below the tiles; P95 uses a small-sample marker with hover help.
+Routine completed badges and the extra response-time section heading are omitted.
+Field definitions live on card labels; observation tooltips retain the task timestamp
+and outcome. The four overview titles use the same prominent card-title style as
+the duration titles. Timing cards stack
+below 700 logical pixels of content width. Colors supplement text, never replace it.
+Preview rows support mouse,
 Enter and Space activation with plain-text labels.
+
+`statistics_view.py` contains localized card labels and duration formatting. The three
+detail table tabs and Data health block were removed following user review; their
+unused table widgets were also removed. Database collection, query contracts and CLI
+task inspection remain available. Read failures and query caps still appear on the
+overview, and missing timing values never become zero. See the
+[trial plan](../validation/P1-activity-database.md) for the remaining real-use acceptance gate.
+Exceptionally large metadata is constrained to a one-MiB summary payload by reducing
+detail/group lists and marking partial results; scalar aggregates remain intact.
+This leaves headroom below the owned pipe's two-MiB message limit.
 
 ## Diagnostics and packaging
 
@@ -176,7 +222,7 @@ to four newest diagnostic files, reading at most 128 KiB from each and displayin
 at most 80 events. Partial JSON lines are skipped and the `content` field is
 excluded. The report renders timestamp, level, message and remaining metadata as
 readable blocks; its copy action writes only that displayed report. Monthly cost
-summaries now belong to Status, while historical-month queries remain available
+summaries now belong to Statistics, while historical-month queries remain available
 through the CLI. Neither view collects new user content or contacts a provider.
 
 The client dependency set adds pinned `PySide6-Essentials`, `tomlkit` and Windows `pywin32`; QtWidgets needs no Addons package. Client PyInstaller analyses collect both entry scripts and filter each EXE's script table so windowed `CapsWriter.exe` executes only `start_desktop.pyw` and console `start_client.exe` executes only `start_client.py`, preserving common runtime hooks. Server analysis continues to exclude Qt. The release smoke workflow checks all three combined-package entry points. All local configuration and credentials remain excluded by the existing packaging policy. Qt's [high-DPI support](https://doc.qt.io/qt-6/highdpi.html) informs the layout, but synthetic scale-factor renders do not verify physical monitor movement, focus, accessibility clients or clean-machine release behavior. Renaming remains a separate TODO item.

@@ -2,9 +2,9 @@
 
 from html import escape
 
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt
 from PySide6.QtWidgets import (
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QToolTip, QVBoxLayout, QWidget,
 )
 
 from core.i18n import tr
@@ -62,20 +62,42 @@ class DeviceNotice(HelpButton):
         self.setVisible(bool(message))
 
 
+class FieldLabel(QLabel):
+    """Prefer one line when space permits, while still wrapping in narrow rows."""
+
+    def __init__(self, value):
+        super().__init__(value)
+        self.setMaximumWidth(self.sizeHint().width())
+
+    def sizeHint(self):
+        return QSize(self.fontMetrics().horizontalAdvance(self.text()) + 2, self.fontMetrics().height())
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in (QEvent.Type.FontChange, QEvent.Type.StyleChange):
+            self.setMaximumWidth(self.sizeHint().width())
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setMaximumWidth(self.sizeHint().width())
+
+
 def field_caption(name, widget):
     """Keep the help affordance next to its label, including when labels wrap."""
     caption = QWidget()
+    caption.setObjectName('fieldCaption')
+    caption.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Preferred)
     row = QHBoxLayout(caption)
     row.setContentsMargins(0, 0, 0, 0)
     row.setSpacing(6)
-    label = QLabel(tr('gui.' + name))
+    label = FieldLabel(tr('gui.' + name))
+    label.setTextFormat(Qt.TextFormat.PlainText)
     label.setWordWrap(True)
-    label.setMinimumWidth(min(180, label.fontMetrics().horizontalAdvance(label.text()) + 4))
+    label.setMinimumWidth(0)
     label.setBuddy(widget)
     row.addWidget(label)
     row.addWidget(HelpButton(name))
     row.addStretch()
-    caption.setMaximumWidth(290)
     widget.setAccessibleDescription(tr('gui.help.' + name))
     return caption
 
@@ -83,15 +105,20 @@ def field_caption(name, widget):
 class SettingsGroups(QWidget):
     """Use two columns when cards have room, retaining widgets and editing state."""
 
-    def __init__(self):
+    def __init__(self, minimum_column_width=460, equal_height=False):
         super().__init__()
         self.cards = []
         self.columns = 1
+        self.minimum_column_width = minimum_column_width
+        self.card_alignment = Qt.AlignmentFlag(0) if equal_height else Qt.AlignmentFlag.AlignTop
         self.viewport = None
         self.horizontal_margin = 0
         self.grid = QGridLayout(self)
         self.grid.setContentsMargins(0, 0, 0, 0)
         self.grid.setSpacing(16)
+        if equal_height:
+            self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
+            self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
 
     def add_group(self, title):
         frame = QFrame()
@@ -104,7 +131,7 @@ class SettingsGroups(QWidget):
         label.setWordWrap(True)
         layout.addWidget(label)
         self.cards.append(frame)
-        self.grid.addWidget(frame, len(self.cards) - 1, 0, Qt.AlignmentFlag.AlignTop)
+        self.grid.addWidget(frame, len(self.cards) - 1, 0, self.card_alignment)
         return layout
 
     def resizeEvent(self, event):
@@ -126,13 +153,13 @@ class SettingsGroups(QWidget):
         # The current two-column minimum can exceed a shrinking viewport. Use the
         # viewport's available width so that minimum cannot lock the layout wide.
         width = self.viewport.width() - self.horizontal_margin if self.viewport else self.width()
-        columns = 2 if width >= 920 and len(self.cards) > 1 else 1
+        columns = 2 if width >= self.minimum_column_width * 2 and len(self.cards) > 1 else 1
         if columns == self.columns:
             return
         self.columns = columns
         for frame in self.cards:
             self.grid.removeWidget(frame)
         for index, frame in enumerate(self.cards):
-            self.grid.addWidget(frame, index // columns, index % columns, Qt.AlignmentFlag.AlignTop)
+            self.grid.addWidget(frame, index // columns, index % columns, self.card_alignment)
         self.grid.setColumnStretch(0, 1)
         self.grid.setColumnStretch(1, 1 if columns == 2 else 0)

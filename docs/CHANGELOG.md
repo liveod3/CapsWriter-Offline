@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-09-30 - Unreleased, statistics and settings refinement
+
+- Share versioned SQLite storage between content-free dictation measurements and LLM accounting. Record microphone wake, transcription wait, LLM preparation/request/action and output timing with explicit availability and outcome semantics. Keep statistics independent of diagnostic verbosity and content saving; preserve legacy monthly ledger reads and provide explicit idempotent import.
+- Add Statistics calendar scopes for today, this week/month/year and rolling seven/thirty days. Show recorded dictations, saved text, tokens and cost separately, plus latest/median/mean/maximum/P95 timing cards. Preserve sample eligibility, currency provenance, missing-value distinctions and bounded-query notices. Retain recent-text previews and explicit copy.
+- Refine the interface through user review: remove detail tables and Data health from Statistics; use consistent card headings and hover explanations. Add separators across settings groups, keep help icons adjacent to actual label text, and rebuild Advanced as responsive configuration cards with aligned actions and concise guidance.
+- Isolate constructor-test activity storage so tests cannot inherit the user's database destination. Existing historical test rows are untouched; their remediation and other first-day audit findings remain tracked separately.
+- Source implementation accepted for commit on 2026-09-30. Database trial completion, physical Bluetooth/input validation and mixed-DPI interaction remain separate follow-ups. See the [database evidence](validation/P1-activity-database.md) and [settings evidence](validation/P1-settings-gui.md).
+
 ## 2026-09-28 - Unreleased, desktop interaction refinements
 
 - Start desktop and console dictation in idle standby, without opening the microphone. As clarified on 2026-09-29, the first shortcut wakes the microphone and starts dictation without a separate resume action; deliberate manual pause still blocks shortcut wakeup. Show distinct standby guidance and retain retry after failed wakeup. File transcription is unchanged.

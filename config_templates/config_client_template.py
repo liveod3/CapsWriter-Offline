@@ -85,6 +85,11 @@ class ClientConfig:
     # remains.
     save_diagnostic_logs = True
 
+    # Content-free dictation timings in activity.sqlite3 beside LLM cost ledgers.
+    # Independent of diagnostic severity, text/audio saving and cost tracking. Restart required.
+    # Retained until explicitly removed; diagnostic expiry never deletes these records.
+    save_runtime_statistics = True
+
     # Root directory; client/ and server/ are created below it. Relative to the application folder.
     diagnostic_log_dir = 'logs'
 

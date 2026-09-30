@@ -311,6 +311,40 @@ Commit-time validation: **931 passed, 10 deselected** in the default suite; targ
 - A minimal PyInstaller package importing the complete settings window/backend built and ran successfully against synthetic files. Its import guard rejected root executable config, Tk, audio and client/server startup. Initial unactivated Conda packaging missed native DLLs; rebuilding with the existing environment's `Library/bin` on PATH fixed collection. No full product packaging, model download or release upload was performed.
 - No live microphone, global shortcut simulation, provider request, caret/clipboard read or user-content export was performed. Ignored local settings and credentials were not edited.
 
+## Settings visual polish, 2026-09-30
+
+The user accepted the general direction of the settings pages and requested a final
+visual pass. Common-setting groups now share subtle dividers and row spacing across
+General, Dictation, LLM processing, Services, Records and Diagnostics. Troubleshooting
+actions also have separators. Field captions prefer the measured one-line width and
+update their bounds after font/style changes and on display; help buttons stay beside
+actual text instead of following an oversized label. The sensitive-diagnostic-text
+label fits without its previous unnecessary English line break at all tested widths.
+
+Advanced is a scrollable page with separate client-configuration and LLM-preset cards,
+short normal-contrast descriptions, aligned buttons and a distinct file-change guidance
+panel. Its cards use compact equal heights in two-column mode and stack in narrow
+windows. Existing file-open routes, autosave, configuration values and runtime actions
+are unchanged. No live configuration was edited during this visual pass.
+
+Validation on the prepared Python 3.11.15 environment:
+
+- All 160 settings GUI tests passed, including existing help hover/click/keyboard,
+  file-routing, autosave, conflicts, device handling and close cleanup cases.
+- Six new bilingual layout cases cover all eight settings pages at window widths
+  800, 1120 and 1440. They verify zero horizontal overflow, label/help geometry,
+  unbroken sensitive-text labels, divider coverage, responsive Advanced cards and
+  unchanged synthetic configuration files. Representative screenshots were inspected.
+- The six layout cases also passed separately at simulated scale factors 1.5 and 2.
+  These are offscreen geometry/rendering checks, not physical monitor validation.
+- Syntax, configured Ruff/mypy, internal-language, documentation and diff checks passed.
+  The whole default suite and coverage were not repeated for this presentation-only
+  change. No real microphone, global input, provider calls or packaging were performed.
+
+The user accepted the final settings UI and authorized commit on 2026-09-30.
+Physical multi-monitor/mixed-DPI checks remain manual follow-ups.
+At commit time, the complete default suite also passed: 1106 tests, 11 deselected.
+
 ## Remaining acceptance
 
 1. Start the source desktop after exiting the old console client; confirm automatic connection, visible offline guidance, startup-in-tray, single-instance activation and correct saved/effective status during a real task. Closing with a tray must leave dictation running; explicit Quit must release it without stopping the independent server.

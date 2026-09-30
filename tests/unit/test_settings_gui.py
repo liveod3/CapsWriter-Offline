@@ -1170,6 +1170,73 @@ def test_field_help_hover_click_and_keyboard_do_not_edit_settings(window, qt_app
     assert path.read_bytes() == original
 
 
+@pytest.mark.parametrize('locale', ['en', 'zh-CN'])
+@pytest.mark.parametrize('width', [800, 1120, 1440])
+def test_settings_visual_polish_across_pages(gui_root, qt_app, locale, width):
+    from PySide6.QtGui import QFont, QFontDatabase
+    from PySide6.QtWidgets import QFrame, QLabel
+    from core.i18n import get_language, set_language
+    from core.settings_gui.fields import PAGES
+    from core.settings_gui.help_widgets import FieldLabel, HelpButton, SettingsGroups
+    from core.settings_gui.presentation import GROUP_STARTS
+    from core.settings_gui.window import SettingsWindow
+    previous = get_language()
+    set_language(locale)
+    original = (gui_root / 'config_client.py').read_bytes()
+    widget = SettingsWindow(Backend(gui_root))
+    widget.poll.stop()
+    font_path = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts/msyh.ttc'
+    if font_path.is_file():
+        families = QFontDatabase.applicationFontFamilies(QFontDatabase.addApplicationFont(str(font_path)))
+        if families:
+            widget.setFont(QFont(families[0]))
+    widget.resize(width, 860)
+    widget.show()
+    try:
+        settle(qt_app, widget)
+        for page in (*PAGES, 'advanced'):
+            widget.navigate(page)
+            settle(qt_app, widget)
+            for _ in range(5):
+                qt_app.processEvents()
+            scroll = widget.pages.currentWidget()
+            assert scroll.horizontalScrollBar().maximum() == 0, (locale, width, page)
+            content = scroll.widget()
+            assert content.grab().save(str(gui_root / f'polish-{locale}-{width}-{page}.png'))
+            for label in content.findChildren(FieldLabel):
+                button = label.parentWidget().findChild(HelpButton)
+                assert 0 < button.x() - label.geometry().right() <= 8
+                assert label.height() >= label.fontMetrics().height()
+                assert label.width() <= label.fontMetrics().horizontalAdvance(label.text()) + 3
+            if page in PAGES:
+                fields = PAGES[page]
+                minimum = len(fields) - sum(name in GROUP_STARTS for name in fields)
+                assert len(content.findChildren(QFrame, 'settingDivider')) >= minimum
+            if page == 'diagnostics':
+                target = next(label for label in content.findChildren(FieldLabel)
+                              if label.buddy() is widget.fields['diagnostic_include_text'][0])
+                assert target.width() >= target.fontMetrics().horizontalAdvance(target.text())
+            if page == 'advanced':
+                groups = content.findChild(SettingsGroups)
+                assert groups.columns == (1 if width == 800 else 2)
+                assert len(groups.cards) == 2
+                assert all(frame.findChild(QLabel, 'cardTitle') for frame in groups.cards)
+                assert widget.advanced.isVisible()
+                if groups.columns == 2:
+                    assert groups.cards[0].height() == groups.cards[1].height()
+                    assert groups.height() <= max(frame.layout().totalHeightForWidth(frame.width())
+                                                  for frame in groups.cards) + 4
+        assert not widget.changes() and not widget.autosave.isActive()
+        assert (gui_root / 'config_client.py').read_bytes() == original
+    finally:
+        settle(qt_app, widget)
+        widget.confirm_discard = lambda: True
+        widget.close()
+        qt_app.processEvents()
+        assert not widget.thread.is_alive()
+        set_language(previous)
+
+
 def test_settings_groups_reflow_without_losing_widgets_or_horizontal_overflow(window, qt_app, gui_root):
     from core.settings_gui.help_widgets import SettingsGroups
     from PySide6.QtWidgets import QLabel
@@ -2492,3 +2559,149 @@ def test_close_waits_for_status_read_and_stops_refresh(window, qt_app, monkeypat
     settle(qt_app, window)
     assert window.closed.is_set() and window.dashboard.stopped
     assert not window.dashboard.timer.isActive() and not window.dashboard.retry.isActive()
+
+
+def test_statistics_scope_discards_stale_results(window, qt_app, monkeypatch):
+    import threading
+    entered, release = threading.Event(), threading.Event()
+    dispatch = window.backend.dispatch
+    window.navigate('status')
+    settle(qt_app, window)
+    def delayed(method, params):
+        result = dispatch(method, params)
+        if method == 'dashboard_read' and params['stats_period'] == 'today':
+            entered.set()
+            assert release.wait(3)
+        return result
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    page = window.dashboard
+    page.refresh()
+    assert entered.wait(2)
+    page.stats_period.setCurrentIndex(page.stats_period.findData('30d'))
+    release.set()
+    settle(qt_app, window)
+    from core.activity.periods import calendar_window
+    assert calendar_window('30d')['date_from'] in page.range_label.text()
+    assert page.stats_period.currentData() == '30d'
+
+
+def test_statistics_card_hides_routine_success_but_keeps_exception_context(qt_app):
+    from core.settings_gui.status_page import TimingCard
+    card = TimingCard('wake', 'microphone.wake')
+    card.show()
+    group = {'count': 1, 'recent': {'value_ms': 0, 'availability': 'observed',
+                                  'outcome': 'completed', 'started_at': '2026-09-30T00:00:00+00:00'}}
+    try:
+        card.show_group(group)
+        assert card.badge.isHidden() and card.value.text() == '0'
+        group['recent'].update(value_ms=None, availability='not_applicable', outcome='skipped')
+        card.show_group(group)
+        assert not card.badge.isHidden() and card.value.text() != '0'
+        card.show_group({})
+        assert card.badge.isHidden() and card.value.text() == '—'
+    finally:
+        card.close()
+        card.deleteLater()
+        qt_app.processEvents()
+
+
+@pytest.mark.parametrize('locale', ['en', 'zh-CN'])
+@pytest.mark.parametrize('width', [600, 800, 1120, 1440])
+def test_activity_dashboard_localized_layout(qt_app, tmp_path, locale, width):
+    from core.i18n import get_language, set_language
+    from core.settings_gui.status_data import dashboard
+    from core.settings_gui.status_page import StatusPage
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QFrame, QScrollArea
+    previous = get_language()
+    set_language(locale)
+    widget = StatusPage(lambda *args, **kwargs: False, lambda *_: None)
+    # Match the real page container: tall content scrolls instead of becoming a native window.
+    host = QScrollArea()
+    host.setFrameShape(QFrame.Shape.NoFrame)
+    host.setWidgetResizable(True)
+    host.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+    host.setWidget(widget)
+    from core.settings_gui.presentation import apply_theme
+    from PySide6.QtGui import QFont, QFontDatabase
+    apply_theme(widget)
+    # The offscreen Windows font database does not discover system fonts reliably.
+    font_path = Path(os.environ.get('WINDIR', 'C:/Windows')) / 'Fonts/msyh.ttc'
+    if font_path.is_file():
+        font_id = QFontDatabase.addApplicationFont(str(font_path))
+        families = QFontDatabase.applicationFontFamilies(font_id)
+        if families:
+            widget.setFont(QFont(families[0]))
+    try:
+        result = dashboard(tmp_path, {})
+        result['timings'] = {
+            'state': 'ready', 'enabled': True, 'limited': False,
+            'count': 6,
+            'outcomes': {'completed': 4, 'fallback': 1, 'failed': 1},
+            'groups': [
+                {'metric': metric, 'provider': 'synthetic-provider' if metric.startswith('llm.') else None,
+                 'model': 'synthetic-model' if metric.startswith('llm.') else None,
+                 'median': 123.456, 'mean': 250.125, 'max': 1200.5,
+                 'p95': 987.654, 'count': 4, 'missing': 1, 'failed': 1,
+                 'recent': {'value_ms': 310.25, 'availability': 'observed', 'outcome': 'failed',
+                            'task_id': 'synthetic-task', 'started_at': '2026-09-29T10:00:00+00:00'}}
+                for metric in ('microphone.wake', 'dictation.transcribe_wait', 'llm.prepare',
+                               'llm.request', 'llm.total', 'dictation.post_stop')],
+            'latest': {'id': 'synthetic-task', 'outcome': 'fallback',
+                       'values': {'microphone.wake': 250.1, 'llm.total': 650.2}},
+            'tasks': [{'id': 'synthetic-task', 'outcome': 'fallback',
+                       'started_at': '2026-09-29T10:00:00+00:00', 'complete': True,
+                       'operations': [{'metric': 'llm.stage.client_setup', 'value_ms': 1.234,
+                                       'availability': 'observed', 'outcome': 'completed',
+                                       'request_id': 'synthetic-request', 'version': 1}]}],
+        }
+        result['usage']['groups'] = [{'provider': 'synthetic-provider', 'model': 'synthetic-model',
+            'requests': 4, 'tokens': 1234, 'unknown_tokens': 1, 'unknown_cost': 1,
+            'currencies': {'USD': {'provider_reported': '0.002', 'rate_estimate': '0.003',
+                                    'token_estimate': '0', 'possible_cost': '0.001'}}}]
+        for group in result['timings']['groups']:
+            group['recent']['started_at'] = result['window']['utc_start']
+        result['timings']['tasks'][0]['started_at'] = result['window']['utc_start']
+        widget.show_data(result)
+        host.resize(width, 900)
+        host.show()
+        # Responsive grids and their nested minimum-size constraints settle in queued layout passes.
+        for _ in range(3):
+            qt_app.processEvents()
+        assert 'activity.metric.' not in widget.timing_text.text()
+        assert 'activity.outcome.' not in widget.timing_text.text()
+        card = widget.timing_cards['wait']
+        assert card.value.text() == '310.25'
+        assert card.values['mean'].text() == '250.125'
+        assert card.values['max'].text() == '1,200.5'
+        assert card.badge.property('tone') == 'error'
+        assert [widget.stats_period.itemData(i) for i in range(widget.stats_period.count())] == [
+            'today', 'week', 'month', 'year', '7d', '30d']
+        assert card.tiles[0].geometry().bottom() < card.tiles[2].geometry().top()
+        assert card.tiles[0].geometry().right() < card.tiles[1].geometry().left()
+        for label in card.values.values():
+            assert label.height() >= label.fontMetrics().height()
+        assert widget.timing_grid.getItemPosition(1)[:2] == ((1, 0) if width < 700 else (0, 1))
+        if width < 700:
+            assert card.geometry().bottom() + 10 < widget.timing_cards['wake'].geometry().top()
+        assert widget.minimumSizeHint().width() <= width
+        destination = tmp_path / f'activity-{locale}-{width}.png'
+        assert widget.grab().save(str(destination))
+        print(destination)
+        from PySide6.QtWidgets import QLabel, QTableWidget, QTabWidget
+        from core.i18n import tr
+        assert not widget.findChildren(QTableWidget) and not widget.findChildren(QTabWidget)
+        assert tr('gui.stats_health') not in [label.text() for label in widget.findChildren(QLabel)]
+        reference_title = card.findChild(QLabel, 'cardTitle')
+        for frame in widget.cards:
+            title = frame.findChild(QLabel, 'cardTitle')
+            assert title is not None and title.font() == reference_title.font()
+            assert title.toolTip() and not title.toolTip().startswith('gui.')
+        for label in widget.findChildren(QLabel):
+            assert not label.toolTip().startswith(('gui.', 'activity.'))
+    finally:
+        widget.stop()
+        host.close()
+        host.deleteLater()
+        qt_app.processEvents()
+        set_language(previous)

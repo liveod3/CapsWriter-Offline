@@ -1,6 +1,8 @@
 # 查询 LLM 费用
 
-客户端按月保存每次 LLM 请求的费用记录。默认目录是项目根目录下的 `llm-costs/`，每月一个 `YYYY-MM.sqlite3` 数据库；其中 `requests` 表每次请求一行。一次请求只占一行，开始前建立记录，结束后更新。默认开启费用记录；LLM 总开关仍默认关闭。请求处理只写入本条记录，不汇总整月费用，也不显示费用摘要或预算提醒。需要统计时运行查询脚本。
+客户端将新的 LLM 费用记录写入统一的 `activity.sqlite3`，默认目录是项目根目录下的 `llm-costs/`，查询仍按月份组织。它与听写运行统计共用数据库，但开关独立。一次请求开始前建立记录，结束后完成记账；`requests` 兼容视图每次请求一行。旧的 `YYYY-MM.sqlite3` 月度账本继续只读兼容，按请求 ID 去重，不会自动搬动或删除。默认开启费用记录；LLM 总开关仍默认关闭。请求处理不汇总整月费用，也不显示预算提醒。状态页面或查询脚本负责汇总。
+
+完整表结构、字段和旧数据导入规则见[数据库设计规范](../reference/activity-database.md)；查看听写耗时见[运行统计说明](runtime-statistics.md)。
 
 记录包括请求 ID、本地时区起止时间、配置中的提供方和模型、预设、HTTP 状态、耗时、成功/失败/取消状态、token 用量、费用来源和请求时的费率快照。不会保存提示词、转写、光标参考、响应正文、密钥或完整请求地址。费用记录与录音、转写、LLM 内容档案分别控制。
 
@@ -19,7 +21,7 @@ conda run -n capswriter python scripts/llm_costs.py --month 2026-09
 conda run -n capswriter python scripts/llm_costs.py --month 2026-09 --details > llm-costs/2026-09-details.json
 ```
 
-脚本只读取本地账本，不调用提供方，不启动麦克风或界面。默认读取 `LLM/costs.toml`，不存在时读取公开模板。自定义 LLM 配置目录使用 `--config-dir`；也可以使用 `--directory` 直接指定账本目录。`--language en` 或 `--language zh-CN` 可指定显示语言；`--json` 输出汇总 JSON，`--details` 输出汇总及全部明细 JSON。
+脚本只读取本地账本，不调用提供方，不启动麦克风或界面。默认读取 `LLM/costs.toml`，不存在时读取公开模板。自定义 LLM 配置目录使用 `--config-dir`；也可以使用 `--directory` 直接指定账本目录。`--language en` 或 `--language zh-CN` 可指定显示语言；`--json` 输出汇总 JSON，`--details` 输出汇总及明细 JSON。一次查询最多返回 10,000 条，JSON 的 `limited` 与 `skipped` 分别标明范围限制和无法读取的记录数量；部分结果不能当作完整月度合计。
 
 统计按币种分别展示提供方返回金额、按费率估算、按估算 token 计费、未完成请求的可能费用，以及无法确定费用的请求数。JSON 还包含按提供方/模型分组的金额。不同币种不换算、不相加。
 

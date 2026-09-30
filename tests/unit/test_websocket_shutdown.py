@@ -221,8 +221,9 @@ def test_microphone_startup_respects_pause(monkeypatch, desktop_mode, paused):
 
 
 @pytest.fixture
-def isolated_client(monkeypatch):
+def isolated_client(monkeypatch, tmp_path):
     import core.client.app as module
+    from core.activity.runtime import ActivityRecorder
 
     for name in ('TextActionService', 'CaretContextCapture', 'TextOutput', 'DiaryWriter',
                  'WebSocketManager', 'TrayManager', 'AudioStreamManager', 'ShortcutManager',
@@ -235,16 +236,40 @@ def isolated_client(monkeypatch):
     monkeypatch.setattr(module, 'set_dictation_paused', Mock())
     clients = []
 
+    def activity(*args, **kwargs):
+        # Constructor tests must never inherit a user's accounting destination or settings.
+        return ActivityRecorder(tmp_path / str(len(clients)),
+                                SimpleNamespace(save_runtime_statistics=True), **kwargs)
+
+    monkeypatch.setattr('core.activity.runtime.ActivityRecorder', activity)
+
     def create(mode):
         from core.client.cli import ClientCommand
         client = CapsWriterClient(ClientCommand(mode))
+        assert client.activity.path.is_relative_to(tmp_path)
         clients.append(client)
         return client
 
     yield create
     for client in clients:
+        client.activity.close()
         client.loop.close()
     asyncio.set_event_loop(None)
+
+
+def test_constructor_activity_is_isolated_and_drained(isolated_client, tmp_path):
+    from core.client.cli import ClientMode
+    from core.activity.store import connection
+
+    app = isolated_client(ClientMode.MIC)
+    app.activity.begin('isolated-startup')
+    app.activity.finish('isolated-startup', 'completed')
+    app.activity.close()
+    assert app.activity.path.is_relative_to(tmp_path)
+    assert not app.activity.thread.is_alive()
+    with connection(app.activity.path, readonly=True) as db:
+        assert db.execute('SELECT outcome FROM tasks').fetchall() == [('completed',)]
+        assert db.execute('SELECT ended_at FROM runs').fetchone()[0] is not None
 
 
 @pytest.mark.parametrize('mode', ['mic', 'transcribe', 'rebuild-srt'])

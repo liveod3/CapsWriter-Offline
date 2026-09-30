@@ -127,15 +127,9 @@ def month_path(directory: Path, month: str) -> Path:
 
 
 def read_month(directory: Path, month: str, *, details=False) -> dict:
-    path = month_path(directory, month)
-    if not path.exists():
-        result = summarize([])
-        if details:
-            result['records'] = []
-        return {'month': month, **result}
-    with closing(sqlite3.connect(path.resolve().as_uri() + '?mode=ro', uri=True, timeout=5)) as db:
-        records = [json.loads(row[0]) for row in db.execute('SELECT record FROM requests ORDER BY started, id')]
-    result = {'month': month, **summarize(records)}
+    from core.activity.store import records_for_month
+    records, limited, skipped = records_for_month(directory, month)
+    result = {'month': month, **summarize(records), 'limited': limited, 'skipped': skipped}
     if details:
         result['records'] = records
     return result
@@ -146,6 +140,7 @@ class CostLedger:
         self.base_dir = base_dir
         self.directory = directory
         self._last_config = None
+        self.database_path = None
 
     def prepare(self, provider, messages, max_tokens, request_id, preset_id, now=None):
         warning = False
@@ -173,12 +168,11 @@ class CostLedger:
         }
         record['accounting'] = accounting(record, UsageObservation(), 'unfinished')
         record['accounting']['dispatch'] = 'unknown'
-        path = month_path(self.base_dir / config['tracking']['directory'], now.strftime('%Y-%m'))
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(path, timeout=5)) as db, db:
-            db.execute('CREATE TABLE IF NOT EXISTS requests (id TEXT PRIMARY KEY, started TEXT, record TEXT)')
-            db.execute('INSERT INTO requests VALUES (?, ?, ?)',
-                       (request_id, record['started_at'], json.dumps(record, ensure_ascii=False)))
+        from core.activity.store import NAME, connection, write_request
+        from core.diagnostics import storage_path
+        path = self.database_path or storage_path(self.base_dir, config['tracking']['directory']) / NAME
+        with connection(path) as db:
+            write_request(db, record)
         return (path, record), warning
 
     def finish(self, ticket, observed, status, error_category, elapsed_ms):
@@ -186,8 +180,7 @@ class CostLedger:
         record.update(status=status, error_category=error_category, elapsed_ms=elapsed_ms,
                       finished_at=datetime.now().astimezone().isoformat())
         record['accounting'] = accounting(record, observed, status)
-        with closing(sqlite3.connect(path, timeout=5)) as db, db:
-            # Commit only this request; monthly aggregation belongs to the query tool.
-            db.execute('UPDATE requests SET record=? WHERE id=?',
-                       (json.dumps(record, ensure_ascii=False), record['id']))
+        from core.activity.store import connection, write_request
+        with connection(path) as db:
+            write_request(db, record)
         return record['accounting']

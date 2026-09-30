@@ -1,14 +1,16 @@
 """Local usage cards and explicit copy actions, with visible-page refresh only."""
 
+from datetime import datetime
 from decimal import Decimal
 
 from PySide6.QtCore import QSize, QTimer, Qt
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from core.i18n import tr
 from .presentation import Choice, text
+from .statistics_view import field_label, number, recent_value
 
 
 def plain(value='', style='muted'):
@@ -18,6 +20,84 @@ def plain(value='', style='muted'):
     label.setWordWrap(True)
     label.setMinimumWidth(0)
     return label
+
+
+class TimingCard(QFrame):
+    """Separate the latest observation from the selected period's distribution."""
+
+    def __init__(self, title, metric):
+        super().__init__()
+        self.setObjectName('card')
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        box = QVBoxLayout(self)
+        box.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+        box.setContentsMargins(20, 18, 20, 18)
+        box.setSpacing(12)
+        heading = QHBoxLayout()
+        heading.addWidget(field_label(title, 'cardTitle', 'activity.help.' + metric), 1)
+        heading.addWidget(text('stats_unit', 'eyebrow'))
+        box.addLayout(heading)
+        latest = QFrame()
+        latest.setObjectName('timingLatest')
+        latest_box = QVBoxLayout(latest)
+        latest_box.setContentsMargins(14, 12, 14, 12)
+        bar = QHBoxLayout()
+        bar.addWidget(field_label('latest_label', 'timingLabel', 'gui.stats_help_recent'), 1)
+        self.badge = plain('', 'timingBadge')
+        bar.addWidget(self.badge)
+        latest_box.addLayout(bar)
+        self.value = plain('—', 'timingValue')
+        latest_box.addWidget(self.value)
+        self.timestamp = plain(tr('gui.stats_no_recent'), 'timingLabel')
+        latest_box.addWidget(self.timestamp)
+        box.addWidget(latest)
+        tiles = QGridLayout()
+        tiles.setSpacing(10)
+        self.values = {}
+        self.tiles = []
+        for index, key in enumerate(('median', 'mean', 'max', 'p95')):
+            tile = QFrame()
+            tile.setObjectName('timingTile')
+            cell = QVBoxLayout(tile)
+            cell.setSizeConstraint(QLayout.SizeConstraint.SetMinimumSize)
+            cell.setContentsMargins(12, 10, 12, 10)
+            cell.setSpacing(4)
+            cell.addWidget(field_label('tile_' + key, 'timingLabel',
+                                      'gui.stats_help_' + ('maximum' if key == 'max' else key)))
+            value = plain('—', 'timingSummary')
+            value.setWordWrap(False)
+            value.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+            cell.addWidget(value)
+            tiles.addWidget(tile, index // 2, index % 2)
+            self.values[key] = value
+            self.tiles.append(tile)
+        tiles.setColumnStretch(0, 1)
+        tiles.setColumnStretch(1, 1)
+        box.addLayout(tiles)
+        self.samples = plain()
+        box.addWidget(self.samples)
+
+    def show_group(self, group):
+        recent = group.get('recent')
+        value, hint = recent_value(recent)
+        self.value.setText(value)
+        self.value.setToolTip(hint)
+        self.timestamp.setText(tr('gui.stats_task_time', time=datetime.fromisoformat(
+            recent['started_at']).astimezone().strftime('%m-%d %H:%M:%S')) if recent else hint)
+        self.badge.setVisible(bool(recent and recent['outcome'] != 'completed'))
+        if recent:
+            self.badge.setText(tr('activity.outcome.' + recent['outcome']))
+            tone = ('ok' if recent['outcome'] == 'completed' else
+                    'error' if recent['outcome'] == 'failed' else 'neutral')
+            self.badge.setProperty('tone', tone)
+            self.badge.style().unpolish(self.badge)
+            self.badge.style().polish(self.badge)
+        count = group.get('count', 0)
+        for key, label in self.values.items():
+            label.setText(number(group.get(key)) + (' *' if key == 'p95' and 0 < count < 20 else ''))
+        self.samples.setText(tr('gui.stats_eligible_samples', count=count))
+        self.samples.setToolTip(tr('gui.stats_help_samples'))
 
 
 class RecordButton(QPushButton):
@@ -65,20 +145,32 @@ class StatusPage(QWidget):
         actions = QHBoxLayout()
         self.updated = plain(tr('gui.dashboard_local'))
         actions.addWidget(self.updated, 1)
+        self.stats_period = Choice()
+        self.stats_period.setAccessibleName(tr('gui.stats_range'))
+        for key in ('today', 'week', 'month', 'year', '7d', '30d'):
+            self.stats_period.addItem(tr('gui.stats_' + key), key)
+        self.stats_period.setToolTip(tr('gui.stats_calendar_help'))
+        self.stats_period.currentIndexChanged.connect(self.refresh)
+        actions.addWidget(self.stats_period)
         self.refresh_button = QPushButton(tr('gui.history_refresh'))
         self.refresh_button.clicked.connect(self.refresh)
         actions.addWidget(self.refresh_button)
         layout.addLayout(actions)
+        self.range_label = plain()
+        layout.addWidget(self.range_label)
         self.grid = QGridLayout()
         self.grid.setSpacing(12)
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         layout.addLayout(self.grid)
-        for key in ('today', 'tokens', 'spend'):
+        titles = {'tasks': 'tasks_count', 'today': 'saved', 'tokens': 'tokens', 'spend': 'spend'}
+        for key, title in titles.items():
             frame = QFrame()
             frame.setObjectName('card')
+            frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
             box = QVBoxLayout(frame)
             box.setContentsMargins(18, 16, 18, 16)
             box.setSpacing(8)
-            box.addWidget(text('dashboard_' + key, 'muted'))
+            box.addWidget(field_label(title, 'cardTitle'))
             value = plain('—', 'metric')
             hint = plain(tr('gui.dashboard_local'))
             box.addWidget(value)
@@ -86,8 +178,16 @@ class StatusPage(QWidget):
             box.addStretch()
             self.cards.append(frame)
             self.metrics[key] = (value, hint)
+        self.timing_grid = QGridLayout()
+        self.timing_grid.setSpacing(12)
+        self.timing_grid.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.timing_cards = {key: TimingCard(key, metric) for key, metric in (
+            ('wait', 'dictation.post_stop'), ('wake', 'microphone.wake'))}
+        layout.addLayout(self.timing_grid)
         self.note = plain()
         layout.addWidget(self.note)
+        self.timing_text = plain(tr('gui.activity_empty'))
+        layout.addWidget(self.timing_text)
         recent = QFrame()
         recent.setObjectName('card')
         box = QVBoxLayout(recent)
@@ -112,6 +212,7 @@ class StatusPage(QWidget):
         history.clicked.connect(lambda: open_history(self.period.currentData()))
         box.addWidget(history, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(recent)
+        layout.addStretch()
         self.retry = QTimer(self)
         self.retry.setSingleShot(True)
         self.retry.setInterval(100)
@@ -126,17 +227,23 @@ class StatusPage(QWidget):
         self.reflow()
 
     def reflow(self):
-        columns = 3 if self.width() >= 760 else 2 if self.width() >= 460 else 1
-        if columns == self.columns:
+        columns = 4 if self.width() >= 1000 else 2 if self.width() >= 460 else 1
+        timing_columns = 2 if self.width() >= 700 else 1
+        if (columns, timing_columns) == self.columns:
             return
-        self.columns = columns
+        self.columns = (columns, timing_columns)
         for frame in self.cards:
             self.grid.removeWidget(frame)
         for index, frame in enumerate(self.cards):
-            self.grid.addWidget(frame, index // columns, index % columns, 1,
-                                2 if columns == 2 and index == 2 else 1)
-        for index in range(3):
+            self.grid.addWidget(frame, index // columns, index % columns)
+        for index in range(4):
             self.grid.setColumnStretch(index, 1 if index < columns else 0)
+        for frame in self.timing_cards.values():
+            self.timing_grid.removeWidget(frame)
+        for index, frame in enumerate(self.timing_cards.values()):
+            self.timing_grid.addWidget(frame, index // timing_columns, index % timing_columns)
+        for index in range(2):
+            self.timing_grid.setColumnStretch(index, 1 if index < timing_columns else 0)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -162,7 +269,8 @@ class StatusPage(QWidget):
         if (self.inflight and self.operation == 'dashboard_copy') or (
                 self.pending and self.pending[0] == 'dashboard_copy'):
             return
-        self.schedule('dashboard_read', {'period': self.period.currentData()})
+        self.schedule('dashboard_read', {'period': self.period.currentData(),
+                                         'stats_period': self.stats_period.currentData()})
 
     def schedule(self, method, params):
         if self.stopped or not self.isVisible():
@@ -181,6 +289,7 @@ class StatusPage(QWidget):
                 if method == 'dashboard_copy':
                     QApplication.clipboard().setText(result)
                     self.note.setText(tr('gui.dashboard_copied'))
+                    self.note.show()
                 else:
                     self.show_data(result)
             self.flush()
@@ -188,6 +297,7 @@ class StatusPage(QWidget):
             self.inflight = False
             if not self.stopped and self.isVisible() and generation == self.generation:
                 self.note.setText(tr('gui.dashboard_failed') + error)
+                self.note.show()
             self.flush()
         done.on_error = failed
         if self.request(method, params, done, quiet=True):
@@ -198,15 +308,36 @@ class StatusPage(QWidget):
             self.retry.start()
 
     def show_data(self, result):
+        timings = result.get('timings', {})
+        readable = timings.get('state') != 'unavailable'
+        if not readable:
+            timings = {**timings, 'groups': [], 'tasks': [], 'outcomes': {}}
+        counts = timings.get('outcomes', {})
+        self.timing_text.setText(tr('gui.stats_outcomes', **{key: counts.get(key, 0) for key in (
+            'completed', 'fallback', 'failed', 'cancelled', 'interrupted', 'not_inserted', 'unfinished')})
+            if readable else tr('gui.stats_read_failed'))
+        value, hint = self.metrics['tasks']
+        value.setText(str(timings.get('count', 0)) if readable else '—')
+        hint.setText(tr('gui.stats_collecting' if timings.get('enabled', True) else 'gui.activity_off'))
+        for key, metric in (('wait', 'dictation.post_stop'), ('wake', 'microphone.wake')):
+            # Never combine measurements with different contract versions into one card.
+            group = next((row for row in timings.get('groups', [])
+                          if row['metric'] == metric and row.get('version', 1) == 1), {})
+            self.timing_cards[key].show_group(group)
+        window = result['window']
+        scope = tr('gui.stats_window', start=window['date_from'], end=window['date_to'],
+                   lower=window['start'], upper=window['end'])
+        self.range_label.setText(scope.split('\n')[0])
+        self.range_label.setToolTip(scope)
         self.updated.setText(tr('gui.dashboard_updated', day=result['day'], time=result['updated']))
         usage = result['usage']
         value, hint = self.metrics['today']
-        value.setText(str(result['today_count']) if result['history_state'] == 'ready' else '—')
+        value.setText(str(result['saved_count']) if result['history_state'] == 'ready' else '—')
         hint.setText(tr('gui.dashboard_saved_only' if result['saving_enabled'] else 'gui.dashboard_saving_off'))
         value, hint = self.metrics['tokens']
         available = usage['state'] == 'ready'
-        value.setText(f"{usage['tokens_today']:,}" if available and (
-            usage['known_token_requests'] or not usage['requests_today']) else '—')
+        value.setText(f"{usage['tokens']:,}" if available and (
+            usage['known_token_requests'] or not usage['requests']) else '—')
         hint.setText(tr('gui.dashboard_token_detail', input=f"{usage['input_tokens']:,}",
                         output=f"{usage['output_tokens']:,}", unknown=usage['unknown_token_requests'])
                      if available else tr('gui.dashboard_usage_' + usage['state']))
@@ -222,7 +353,10 @@ class StatusPage(QWidget):
                     possible=bucket['possible_cost']))
         value.setText('\n'.join(amounts) or '—')
         hint.setText('\n'.join(provenance) or tr('gui.dashboard_usage_' + usage['state']))
-        notes = [tr('gui.dashboard_accounting_note', month=result['month'], unknown=usage['unknown_cost_requests'])]
+        notes = ([tr('gui.stats_unknown_cost_count', count=usage['unknown_cost_requests'])]
+                 if usage['unknown_cost_requests'] else [])
+        if timings.get('limited'):
+            notes.insert(0, tr('gui.stats_limited'))
         if not usage['tracking_enabled']:
             notes.append(tr('gui.dashboard_tracking_off'))
         if result['history_limited'] or usage['limited'] or usage['skipped']:
@@ -230,6 +364,7 @@ class StatusPage(QWidget):
         if result['history_state'] != 'ready':
             notes.append(tr('gui.dashboard_history_unavailable'))
         self.note.setText('\n'.join(notes))
+        self.note.setVisible(bool(notes))
         if result['entries'] == self.last_entries:
             return
         self.last_entries = result['entries']

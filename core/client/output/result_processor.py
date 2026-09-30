@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from core.i18n import Notice, tr
+from core.activity.runtime import observe
 from core.logger import log_content
 
 import asyncio
@@ -115,6 +116,7 @@ class ResultProcessor:
             self._fail_task(task_id, 'result_timeout', tr('mic.result_timeout'))
             return
         self.state.dictation_deadlines.pop(task_id)
+        observe(self.app, 'mark', task_id, 'asr')
         self._received.add(task_id)
         if enqueue:
             self._ready_results.put_nowait(message)
@@ -139,7 +141,14 @@ class ResultProcessor:
             if (self.state.dictation_uploads.get(task_id) is upload
                     and task_id in self.state.task_contexts and not self._exit_event.is_set()):
                 await self._handle_final(message)
+        except asyncio.CancelledError:
+            observe(self.app, 'finish', task_id, 'interrupted')
+            raise
+        except Exception as exc:
+            observe(self.app, 'finish', task_id, 'failed', type(exc).__name__)
+            raise
         finally:
+            observe(self.app, 'finish', task_id, 'interrupted')
             self._received.discard(task_id)
             self.state.dictation_uploads.pop(task_id, None)
             self.state.task_contexts.pop(task_id, None)
@@ -179,6 +188,7 @@ class ResultProcessor:
                     and task_id not in self.state.audio_files
                     and task_id not in self.state.dictation_uploads):
                 return
+            observe(self.app, 'finish', task_id, 'failed', code)
             upload = self.state.dictation_uploads.pop(task_id, None)
             if upload is not None:
                 upload.set()
@@ -209,6 +219,7 @@ class ResultProcessor:
                 show_status_hint(feedback, duration_ms=3500, dot_color='#EF4444')
 
     async def _handle_final(self, message: RecognitionMessage):
+        observe(self.app, 'mark', message.task_id, 'processing')
         self.app.progress.update(message.task_id, 'status.prepare_text')
         original = message.text
         log_content(logger, 'dictation.asr_text', task_id=message.task_id, asr_text=original)
@@ -219,6 +230,9 @@ class ResultProcessor:
             original, context=context, task_id=message.task_id,
             progress_callback=lambda stage: self.app.progress.update(message.task_id, stage),
         )
+        observe(self.app, 'mark', message.task_id, 'llm_returned')
+        if not getattr(result, 'request_id', None):
+            observe(self.app, 'llm_skipped', message.task_id)
         self.app.progress.finish(message.task_id)
         final_text = result.text
         # Apply output preferences to success, skipped and fallback text alike;
@@ -257,10 +271,15 @@ class ResultProcessor:
             process_name = info.get("process_name", "").lower()
             paste = Config.paste or any(name.lower() == process_name for name in Config.paste_apps)
             # Insert LLM output once the complete response is available.
+            observe(self.app, 'mark', message.task_id, 'insert')
             await self.app.output.output(final_text, paste=paste)
+            observe(self.app, 'mark', message.task_id, 'insert_done')
+            observe(self.app, 'mark', message.task_id, 'udp')
             broadcast_output_udp(final_text)
+            observe(self.app, 'mark', message.task_id, 'udp_done')
             for application, delay in Config.enter_apps:
                 if application.lower() == process_name:
+                    observe(self.app, 'mark', message.task_id, 'enter')
                     await asyncio.sleep(delay)
                     if not self._exit_event.is_set() and (
                         not target_window or foreground_window() == target_window
@@ -268,7 +287,13 @@ class ResultProcessor:
                         import keyboard
 
                         keyboard.press_and_release("enter")
+                    observe(self.app, 'mark', message.task_id, 'enter_done')
                     break
+        else:
+            observe(self.app, 'mark', message.task_id, 'output_skipped')
+        observe(self.app, 'finish', message.task_id,
+                'cancelled' if result.cancelled else 'not_inserted' if not can_output
+                else 'fallback' if result.error else 'completed')
 
     def _save(self, message, original: str, final_text: str, result):
         audio_path = self.state.pop_audio_file(message.task_id)

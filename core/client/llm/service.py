@@ -44,6 +44,7 @@ class TextActionService:
         self.transport = transport or HTTPTextProvider()
         self.status_callback = status_callback
         self.costs = CostLedger(base_dir, self.directory)
+        self.activity = None
         self._active: set[asyncio.Task] = set()
         self._loop = None
         self._stopped = False
@@ -95,7 +96,7 @@ class TextActionService:
             return TextResult(text, text)
         content = text
         selected_id = None
-        started = time.monotonic()
+        started = time.perf_counter()
         request_id = uuid.uuid4().hex
         phase = "configuration"
         ticket = None
@@ -105,6 +106,7 @@ class TextActionService:
         from core.client import logger
 
         diagnostic = RequestDiagnostics(logger, request_id, task_id)
+        started = diagnostic.started
         failure_fields = {}
         failure_exception = None
         try:
@@ -168,13 +170,15 @@ class TextActionService:
             if progress_callback:
                 progress_callback('status.wait_llm')
             logger.info(Notice('diagnostic.service.llm_request_started_request_input_chars_preparation_ms'),
-                        request_id, len(content), int((time.monotonic() - started) * 1000),
+                        request_id, len(content), int((time.perf_counter() - started) * 1000),
                         len(payload.get("surrounding_text_reference", "")), preset.use_caret_context)
             diagnostic.emit('llm.request_started', input_chars=len(content),
                             context_chars=len(payload.get('surrounding_text_reference', '')))
             log_content(logger, 'llm.request_text', request_id=request_id, task_id=task_id, input_text=content,
                         system_prompt=preset.system_prompt, context=payload.get('surrounding_text_reference', ''))
             async def complete():
+                transport_started = time.perf_counter_ns()
+                diagnostic.action_timings['llm.prepare'] = (int(diagnostic.started * 1e9), transport_started)
                 token = observation.set((observed, ticket[1]['rate'] if ticket else None))
                 diagnostic_token = current_request.set(diagnostic)
                 try:
@@ -183,10 +187,19 @@ class TextActionService:
                         diagnostic.stage('custom_transport')
                         diagnostic.data['dispatch_attempted'] = True
                         diagnostic.data['response_state'] = 'not_observed'
-                    return await self.transport.complete(
+                    output = await self.transport.complete(
                         provider, messages, preset.temperature, preset.max_tokens
                     )
+                    diagnostic.request_outcome = 'completed'
+                    return output
+                except asyncio.CancelledError:
+                    diagnostic.request_outcome = 'cancelled'
+                    raise
+                except Exception:
+                    diagnostic.request_outcome = 'failed'
+                    raise
                 finally:
+                    diagnostic.action_timings['llm.request'] = (transport_started, time.perf_counter_ns())
                     current_request.reset(diagnostic_token)
                     observation.reset(token)
 
@@ -205,7 +218,7 @@ class TextActionService:
             diagnostic.data['output_chars'] = len(result)
             observed.output_estimate = estimate_tokens(result)
             logger.info(Notice('diagnostic.service.llm_request_completed_request_elapsed_ms_output_chars'),
-                        request_id, int((time.monotonic() - started) * 1000), len(result))
+                        request_id, int((time.perf_counter() - started) * 1000), len(result))
             log_content(logger, 'llm.response_text', request_id=request_id, task_id=task_id, output_text=result)
             save_action = getattr(self.config, 'save_llm_records', False)
             return TextResult(
@@ -217,7 +230,7 @@ class TextActionService:
         except asyncio.CancelledError:
             outcome = 'cancelled'
             logger.info(Notice('diagnostic.service.llm_request_cancelled_request_phase_elapsed_ms'),
-                        request_id, phase, int((time.monotonic() - started) * 1000))
+                        request_id, phase, int((time.perf_counter() - started) * 1000))
             return TextResult(content, content, selected_id, cancelled=True, request_id=request_id)
         except Exception as exc:
             category, detail, fields = describe_failure(exc)
@@ -236,7 +249,7 @@ class TextActionService:
             logger.warning(
                 Notice('diagnostic.service.llm_action_failed_request_phase_type_category_elapsed'),
                 request_id, phase, type(exc).__name__, category,
-                int((time.monotonic() - started) * 1000), json.dumps(fields, sort_keys=True), detail,
+                int((time.perf_counter() - started) * 1000), json.dumps(fields, sort_keys=True), detail,
             )
             return TextResult(
                 content, content, selected_id, error=type(exc).__name__, error_message=user_detail,
@@ -249,11 +262,16 @@ class TextActionService:
                 if diagnostic.data['parse_state'] == 'succeeded' else 'not_observed',
             )
             diagnostic.finish(outcome, failure_category, failure_fields, failure_exception)
+            if self.activity is not None and diagnostic.elapsed_ms is not None:
+                try:
+                    self.activity.llm(diagnostic, observed)
+                except Exception:
+                    self.activity.report_error()
             if ticket:
                 try:
                     await asyncio.to_thread(
                         self.costs.finish, ticket, observed, outcome, failure_category,
-                        int((time.monotonic() - started) * 1000),
+                        diagnostic.elapsed_ms,
                     )
                 except Exception:
                     # Accounting errors must never discard successful text or cause a retry.

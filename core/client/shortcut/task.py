@@ -8,6 +8,7 @@ Track recording state for one shortcut.
 from __future__ import annotations
 
 from core.i18n import Notice, tr
+from core.activity.runtime import observe
 
 import asyncio
 from concurrent.futures import Future
@@ -99,6 +100,11 @@ class ShortcutTask:
         with self.state.recording_lock:
             if generation != self._launch_generation or not self.is_recording:
                 return
+            ready = self.app.stream.get_ready_event()
+            observe(self.app, 'ready', self._progress_id,
+                    wake_started=getattr(self._capture, 'wake_started_ns', None),
+                    ready_at=getattr(ready, 'ready_ns', None),
+                    warm=getattr(self, '_activity_warm', False))
             if clear_preparing_hint:
                 hide_status_hint()
             self._status.start()
@@ -122,6 +128,7 @@ class ShortcutTask:
         with self.state.recording_lock:
             if generation != self._launch_generation or not self.is_recording:
                 return
+            observe(self.app, 'finish', self._progress_id, 'failed', 'microphone_readiness_timeout')
             self.cancel()
             logger.warning(Notice('diagnostic.task.microphone_readiness_timed_out_capture_released'))
             show_status_hint(tr('mic.ready_timeout'), duration_ms=2200, dot_color='#EF4444')
@@ -143,6 +150,7 @@ class ShortcutTask:
             return self._launch_locked()
 
     def _launch_locked(self) -> bool:
+        accepted_ns = time.perf_counter_ns()
         self._launch_generation += 1
         generation = self._launch_generation
 
@@ -152,10 +160,14 @@ class ShortcutTask:
         if not self.app.loop.is_running() or self.app.loop.is_closed():
             return False
         capture = None
+        activity_task_id = None
         try:
             from core.client.caret_context import foreground_window
             target_window = foreground_window()
             recorder = self._get_recorder()
+            activity_task_id = recorder.task_id
+            observe(self.app, 'begin', recorder.task_id, now=accepted_ns)
+            self._activity_warm = self.app.stream.is_ready(self.app.stream.get_ready_event())
             self.recording_start_time = time.time()
             capture = CaptureSession(self.app.loop, self.recording_start_time, target_window)
             self._capture = capture
@@ -179,6 +191,8 @@ class ShortcutTask:
                 lambda future: self._recorder_done(future, capture, recorder.task_id)
             )
         except Exception as exc:
+            if activity_task_id is not None:
+                observe(self.app, 'finish', activity_task_id, 'failed', type(exc).__name__)
             if capture is not None and self._capture is capture:
                 self.cancel()
             logger.error(Notice('diagnostic.task.could_not_start_recording', value0=type(exc).__name__))
@@ -210,6 +224,8 @@ class ShortcutTask:
         self.state.recording_tasks.add(operation)
         try:
             if self.state.dictation_paused:
+                capture.wake_started_ns = time.perf_counter_ns()
+                observe(self.app, 'mark', recorder.task_id, 'wake', now=capture.wake_started_ns)
                 resume = asyncio.create_task(asyncio.to_thread(
                     self.app.resume_dictation, show_hint=False, silent_stream=True))
                 try:
@@ -257,6 +273,7 @@ class ShortcutTask:
                 self._release_capture_locked()
                 self.app.progress.finish(progress_id)
             if error is not None:
+                observe(self.app, 'finish', progress_id, 'failed', type(error).__name__)
                 logger.error(Notice('diagnostic.task.recording_worker_failed', value0=type(error).__name__))
                 if self.state.recording_owner is None and not getattr(self.app, '_stopping', False):
                     message = (tr('mic.overflow')
@@ -274,6 +291,7 @@ class ShortcutTask:
                 self._capture.cancel()
             if self._progress_id:
                 self.app.progress.finish(self._progress_id)
+                observe(self.app, 'finish', self._progress_id, 'cancelled')
             self._release_capture_locked()
             if self.task is not None:
                 future, self.task = self.task, None
@@ -291,6 +309,14 @@ class ShortcutTask:
         with self.state.recording_lock:
             if not self.is_recording or self.state.recording_owner is not self:
                 return
+            stream = getattr(self.app, 'stream', None)
+            ready = stream.get_ready_event() if stream is not None else None
+            if stream is not None and stream.is_ready(ready):
+                observe(self.app, 'ready', self._progress_id,
+                        wake_started=getattr(self._capture, 'wake_started_ns', None),
+                        ready_at=getattr(ready, 'ready_ns', None),
+                        warm=getattr(self, '_activity_warm', False))
+            observe(self.app, 'mark', self._progress_id, 'stop')
             self.app.mark_user_activity()
             if self._progress_id and self.task is not None and not self.task.done():
                 self.app.progress.begin(self._progress_id)

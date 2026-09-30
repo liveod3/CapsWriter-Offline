@@ -16,6 +16,7 @@ import ssl
 import time
 
 from core.logger import diagnostic_event, log_content
+from core.activity.store import utcnow
 
 
 current_request: ContextVar[RequestDiagnostics | None] = ContextVar('llm_diagnostics', default=None)
@@ -67,7 +68,12 @@ class RequestDiagnostics:
         self.logger = logger
         self.request_id = request_id
         self.task_id = task_id
-        self.started = self.stage_started = time.monotonic()
+        self.started = self.stage_started = time.perf_counter()
+        self.started_at = utcnow()
+        self.action_timings = {}
+        self.elapsed_ms = None
+        self.terminal_outcome = None
+        self.terminal_category = None
         self.phase = 'configuration'
         self.stage_ms = {}
         self.identity = {}
@@ -97,7 +103,7 @@ class RequestDiagnostics:
 
     @best_effort
     def stage(self, phase):
-        now = time.monotonic()
+        now = time.perf_counter()
         self.stage_ms[self.phase] = self.stage_ms.get(self.phase, 0) + (now - self.stage_started) * 1000
         self.emit('llm.stage', level=logging.DEBUG, previous=self.phase, stage=phase,
                   previous_elapsed_ms=round((now - self.stage_started) * 1000, 3))
@@ -170,7 +176,7 @@ class RequestDiagnostics:
             self.trace_omitted += 1
             return
         self.trace_count += 1
-        now = time.monotonic()
+        now = time.perf_counter()
         row = {'state': state}
         if state == 'started':
             self.trace_started[operation] = now
@@ -252,7 +258,10 @@ class RequestDiagnostics:
         if self.finished:
             return
         self.finished = True
-        now = time.monotonic()
+        now = time.perf_counter()
+        self.elapsed_ms = round((now - self.started) * 1000, 3)
+        self.terminal_outcome = outcome
+        self.terminal_category = category
         self.stage_ms[self.phase] = self.stage_ms.get(self.phase, 0) + (now - self.stage_started) * 1000
         if exc is not None:
             self.data.update(exception_chain(exc))

@@ -22,6 +22,14 @@ QLabel#emptyHint { color: #9299ab; font-size: 13px; }
 QLabel#cardTitle { font-size: 15px; font-weight: 600; }
 QLabel#heroTitle { font-size: 28px; font-weight: 700; }
 QLabel#metric { font-size: 20px; font-weight: 600; }
+QFrame#timingLatest { background: #f0effc; border: none; border-radius: 9px; }
+QFrame#timingTile { background: #f7f8fc; border: 1px solid #eceef5; border-radius: 8px; }
+QLabel#timingLabel { color: #535c75; }
+QLabel#timingValue { color: #493fa4; font-size: 30px; font-weight: 700; }
+QLabel#timingSummary { color: #23283b; font-size: 20px; font-weight: 600; }
+QLabel#timingBadge { padding: 3px 8px; border-radius: 5px; background: #e5e8f1; color: #46516b; }
+QLabel#timingBadge[tone="ok"] { background: #dcefe5; color: #266045; }
+QLabel#timingBadge[tone="error"] { background: #f9e1e5; color: #993347; }
 QFrame#card { background: #ffffff; border: 1px solid #e7e9f1; border-radius: 12px; }
 QFrame#settingDivider { background: #edf0f5; border: none; }
 QFrame#providerDetails { background: #f7f8fc; border: 1px solid #edf0f5; border-radius: 8px; }
@@ -318,4 +326,5 @@ GROUP_STARTS = {
     'caret_context_enabled': 'group.context', 'addr': 'group.connection',
     'traditional_convert': 'group.formatting', 'paste': 'group.insertion', 'save_transcripts': 'group.history', 'save_audio': 'group.audio',
     'save_diagnostic_logs': 'group.diagnostics',
+    'save_runtime_statistics': 'group.statistics',
 }
