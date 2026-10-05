@@ -21,6 +21,7 @@ from .device_watch import DeviceWatch
 from .fields import PAGES, page_index
 from .help_widgets import DeviceNotice, SettingsGroups, field_caption
 from .history_page import HistoryPage
+from .recent_words import RecentWords
 from .status_page import StatusPage
 from .presentation import GROUP_STARTS, Choice, DecimalInput, HomePage, IntegerInput, Toggle, apply_theme, text
 from .shell import show_window
@@ -187,7 +188,7 @@ class SettingsWindow(QMainWindow):
         body.addWidget(sidebar)
         self.workspace = QStackedWidget()
         body.addWidget(self.workspace, 1)
-        self.home = HomePage(self.navigate, self.home_action, self.start_desktop)
+        self.home = HomePage(self.navigate, self.home_action, self.start_desktop, RecentWords(self.request))
         home_scroll = QScrollArea()
         home_scroll.setWidgetResizable(True)
         home_scroll.setWidget(self.home)
@@ -268,7 +269,7 @@ class SettingsWindow(QMainWindow):
                     self.cleanup_notice.hide()
                     group.addWidget(self.cleanup_notice)
             if page == 'status':
-                self.dashboard = StatusPage(self.request, self.show_status_history)
+                self.dashboard = StatusPage(self.request)
                 content_layout.addWidget(self.dashboard)
             if page == 'diagnostics':
                 tools_layout = groups.add_group('diagnostic_tools')
@@ -810,11 +811,6 @@ class SettingsWindow(QMainWindow):
         self.navigation.setCurrentRow(-1)
         self.update_navigation()
 
-    def show_status_history(self, period):
-        self.show_history()
-        value = 'today' if period == 'today' else 'all'
-        self.history.period.setCurrentIndex(self.history.period.findData(value))
-
     def show_history(self):
         self.workspace.setCurrentIndex(2)
         self.navigation.setCurrentRow(-1)
@@ -996,6 +992,7 @@ class SettingsWindow(QMainWindow):
             if self.active_method == 'desktop_stop':
                 self.exiting = False
                 self.history.stopped = False
+                self.home.recent.resume()
                 self.dashboard.stopped = False
                 self.exit_button.setEnabled(True)
                 self.home.setEnabled(True)
@@ -1034,6 +1031,7 @@ class SettingsWindow(QMainWindow):
             self.autosave.stop()
             self.dashboard.stop()
             self.history.stop_queries()
+            self.home.recent.stop()
             self.timer.stop()
             self.poll.stop()
             event.accept()
@@ -1067,6 +1065,7 @@ class SettingsWindow(QMainWindow):
         self.autosave.stop()
         self.dashboard.stop()
         self.history.stop_queries()
+        self.home.recent.stop()
         self.timer.stop()
         self.poll.stop()
         self.thread.join(timeout=0.5)
@@ -1119,6 +1118,7 @@ class SettingsWindow(QMainWindow):
         self.autosave.stop()
         self.dashboard.stop()
         self.history.stop_queries()
+        self.home.recent.stop()
         self.exiting = True
         self.exit_pending = False
         self.poll.stop()

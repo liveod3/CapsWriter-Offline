@@ -168,10 +168,18 @@ archives and accounting ledgers; it neither collects new content nor changes sav
 permissions. Accepted runtime tasks and saved text entries have separate cards.
 Today, this-week (Monday start), this-month, this-year, seven-day and thirty-day
 calendar windows include today and scope all summary cards, timing
-distributions and accounting groups. The independent Recent and Today preview filters
-show at most ten previews and link to the matching full-history filter. Explicit
-copy reopens the digest-validated record and copies only the complete final stage;
-changed, empty or truncated results are rejected. Clipboard contents are never read.
+distributions and accounting groups. Recent previews belong to Overview, immediately
+below Your recording shortcuts. `recent_words.py` shows the latest five records as fully expanded
+rows without an inner scroll area, collapse controls, period selector or refresh button.
+It refreshes on entry and every thirty seconds while visible. Clicking a row, Enter or
+Space reopens the digest-validated record and copies only the complete final stage;
+changed, empty or truncated results are rejected. Pending and failure feedback stay
+beside the clicked record. Successful copies from recent rows and the full history
+use a shared Qt child-widget toast centered horizontally at 80% of the application
+window height. It lasts 2.4 seconds, restarts on repeated copies, follows window
+resizes, accepts no input or focus, and hides when the page/window hides or closes.
+This is independent of the dictation status overlay. Clipboard contents are never
+read. Hiding or closing stops preview refresh and ignores stale copy callbacks.
 
 Usage queries inspect the unified file and intersecting/adjacent monthly SQLite
 files read-only, including January for a thirty-day window spanning a short February.

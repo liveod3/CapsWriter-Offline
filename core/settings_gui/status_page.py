@@ -1,11 +1,11 @@
-"""Local usage cards and explicit copy actions, with visible-page refresh only."""
+"""Local usage and timing cards, with visible-page refresh only."""
 
 from datetime import datetime
 from decimal import Decimal
 
-from PySide6.QtCore import QSize, QTimer, Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
-    QApplication, QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from core.i18n import tr
@@ -100,34 +100,8 @@ class TimingCard(QFrame):
         self.samples.setToolTip(tr('gui.stats_help_samples'))
 
 
-class RecordButton(QPushButton):
-    """Let wrapped timestamp/preview labels determine the clickable row height."""
-
-    def __init__(self):
-        super().__init__()
-        policy = QSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        policy.setHeightForWidth(True)
-        self.setSizePolicy(policy)
-
-    def heightForWidth(self, width):
-        return max(70, self.layout().totalHeightForWidth(width) if self.layout() else 70)
-
-    def sizeHint(self):
-        return QSize(200, self.heightForWidth(self.width()))
-
-    def minimumSizeHint(self):
-        return QSize(0, 70)
-
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self.click()
-            event.accept()
-        else:
-            super().keyPressEvent(event)
-
-
 class StatusPage(QWidget):
-    def __init__(self, request, open_history):
+    def __init__(self, request):
         super().__init__()
         self.request = request
         self.pending = None
@@ -135,7 +109,6 @@ class StatusPage(QWidget):
         self.operation = None
         self.generation = 0
         self.stopped = False
-        self.last_entries = None
         self.cards = []
         self.metrics = {}
         self.columns = 0
@@ -188,30 +161,6 @@ class StatusPage(QWidget):
         layout.addWidget(self.note)
         self.timing_text = plain(tr('gui.activity_empty'))
         layout.addWidget(self.timing_text)
-        recent = QFrame()
-        recent.setObjectName('card')
-        box = QVBoxLayout(recent)
-        box.setContentsMargins(18, 16, 18, 16)
-        box.setSpacing(10)
-        bar = QHBoxLayout()
-        bar.addWidget(text('dashboard_recent', 'cardTitle'), 1)
-        self.period = Choice()
-        self.period.setAccessibleName(tr('gui.history_period'))
-        self.period.addItem(tr('gui.dashboard_latest'), 'recent')
-        self.period.addItem(tr('gui.history_period_today'), 'today')
-        self.period.currentIndexChanged.connect(self.refresh)
-        bar.addWidget(self.period)
-        box.addLayout(bar)
-        box.addWidget(text('dashboard_copy_hint', 'muted'))
-        self.entries = QVBoxLayout()
-        self.entries.setSpacing(8)
-        box.addLayout(self.entries)
-        self.empty = text('dashboard_empty', 'emptyHint')
-        box.addWidget(self.empty)
-        history = QPushButton(tr('gui.dashboard_history'))
-        history.clicked.connect(lambda: open_history(self.period.currentData()))
-        box.addWidget(history, 0, Qt.AlignmentFlag.AlignLeft)
-        layout.addWidget(recent)
         layout.addStretch()
         self.retry = QTimer(self)
         self.retry.setSingleShot(True)
@@ -266,11 +215,8 @@ class StatusPage(QWidget):
         self.generation += 1
 
     def refresh(self, *_):
-        if (self.inflight and self.operation == 'dashboard_copy') or (
-                self.pending and self.pending[0] == 'dashboard_copy'):
-            return
-        self.schedule('dashboard_read', {'period': self.period.currentData(),
-                                         'stats_period': self.stats_period.currentData()})
+        # Reuse the daily count read; all-date previews now belong to History.
+        self.schedule('dashboard_read', {'period': 'today', 'stats_period': self.stats_period.currentData()})
 
     def schedule(self, method, params):
         if self.stopped or not self.isVisible():
@@ -286,12 +232,7 @@ class StatusPage(QWidget):
         def done(result):
             self.inflight = False
             if not self.stopped and self.isVisible() and generation == self.generation:
-                if method == 'dashboard_copy':
-                    QApplication.clipboard().setText(result)
-                    self.note.setText(tr('gui.dashboard_copied'))
-                    self.note.show()
-                else:
-                    self.show_data(result)
+                self.show_data(result)
             self.flush()
         def failed(error):
             self.inflight = False
@@ -365,25 +306,3 @@ class StatusPage(QWidget):
             notes.append(tr('gui.dashboard_history_unavailable'))
         self.note.setText('\n'.join(notes))
         self.note.setVisible(bool(notes))
-        if result['entries'] == self.last_entries:
-            return
-        self.last_entries = result['entries']
-        while self.entries.count():
-            self.entries.takeAt(0).widget().deleteLater()
-        for entry in result['entries']:
-            button = RecordButton()
-            button.setObjectName('recordCard')
-            button.setCursor(Qt.CursorShape.PointingHandCursor)
-            button.setMinimumWidth(0)
-            row = QVBoxLayout(button)
-            row.setContentsMargins(12, 10, 12, 10)
-            row.setSpacing(5)
-            for caption, style in ((entry['day'] + '  ' + entry['time'], 'muted'), (entry['preview'], 'recordText')):
-                label = plain(caption, style)
-                label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
-                row.addWidget(label)
-            button.setAccessibleName(tr('gui.dashboard_copy_entry', text=entry['preview']))
-            reference = {key: entry[key] for key in ('day', 'offset', 'length', 'digest')}
-            button.clicked.connect(lambda _checked=False, ref=reference: self.schedule('dashboard_copy', ref))
-            self.entries.addWidget(button)
-        self.empty.setVisible(not result['entries'])

@@ -211,7 +211,7 @@ class MicrophoneMark(QLabel):
 
 
 class HomePage(QWidget):
-    def __init__(self, navigate, action, start):
+    def __init__(self, navigate, action, start, recent):
         super().__init__()
         self.setObjectName('workspace')
         layout = QVBoxLayout(self)
@@ -257,6 +257,8 @@ class HomePage(QWidget):
         self.shortcuts = text('home_unknown', 'metric')
         shortcuts.addWidget(self.shortcuts)
         shortcuts.addWidget(text('shortcuts_hint', 'muted'))
+        self.recent = recent
+        layout.addWidget(self.recent)
         links = QHBoxLayout()
         links.setSpacing(12)
         for title, page in (('tune_text', 'text'), ('page.status', 'status'), ('recent', 'diagnostics')):

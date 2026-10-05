@@ -171,11 +171,13 @@ def settle(app, window):
         return (window.busy or window.history.inflight or window.history.pending is not None
                 or window.history.auto_search.isActive() or window.autosave.isActive()
                 or window.device_retry.isActive() or window.devices_inflight
-                or window.dashboard.inflight or window.dashboard.pending is not None)
+                or window.dashboard.inflight or window.dashboard.pending is not None
+                or window.home.recent.inflight or window.home.recent.pending is not None)
     while pending() and time.monotonic() < deadline:
         app.processEvents()
         time.sleep(0.01)
     assert not pending()
+
 
 
 @pytest.fixture
@@ -2422,10 +2424,14 @@ def test_status_page_loads_only_when_open_and_copies_full_final_text(window, qt_
     settle(qt_app, window)
     assert reads.count('dashboard_read') == 1
     assert window.dashboard.metrics['today'][0].text() == '1'
-    assert window.dashboard.entries.count() == 1
-    assert 'PRIVATE' not in window.dashboard.entries.itemAt(0).widget().accessibleName()
+    assert not hasattr(window.dashboard, 'entries')
+    window.show_home()
+    window.home.recent.refresh()
+    settle(qt_app, window)
+    assert window.home.recent.entries.count() == 1
+    assert 'PRIVATE' not in window.home.recent.entries.itemAt(0).widget().accessibleName()
     clipboard.setText.assert_not_called()
-    window.dashboard.entries.itemAt(0).widget().click()
+    window.home.recent.entries.itemAt(0).widget().click()
     settle(qt_app, window)
     clipboard.setText.assert_called_once_with(final.strip())
     assert 'llm_cost_tracking' in PAGES['records'] and 'llm_cost_tracking' not in PAGES['diagnostics']
@@ -2442,6 +2448,7 @@ def test_status_page_loads_only_when_open_and_copies_full_final_text(window, qt_
     assert clipboard.setText.call_args.args[0] == window.report.toPlainText()
 
 
+
 def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_root, monkeypatch):
     import threading
     from datetime import datetime
@@ -2451,7 +2458,8 @@ def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_roo
     clipboard = Mock()
     monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
     DiaryWriter(gui_root / Backend(gui_root).config()['transcript_dir']).write('Saved final', datetime.now().timestamp())
-    window.navigate('status')
+    window.show_home()
+    window.home.recent.refresh()
     settle(qt_app, window)
     entered, release = threading.Event(), threading.Event()
     dispatch = window.backend.dispatch
@@ -2461,13 +2469,14 @@ def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_roo
             assert release.wait(3)
         return dispatch(method, params)
     monkeypatch.setattr(window.backend, 'dispatch', delayed)
-    window.dashboard.entries.itemAt(0).widget().click()
+    window.home.recent.entries.itemAt(0).widget().click()
     assert entered.wait(2)
     window.navigate('general')
     release.set()
     settle(qt_app, window)
     clipboard.setText.assert_not_called()
-    assert not window.dashboard.retry.isActive()
+    assert not window.home.recent.retry.isActive()
+
 
 
 def test_status_busy_retry_and_errors_keep_page_usable(window, qt_app, monkeypatch):
@@ -2497,7 +2506,7 @@ def test_status_busy_retry_and_errors_keep_page_usable(window, qt_app, monkeypat
 
 
 
-def test_status_refresh_preserves_rows_and_latest_filter_then_keyboard_copy(window, qt_app, gui_root, monkeypatch):
+def test_recent_refresh_preserves_rows_and_keyboard_copy(window, qt_app, gui_root, monkeypatch):
     import threading
     from datetime import datetime, timedelta
     from unittest.mock import Mock
@@ -2511,9 +2520,10 @@ def test_status_refresh_preserves_rows_and_latest_filter_then_keyboard_copy(wind
     moment = datetime.now()
     writer.write('Yesterday final', (moment - timedelta(days=1)).timestamp())
     writer.write('Today final', moment.timestamp())
-    window.navigate('status')
+    window.show_home()
+    window.home.recent.refresh()
     settle(qt_app, window)
-    page = window.dashboard
+    page = window.home.recent
     original = page.entries.itemAt(0).widget()
     page.refresh()
     settle(qt_app, window)
@@ -2523,22 +2533,23 @@ def test_status_refresh_preserves_rows_and_latest_filter_then_keyboard_copy(wind
     dispatch = window.backend.dispatch
     def delayed(method, params):
         result = dispatch(method, params)
-        if method == 'dashboard_read' and params['period'] == 'recent':
+        if method == 'history_query' and not params.get('date_from'):
             entered.set()
             assert release.wait(3)
         return result
     monkeypatch.setattr(window.backend, 'dispatch', delayed)
     page.refresh()
     assert entered.wait(2)
-    page.period.setCurrentIndex(page.period.findData('today'))
+    page.refresh()
     release.set()
     settle(qt_app, window)
-    assert page.entries.count() == 1
+    assert page.entries.count() == 2
     button = page.entries.itemAt(0).widget()
     button.setFocus()
     QTest.keyClick(button, Qt.Key.Key_Return)
     settle(qt_app, window)
     clipboard.setText.assert_called_once_with('Today final')
+
 
 
 def test_close_waits_for_status_read_and_stops_refresh(window, qt_app, monkeypatch):
@@ -2615,7 +2626,7 @@ def test_activity_dashboard_localized_layout(qt_app, tmp_path, locale, width):
     from PySide6.QtWidgets import QFrame, QScrollArea
     previous = get_language()
     set_language(locale)
-    widget = StatusPage(lambda *args, **kwargs: False, lambda *_: None)
+    widget = StatusPage(lambda *args, **kwargs: False)
     # Match the real page container: tall content scrolls instead of becoming a native window.
     host = QScrollArea()
     host.setFrameShape(QFrame.Shape.NoFrame)
@@ -2705,3 +2716,140 @@ def test_activity_dashboard_localized_layout(qt_app, tmp_path, locale, width):
         host.deleteLater()
         qt_app.processEvents()
         set_language(previous)
+
+
+
+def test_recent_copy_uses_window_toast(window, qt_app, gui_root, monkeypatch):
+    from datetime import datetime
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication, QLabel
+    from core.i18n import tr
+    from core.client.diary.diary_writer import DiaryWriter
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    DiaryWriter(gui_root / Backend(gui_root).config()['transcript_dir']).write(
+        'Synthetic one-click copy', datetime.now().timestamp())
+    window.show_home()
+    window.home.recent.refresh()
+    settle(qt_app, window)
+    page = window.home.recent
+    button = page.entries.itemAt(0).widget()
+    button.click()
+    settle(qt_app, window)
+    clipboard.setText.assert_called_once_with('Synthetic one-click copy')
+    toast = page.copy_toast
+    assert toast.isVisible() and toast.text() == tr('gui.dashboard_copied')
+    assert toast.parentWidget() is window
+    assert not any(tr('gui.dashboard_copied') in label.text() for label in button.findChildren(QLabel))
+    shortcuts_card = window.home.shortcuts.parentWidget()
+    assert page.parentWidget() is window.home
+    assert page.y() >= shortcuts_card.y() + shortcuts_card.height()
+
+
+
+def test_recent_copy_failure_is_visible_beside_record(window, qt_app, gui_root, monkeypatch):
+    from datetime import datetime
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication, QLabel
+    from core.i18n import tr
+    from core.client.diary.diary_writer import DiaryWriter
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    directory = gui_root / Backend(gui_root).config()['transcript_dir']
+    now = datetime.now()
+    DiaryWriter(directory).write('Synthetic original', now.timestamp())
+    window.show_home()
+    window.home.recent.refresh()
+    settle(qt_app, window)
+    from core.settings_gui.history import day_path
+    day_path(directory, now.date().isoformat()).write_text('Changed record', encoding='utf-8')
+    page = window.home.recent
+    button = page.entries.itemAt(0).widget()
+    button.click()
+    settle(qt_app, window)
+    clipboard.setText.assert_not_called()
+    assert any(tr('gui.dashboard_failed') in label.text() for label in button.findChildren(QLabel))
+    assert tr('gui.dashboard_copied') not in page.note.text()
+
+
+
+@pytest.mark.parametrize('locale', ['en', 'zh-CN'])
+@pytest.mark.parametrize('width', [600, 900])
+def test_overview_recent_layout(qt_app, locale, width):
+    from core.i18n import get_language, set_language
+    from core.settings_gui.recent_words import RecentWords
+    from core.settings_gui.presentation import HomePage, apply_theme
+    from PySide6.QtGui import QFont, QFontDatabase
+    from PySide6.QtWidgets import QLabel, QScrollArea
+    previous = get_language()
+    set_language(locale)
+    recent = RecentWords(lambda *args, **kwargs: False)
+    home = HomePage(lambda *_: None, lambda *_: None, lambda: None, recent)
+    outer = QScrollArea()
+    outer.setWidgetResizable(True)
+    outer.setWidget(home)
+    font_id = QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc')
+    families = QFontDatabase.applicationFontFamilies(font_id)
+    for widget in (outer,):
+        apply_theme(widget)
+        if families:
+            widget.setFont(QFont(families[0]))
+        widget.resize(width, 800)
+        widget.show()
+    try:
+        entries = [{'day': '2026-10-05', 'time': f'12:00:{i:02}', 'preview': 'Synthetic words ' * 15,
+                    'offset': i, 'length': 100, 'digest': 'a' * 64} for i in range(15)]
+        recent.show_data({'entries': entries, 'limited': False, 'skipped': 0, 'saving_enabled': True})
+        for _ in range(5):
+            qt_app.processEvents()
+        assert recent.entries.count() == 5
+        assert outer.horizontalScrollBar().maximum() == 0
+        assert not recent.findChildren(QScrollArea)
+        assert not hasattr(recent, 'period') and not hasattr(recent, 'refresh_button')
+        previous_bottom = 0
+        for index in range(5):
+            button = recent.entries.itemAt(index).widget()
+            assert button.isVisible() and button.y() >= previous_bottom
+            assert button.geometry().bottom() < recent.height()
+            for label in button.findChildren(QLabel):
+                assert label.y() + label.height() <= button.height()
+                assert label.height() >= label.heightForWidth(label.width())
+            previous_bottom = button.geometry().bottom()
+        shortcuts_card = home.shortcuts.parentWidget()
+        assert home.layout().indexOf(recent) == home.layout().indexOf(shortcuts_card) + 1
+        outer.hide()
+        assert not recent.timer.isActive()
+    finally:
+        recent.stop()
+        outer.close()
+        outer.deleteLater()
+        qt_app.processEvents()
+        set_language(previous)
+
+
+
+def test_overview_toast_follows_window_and_stops_on_navigation(window, qt_app):
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtTest import QTest
+    page = window.home.recent
+    focus = QApplication.focusWidget()
+    page.notify_copied()
+    toast = page.copy_toast
+    assert toast.parentWidget() is window and toast.isVisible() and not toast.isWindow()
+    assert QApplication.focusWidget() is focus
+    window.resize(1000, 760)
+    qt_app.processEvents()
+    assert abs(toast.geometry().center().x() - window.width() / 2) <= 2
+    assert abs(toast.geometry().center().y() - window.height() * 0.8) <= 2
+    toast.timer.setInterval(80)
+    page.notify_copied()
+    QTest.qWait(45)
+    page.notify_copied()
+    QTest.qWait(45)
+    assert toast.isVisible()
+    QTest.qWait(70)
+    assert not toast.isVisible()
+    page.notify_copied()
+    window.navigate('general')
+    assert not toast.isVisible() and not toast.timer.isActive()
+    assert not page.timer.isActive()
