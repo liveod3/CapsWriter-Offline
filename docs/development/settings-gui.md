@@ -138,17 +138,55 @@ Native callback layout and lifetime rules follow Microsoft's [IMMNotificationCli
 
 ## Recognition history
 
-`history.py` queries the existing daily Markdown files under the effective `transcript_dir`; standalone mode uses the saved directory. There is no new index, collection, archive format or diagnostic text copy. The separate history workspace reads content only when first opened, searched/paged or a result is selected, not during status polling. The GUI worker performs reads off the Qt thread through the existing serialized adapter. Returned content stays inside the owned local pipe and plain-text widgets; no provider, caret or clipboard read is involved. Clipboard writes require the explicit Copy action.
+The history workspace uses one shared white rounded panel. A localized total/range,
+search controls and wrapping calendar filters remain above an independently scrolling
+single-column list. Dates group the newest-first records. Clicking a row or pressing
+Enter/Space expands its own detail below the header without closing other records.
+A visible scrollbar and a fixed compact footer keep the result interval beside
+numbered page links. The current page remains editable for direct jumps.
+
+`history_widgets.py` owns wrapped row headers, disclosure arrows and animated pixel
+wheel scrolling; high-resolution touchpad deltas retain native handling. Keyboard
+navigation, scrollbar dragging, range changes and hiding stop pending animation.
+A bounded main-thread layout adjustment preserves the clicked/visible row position
+across deferred Qt child layouts. User scrolling and hiding cancel that adjustment.
+
+`history.py` queries the existing daily Markdown files under the effective `transcript_dir`; standalone mode uses the saved directory. There is no new index, collection, archive format or diagnostic text copy. The full history query reads content on entry, search/paging, relative-date rollover or record selection. The latest-five preview refreshes only while its page is visible, independently of status polling. The GUI worker performs reads off the Qt thread through the existing serialized adapter. Returned content stays inside the owned local pipe and plain-text widgets; no provider, caret or clipboard read is involved. Clipboard writes require the explicit Copy action.
 
 Queries accept independent inclusive date bounds, a case-insensitive keyword of at most 200 characters and a bounded page number. The GUI uses calendar popups with all-dates, today, last-seven-days, current-month and custom choices; the older month parameter remains available to internal callers. Discovery visits only the three-level `YYYY/MM/DD.md` archive layout, pruning directories outside the date range, and stops after 20,000 directory entries. Reads enforce containment in the resolved archive root and use at most 2 MiB from each day tail and 16 MiB per query. At most 10,000 records are inspected; limits and unreadable files are reported, not silently treated as complete results. Results contain 30 bounded previews per page, newest date/time first. Page numbers clamp to the last available page when concurrent archive changes reduce the result count. Existing `### HH:MM:SS` headings delimit records; old unstructured daily notes remain a day record. Markdown is inherently ambiguous if user text itself contains timestamp headings or metadata labels; this reader does not rewrite or promise lossless semantic reconstruction of legacy archives. The original day file remains accessible.
 
-List rebuilding blocks selection signals. Otherwise clearing a selected row may synchronously select another row, launch `history_read` and cause the foreground `history_query` to be dropped. History reads no longer disable the whole history/settings editor. Existing results and detail stay visible until replacement data arrives; a refresh preserves a selected entry that still appears unchanged. Progress has a reserved text row, and the empty-detail hint is centered in a muted panel rather than rendered as a record heading.
+History queries retain visible content until the newest response arrives. Unchanged
+entry identities (day, byte offset, length and digest) reuse their expanded widgets;
+other rows are disposed when replacing the page. Read details and queued expansion
+requests are bounded by the current 30-row page. Individual expansion errors stay
+with their row and can be retried by collapsing and reopening it. Blank results use
+a centered hint inside the list, without a separate detail pane.
 
-Preset date changes submit immediately; custom dates and keywords debounce for 300 ms. Enter and Refresh submit immediately; Clear filters resets both criteria. Pagination includes a bounded page input with Enter/Go and resets to page one on filter changes. A history-local queue keeps at most one accepted request and one latest pending intent; generation checks discard obsolete successes and errors. A main-thread retry timer submits pending work after the shared serialized dispatcher becomes available, including quiet polling or foreground settings work. Accepted history requests use completion-specific error callbacks. Pending work and timers stop on actual close/exit, not tray hiding. This adds no parallel backend reads or periodic history polling.
+Preset date changes submit immediately; custom dates and keywords debounce for
+300 ms. Enter and Refresh submit immediately; Clear filters resets both criteria.
+Numbered page links and previous/next controls share a right-aligned group with the
+visible result interval. Enter or leaving the current page field submits a changed,
+bounded page number; filter changes reset to page one. Partial/unreadable/saving-off
+notices remain explicit.
+
+A history-local dispatcher accepts one request at a time. Queries coalesce to the
+latest navigation intent and supersede queued detail reads. Expanded rows queue
+independent digest-validated reads, so opening another row cannot put its content
+in an earlier row. Query generations reject stale results/errors; per-operation
+tokens also reject callbacks arriving after stop/resume. A main-thread retry timer
+waits for the shared serialized dispatcher, including quiet polling and foreground
+settings work. Detail loading never disables the whole page. Timers and pending
+work stop on actual close/exit, not tray hiding.
+
+The full query refreshes when a visible relative range changes at a local date
+boundary. A one-second GUI timer checks only the date and stops while hidden.
+Re-entry, manual refresh, pagination and reselecting a period resolve relative
+dates. Today, Monday-based This week, rolling Last 7 days and This month follow the
+current date; custom dates remain fixed. Backend reads remain serialized.
 
 Detail requests carry a validated day, byte range and SHA-256 digest. Changed/deleted content gives a controlled error; details are limited to 64,000 characters and explicitly marked when clipped. All payloads stay below the existing 2 MiB pipe limit. Plain text display keeps Markdown links and HTML inert. Opening a day file uses Notepad with separate argv entries; desktop mode obtains the validated effective path from its worker but launches the editor in the GUI process so client shutdown cannot kill the user's editor. Disabled saving does not prevent querying existing records. Files are read live, so pagination is not a transactional snapshot across simultaneous archive changes.
 
-`history_detail.py` parses saved stages for the Processing, Saved request and Raw record tabs. Missing stages remain explicitly unavailable, including ambiguous deduplication of original text. Only a complete successful action record permits reconstructing omitted identical LLM output from the final text. Actual saved prompts are shown without reading current presets. No new archive fields or save permissions are introduced.
+`history_detail.py` parses saved stages; `history_view.py` displays them in each expanded record. Final result opens by default, with Processing, Saved request, Usage and cost, and Raw record tabs retaining all previously available details. Detail tabs fit their active contents; long text fields remain height-bounded and scrollable. Missing stages remain explicitly unavailable, including ambiguous deduplication of original text. Only a complete successful action record permits reconstructing omitted identical LLM output from the final text. Actual saved prompts are shown without reading current presets. No new archive fields or save permissions are introduced.
 
 When a saved request ID exists, detail loading first uses the unified activity database's indexed accounting view, then the recording month and neighboring legacy ledgers. Unified connections have a two-second lock timeout; legacy lookups retain a one-second timeout. Records longer than 65,536 SQLite characters are rejected. The GUI receives only allowed model/status/duration/usage/amount/provenance fields, never raw rate or endpoint metadata. Provider charges, rate estimates, token estimates and possible incomplete-request costs remain distinct; absent IDs, absent rows, invalid settings and unavailable ledgers do not imply zero and cannot block viewing the transcript. No retrospective rate calculation or network call is made.
 
@@ -173,8 +211,8 @@ below Your recording shortcuts. `recent_words.py` shows the latest five records 
 rows without an inner scroll area, collapse controls, period selector or refresh button.
 It refreshes on entry and every thirty seconds while visible. Clicking a row, Enter or
 Space reopens the digest-validated record and copies only the complete final stage;
-changed, empty or truncated results are rejected. Pending and failure feedback stay
-beside the clicked record. Successful copies from recent rows and the full history
+changed, empty or truncated results are rejected. Pending copies leave the row
+unchanged; failures remain visible beside the clicked record. Successful copies from recent rows and the full history
 use a shared Qt child-widget toast centered horizontally at 80% of the application
 window height. It lasts 2.4 seconds, restarts on repeated copies, follows window
 resizes, accepts no input or focus, and hides when the page/window hides or closes.
@@ -196,7 +234,7 @@ never imply zero. Cost tracking preferences live in Records.
 `StatusPage` uses the existing serialized background worker, one active request
 and one coalesced pending action. It refreshes on entry, manually and every thirty
 seconds while visible. Hidden pages stop timers and reject obsolete callbacks;
-generation checks also protect filter changes and explicit copy. Busy-worker
+generation checks also protect filter changes. Busy-worker
 retries preserve the current view, errors remain inline, and unchanged rows retain
 their widgets. Closing waits for bounded active reads/copies and stops refresh.
 Four overview cards adapt to one, two or four columns. Two dedicated timing cards

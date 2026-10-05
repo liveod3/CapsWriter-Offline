@@ -18,6 +18,23 @@ QLabel#eyebrow { color: #656d81; font-size: 11px; font-weight: 600; }
 QLabel#heading { font-size: 27px; font-weight: 700; color: #20253a; }
 QLabel#description, QLabel#muted { color: #70778b; }
 QWidget#historyEmpty { background: #f0f1f6; border-radius: 10px; }
+QFrame#historyOverview { background: transparent; border: none; }
+QLabel#historyTotal { color: #39315e; font-size: 23px; font-weight: 600; }
+QFrame#historyPagination { background: transparent; border: none; border-top: 1px solid #eceef5; }
+QPushButton#historyPageArrow { padding: 0; min-height: 30px; font-size: 23px; border: none; }
+QPushButton#historyPageLink { padding: 0; min-height: 30px; border: none; }
+QSpinBox#historyCurrentPage { background: #6953b9; color: white; border: none; padding: 6px 2px; }
+QSpinBox#historyCurrentPage:disabled { background: #f0ecfb; color: #6953b9; }
+QWidget#historyListContent { background: white; }
+QLabel#historyDateGroup { color: #70778b; font-weight: 600; padding: 14px 10px 10px; }
+QPushButton#historyRowHeader { background: transparent; border: none; border-top: 1px solid #eceef5; padding: 0; text-align: left; }
+QPushButton#historyRowHeader:hover { background: #f8f7fc; }
+QLabel#historyRowPreview[expanded="true"] { color: #6953b9; }
+QPushButton#historyRowHeader:focus { border: 1px solid #918ae2; padding: 0; }
+QFrame#historyDetail { background: #f7f7fa; border: none; border-radius: 9px; }
+QTabWidget#historyTabs::pane { border: none; background: #f7f7fa; }
+QScrollArea#historyList QScrollBar:vertical { background: #f2f3f7; width: 11px; margin: 0; }
+QScrollArea#historyList QScrollBar::handle:vertical { background: #b9bdcc; border-radius: 5px; min-height: 36px; }
 QLabel#emptyHint { color: #9299ab; font-size: 13px; }
 QLabel#cardTitle { font-size: 15px; font-weight: 600; }
 QLabel#heroTitle { font-size: 28px; font-weight: 700; }

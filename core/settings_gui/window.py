@@ -991,7 +991,7 @@ class SettingsWindow(QMainWindow):
                 callback.on_error(error)
             if self.active_method == 'desktop_stop':
                 self.exiting = False
-                self.history.stopped = False
+                self.history.resume_queries()
                 self.home.recent.resume()
                 self.dashboard.stopped = False
                 self.exit_button.setEnabled(True)

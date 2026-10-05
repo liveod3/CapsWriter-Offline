@@ -169,6 +169,7 @@ def settle(app, window):
     deadline = time.monotonic() + 5
     def pending():
         return (window.busy or window.history.inflight or window.history.pending is not None
+                or window.history.detail_queue or window.history.retry.isActive()
                 or window.history.auto_search.isActive() or window.autosave.isActive()
                 or window.device_retry.isActive() or window.devices_inflight
                 or window.dashboard.inflight or window.dashboard.pending is not None
@@ -177,7 +178,6 @@ def settle(app, window):
         app.processEvents()
         time.sleep(0.01)
     assert not pending()
-
 
 
 @pytest.fixture
@@ -1353,6 +1353,10 @@ def test_standby_and_manual_pause_have_distinct_guidance(window):
     assert window.home.detail.text() == tr('gui.paused_hint')
 
 
+def history_view(page, index=0):
+    return page.results.rows[index].detail
+
+
 def history_dates(page, start='2026-09-01', end='2026-09-30'):
     from PySide6.QtCore import QDate
     page.period.setCurrentIndex(page.period.findData('custom'))
@@ -1374,25 +1378,25 @@ def test_history_next_after_selection_completes(window, qt_app, gui_root, monkey
     history_dates(window.history)
     window.show_history()
     settle(qt_app, window)
-    window.history.results.setCurrentRow(0)
+    window.history.results.rows[0].header.click()
     settle(qt_app, window)
     calls.clear()
     window.history.next.click()
     settle(qt_app, window)
     assert window.history.page == 1, calls
-    assert window.history.results.count() == 15
+    assert len(window.history.results.rows) == 15
     assert calls == ['history_query']
-    window.history.results.setCurrentRow(0)
+    window.history.results.rows[0].header.click()
     settle(qt_app, window)
     window.history.previous.click()
     settle(qt_app, window)
-    assert window.history.page == 0 and window.history.results.count() == 30
-    window.history.results.setCurrentRow(0)
+    assert window.history.page == 0 and len(window.history.results.rows) == 30
+    window.history.results.rows[0].header.click()
     settle(qt_app, window)
     window.history.keyword.setText('Result 44')
     window.history.search.click()
     settle(qt_app, window)
-    assert window.history.results.count() == 1
+    assert len(window.history.results.rows) == 1
     assert not window.history.next.isEnabled()
 
 
@@ -1415,24 +1419,24 @@ def test_history_search_detail_copy_and_file_open_are_explicit(window, qt_app, g
     settle(qt_app, window)
     page = window.history
     assert window.workspace.currentIndex() == 2
-    assert page.results.count() == 1 and page.detail.toPlainText() == ''
+    assert len(page.results.rows) == 1 and history_view(page) is None
     assert not window.changes() and Backend(gui_root).config()['save_audio']
-    assert not page.copy.isEnabled()
+    assert history_view(page) is None
     clipboard.setText.assert_not_called()
     launch.assert_not_called()
-    page.results.setCurrentRow(0)
+    page.results.rows[0].header.click()
     settle(qt_app, window)
-    assert '<b>literal</b>' in page.detail.toPlainText()
-    assert 'Synthetic original' in page.detail.toPlainText()
+    assert '<b>literal</b>' in history_view(page).detail.toPlainText()
+    assert 'Synthetic original' in history_view(page).detail.toPlainText()
     clipboard.setText.assert_not_called()
-    page.copy.click()
-    clipboard.setText.assert_called_once_with(page.detail.toPlainText())
-    page.open_file.click()
+    history_view(page).copy.click()
+    clipboard.setText.assert_called_once_with(history_view(page).detail.toPlainText())
+    history_view(page).open_file.click()
     settle(qt_app, window)
     launch.assert_called_once_with(['notepad.exe', str(path)])
     window.show_home()
     window.history_button.click()
-    assert page.results.count() == 1
+    assert len(page.results.rows) == 1
 
 
 def test_history_uses_saved_directory_and_old_records_with_saving_off(window, qt_app, gui_root):
@@ -1446,7 +1450,7 @@ def test_history_uses_saved_directory_and_old_records_with_saving_off(window, qt
     history_dates(window.history, '2024-02-01', '2024-02-29')
     window.show_history()
     settle(qt_app, window)
-    assert window.history.results.count() == 1
+    assert len(window.history.results.rows) == 1
     from core.i18n import tr
     assert tr('gui.history_saving_off') in window.history.summary.text()
     assert not (gui_root / 'records').exists()
@@ -1462,8 +1466,8 @@ def test_invalid_history_query_shows_inline_feedback(window, qt_app, monkeypatch
     settle(qt_app, window)
     from core.i18n import tr
     assert tr('gui.history_invalid_range') in window.history.progress.text()
-    assert window.history.results.count() == 0
-    assert window.history.isEnabled() and not window.history.copy.isEnabled()
+    assert len(window.history.results.rows) == 0
+    assert window.history.isEnabled() and not window.history.results.rows
     modal.assert_not_called()
     window.history.reset.click()
     settle(qt_app, window)
@@ -1484,7 +1488,7 @@ def test_history_calendar_keyword_only_and_combined_filters(window, qt_app, gui_
     page.keyword.setText('KEYWORD')
     window.show_history()
     settle(qt_app, window)
-    assert page.results.count() == 1
+    assert len(page.results.rows) == 1
     assert page.date_from.calendarPopup() and page.date_to.calendarPopup()
     assert page.date_from.calendarWidget().selectedDate() == QDate(2026, 9, 1)
     QTest.mouseClick(page.date_from, Qt.MouseButton.LeftButton,
@@ -1494,10 +1498,10 @@ def test_history_calendar_keyword_only_and_combined_filters(window, qt_app, gui_
     QTest.keyClick(page.date_from.calendarWidget(), Qt.Key.Key_Escape)
     page.period.setCurrentIndex(page.period.findData('all'))
     settle(qt_app, window)
-    assert page.results.count() == 2 and page.query == {'keyword': 'KEYWORD'}
+    assert len(page.results.rows) == 2 and page.query == {'keyword': 'KEYWORD'}
     page.reset.click()
     settle(qt_app, window)
-    assert page.keyword.text() == '' and page.results.count() == 2
+    assert page.keyword.text() == '' and len(page.results.rows) == 2
 
 
 def test_history_selection_details_costs_and_copy_result(window, qt_app, gui_root, monkeypatch):
@@ -1526,19 +1530,19 @@ def test_history_selection_details_costs_and_copy_result(window, qt_app, gui_roo
     window.show_history()
     settle(qt_app, window)
     page = window.history
-    page.results.setCurrentRow(0)
+    page.results.rows[0].header.click()
     settle(qt_app, window)
-    assert page.stage_fields['original'].toPlainText() == 'Raw recognition'
-    assert page.stage_fields['input'].toPlainText() == 'Action input'
-    assert page.stage_fields['output'].toPlainText() == 'Final result'
-    assert page.stage_fields['final'].toPlainText() == 'Final result'
-    assert page.stage_fields['prompt'].toPlainText() == 'Historical prompt'
-    assert 'USD 0.000123' in page.record_meta.text()
-    assert tr('gui.history_cost_rate_estimate') in page.record_meta.text()
-    assert 'test-model' in page.cost_detail.text() and '123' in page.cost_detail.text()
-    assert page.copy_final.isEnabled() and not page.tabs.isHidden()
+    assert history_view(page).stage_fields['original'].toPlainText() == 'Raw recognition'
+    assert history_view(page).stage_fields['input'].toPlainText() == 'Action input'
+    assert history_view(page).stage_fields['output'].toPlainText() == 'Final result'
+    assert history_view(page).stage_fields['final'].toPlainText() == 'Final result'
+    assert history_view(page).stage_fields['prompt'].toPlainText() == 'Historical prompt'
+    assert 'USD 0.000123' in history_view(page).cost_detail.text()
+    assert tr('gui.history_cost_rate_estimate') in history_view(page).cost_detail.text()
+    assert 'test-model' in history_view(page).cost_detail.text() and '123' in history_view(page).cost_detail.text()
+    assert history_view(page).copy_final.isEnabled() and not history_view(page).tabs.isHidden()
     clipboard.setText.assert_not_called()
-    page.copy_final.click()
+    history_view(page).copy_final.click()
     clipboard.setText.assert_called_once_with('Final result')
 
 
@@ -1551,7 +1555,7 @@ def test_history_query_waits_for_quiet_poll_without_stalling(window, qt_app, gui
     history_dates(window.history)
     window.show_history()
     settle(qt_app, window)
-    window.history.results.setCurrentRow(0)
+    window.history.results.rows[0].header.click()
     settle(qt_app, window)
     release = threading.Event()
     dispatch = window.backend.dispatch
@@ -1569,7 +1573,7 @@ def test_history_query_waits_for_quiet_poll_without_stalling(window, qt_app, gui
     finally:
         release.set()
     settle(qt_app, window)
-    assert window.history.results.count() == 0
+    assert len(window.history.results.rows) == 0
     assert window.history.isEnabled() and window.pending_request is None
 
 
@@ -1586,19 +1590,19 @@ def test_history_preset_dates_and_keyword_apply_without_submit(window, qt_app, g
     page.period.setCurrentIndex(page.period.findData('all'))
     window.show_history()
     settle(qt_app, window)
-    assert page.results.count() == 3
+    assert len(page.results.rows) == 3
     page.period.setCurrentIndex(page.period.findData('today'))
     settle(qt_app, window)
-    assert page.results.count() == 1 and 'Alpha' in page.results.item(0).text()
+    assert len(page.results.rows) == 1 and 'Alpha' in page.results.rows[0].entry['preview']
     page.period.setCurrentIndex(page.period.findData('week'))
     settle(qt_app, window)
-    assert page.results.count() == 2
+    assert len(page.results.rows) == 2
     QTest.keyClicks(page.keyword, 'Beta')
     settle(qt_app, window)
-    assert page.results.count() == 1 and 'Beta' in page.results.item(0).text()
+    assert len(page.results.rows) == 1 and 'Beta' in page.results.rows[0].entry['preview']
     page.date_to.setDate(today.addDays(-6))
     settle(qt_app, window)
-    assert page.period.currentData() == 'custom' and page.results.count() == 0
+    assert page.period.currentData() == 'custom' and len(page.results.rows) == 0
 
 
 def test_history_jump_enter_and_page_bounds(window, qt_app, gui_root):
@@ -1615,17 +1619,17 @@ def test_history_jump_enter_and_page_bounds(window, qt_app, gui_root):
     settle(qt_app, window)
     assert page.page_number.maximum() == 4
     page.page_number.setValue(3)
-    page.jump.click()
+    page.page_number.editingFinished.emit()
     settle(qt_app, window)
-    assert page.page == 2 and page.results.count() == 30
+    assert page.page == 2 and len(page.results.rows) == 30
     page.page_number.setValue(999)
     QTest.keyClick(page.page_number.lineEdit(), Qt.Key.Key_Return)
     settle(qt_app, window)
-    assert page.page == 3 and page.results.count() == 5 and not page.next.isEnabled()
+    assert page.page == 3 and len(page.results.rows) == 5 and not page.next.isEnabled()
     page.keyword.setText('Result 94')
     settle(qt_app, window)
     assert page.page == 0 and page.page_number.maximum() == 1
-    assert not page.jump.isEnabled()
+    assert not page.page_number.isEnabled()
 
 
 def test_history_refresh_keeps_controls_and_content_stable(window, qt_app, gui_root, monkeypatch):
@@ -1639,9 +1643,9 @@ def test_history_refresh_keeps_controls_and_content_stable(window, qt_app, gui_r
     history_dates(page)
     window.show_history()
     settle(qt_app, window)
-    page.results.setCurrentRow(0)
+    page.results.rows[0].header.click()
     settle(qt_app, window)
-    before = page.detail.toPlainText()
+    before = history_view(page).detail.toPlainText()
     changes = []
     class Observer(QObject):
         def eventFilter(self, watched, event):
@@ -1649,8 +1653,8 @@ def test_history_refresh_keeps_controls_and_content_stable(window, qt_app, gui_r
                 changes.append((watched, event.type()))
             return False
     observer = Observer(page)
-    controls = (page.search, page.reset, page.period, page.copy_final, page.open_file,
-                window.advanced, window.exit_button, page.tabs)
+    controls = (page.search, page.reset, page.period, history_view(page).copy_final, history_view(page).open_file,
+                window.advanced, window.exit_button, history_view(page).tabs)
     for control in controls:
         control.installEventFilter(observer)
     release = threading.Event()
@@ -1663,13 +1667,13 @@ def test_history_refresh_keeps_controls_and_content_stable(window, qt_app, gui_r
     try:
         page.search.click()
         qt_app.processEvents()
-        assert page.results.count() == 1 and page.detail.toPlainText() == before
-        assert page.copy_final.isEnabled() and page.period.isEnabled()
-        assert not page.tabs.isHidden()
+        assert len(page.results.rows) == 1 and history_view(page).detail.toPlainText() == before
+        assert history_view(page).copy_final.isEnabled() and page.period.isEnabled()
+        assert not history_view(page).tabs.isHidden()
     finally:
         release.set()
     settle(qt_app, window)
-    assert page.detail.toPlainText() == before and page.results.currentRow() == 0
+    assert history_view(page).detail.toPlainText() == before and page.results.rows[0].expanded
     assert changes == []
 
 
@@ -1703,7 +1707,7 @@ def test_history_latest_filter_wins_over_slow_error(window, qt_app, gui_root, mo
         release.set()
     settle(qt_app, window)
     assert calls == ['obsolete', 'Final choice']
-    assert page.results.count() == 1 and page.progress.text() == ''
+    assert len(page.results.rows) == 1 and page.progress.text() == ''
     assert page.query == {'keyword': 'Final choice'}
 
 
@@ -1712,9 +1716,10 @@ def test_history_empty_hint_is_centered_and_not_a_record_heading(window, qt_app)
     window.show_history()
     settle(qt_app, window)
     page = window.history
-    assert page.record_title.isHidden() and not page.empty_hint.isHidden()
-    assert page.empty_hint.alignment() == Qt.AlignmentFlag.AlignCenter
-    assert abs(page.empty_hint.geometry().center().y() - page.empty_space.rect().center().y()) <= 2
+    hint = page.results.empty_hint
+    assert not hint.isHidden()
+    assert hint.alignment() == Qt.AlignmentFlag.AlignCenter
+    assert page.results.viewport().rect().contains(hint.mapTo(page.results.viewport(), hint.rect().center()))
 
 
 def test_history_rapid_selection_preserves_display_until_latest_detail_arrives(window, qt_app, gui_root, monkeypatch):
@@ -1727,7 +1732,7 @@ def test_history_rapid_selection_preserves_display_until_latest_detail_arrives(w
     history_dates(page)
     window.show_history()
     settle(qt_app, window)
-    page.results.setCurrentRow(0)
+    page.results.rows[0].header.click()
     settle(qt_app, window)
     release = threading.Event()
     dispatch = window.backend.dispatch
@@ -1736,22 +1741,17 @@ def test_history_rapid_selection_preserves_display_until_latest_detail_arrives(w
             assert release.wait(3)
         return dispatch(method, params)
     monkeypatch.setattr(window.backend, 'dispatch', delayed)
-    shown = []
-    show_entry = page.show_entry
-    def track(result, entry):
-        shown.append(result['stages']['final'])
-        show_entry(result, entry)
-    monkeypatch.setattr(page, 'show_entry', track)
     try:
-        page.results.setCurrentRow(1)
-        page.results.setCurrentRow(2)
+        page.results.rows[1].header.click()
+        page.results.rows[2].header.click()
         qt_app.processEvents()
-        assert page.final_text == 'Result 2'
-        assert page.copy_final.isEnabled() and not page.tabs.isHidden()
+        assert history_view(page).final_text == 'Result 2'
+        assert history_view(page).copy_final.isEnabled()
     finally:
         release.set()
     settle(qt_app, window)
-    assert shown == ['Result 0'] and page.final_text == 'Result 0'
+    assert [history_view(page, i).final_text for i in range(3)] == ['Result 2', 'Result 1', 'Result 0']
+    assert all(row.expanded for row in page.results.rows)
 
 
 def test_history_shutdown_drops_deferred_reads(window, qt_app, gui_root, monkeypatch):
@@ -1760,7 +1760,7 @@ def test_history_shutdown_drops_deferred_reads(window, qt_app, gui_root, monkeyp
     dispatch = window.backend.dispatch
     calls = []
     def delayed(method, params):
-        calls.append(method)
+        calls.append((method, params))
         assert release.wait(3)
         return dispatch(method, params)
     monkeypatch.setattr(window.backend, 'dispatch', delayed)
@@ -1772,7 +1772,8 @@ def test_history_shutdown_drops_deferred_reads(window, qt_app, gui_root, monkeyp
     finally:
         release.set()
     settle(qt_app, window)
-    assert calls == ['history_query']
+    assert len(calls) == 1
+    assert all(method == 'history_query' and params.get('keyword') != 'pending' for method, params in calls)
     assert page.pending is None and not page.retry.isActive() and not page.auto_search.isActive()
 
 
@@ -2448,7 +2449,6 @@ def test_status_page_loads_only_when_open_and_copies_full_final_text(window, qt_
     assert clipboard.setText.call_args.args[0] == window.report.toPlainText()
 
 
-
 def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_root, monkeypatch):
     import threading
     from datetime import datetime
@@ -2476,7 +2476,6 @@ def test_status_stale_copy_is_ignored_after_leaving_page(window, qt_app, gui_roo
     settle(qt_app, window)
     clipboard.setText.assert_not_called()
     assert not window.home.recent.retry.isActive()
-
 
 
 def test_status_busy_retry_and_errors_keep_page_usable(window, qt_app, monkeypatch):
@@ -2549,7 +2548,6 @@ def test_recent_refresh_preserves_rows_and_keyboard_copy(window, qt_app, gui_roo
     QTest.keyClick(button, Qt.Key.Key_Return)
     settle(qt_app, window)
     clipboard.setText.assert_called_once_with('Today final')
-
 
 
 def test_close_waits_for_status_read_and_stops_refresh(window, qt_app, monkeypatch):
@@ -2718,6 +2716,78 @@ def test_activity_dashboard_localized_layout(qt_app, tmp_path, locale, width):
         set_language(previous)
 
 
+@pytest.mark.parametrize(('period', 'before', 'after', 'start'), [
+    ('today', (2026, 10, 4), (2026, 10, 5), '2026-10-05'),
+    ('this_week', (2026, 10, 4), (2026, 10, 5), '2026-10-05'),
+    ('this_week', (2026, 10, 5), (2026, 10, 6), '2026-10-05'),
+    ('week', (2026, 10, 4), (2026, 10, 5), '2026-09-29'),
+    ('month', (2026, 12, 31), (2027, 1, 1), '2027-01-01'),
+    ('month', (2028, 2, 28), (2028, 2, 29), '2028-02-01'),
+])
+def test_history_semantic_ranges_roll_forward(window, qt_app, monkeypatch, period, before, after, start):
+    from PySide6.QtCore import QDate
+    from core.settings_gui import history_page
+    class ClockDate(QDate):
+        value = QDate(*before)
+        @staticmethod
+        def currentDate():
+            return ClockDate.value
+    monkeypatch.setattr(history_page, 'QDate', ClockDate)
+    page = window.history
+    page.period.setCurrentIndex(page.period.findData(period))
+    window.show_history()
+    settle(qt_app, window)
+    page.keyword.setText('Synthetic')
+    settle(qt_app, window)
+    ClockDate.value = QDate(*after)
+    page.calendar_timer.timeout.emit()
+    settle(qt_app, window)
+    assert page.query == {'keyword': 'Synthetic', 'date_from': start,
+                          'date_to': ClockDate.value.toString('yyyy-MM-dd')}
+    assert page.period.currentData() == period and page.page == 0
+    assert page.date_from.date().toString('yyyy-MM-dd') == start
+
+
+def test_history_reentry_refresh_and_paging_resolve_current_dates(window, qt_app, monkeypatch):
+    from PySide6.QtCore import QDate
+    from core.settings_gui import history_page
+    class ClockDate(QDate):
+        value = QDate(2026, 10, 4)
+        @staticmethod
+        def currentDate():
+            return ClockDate.value
+    monkeypatch.setattr(history_page, 'QDate', ClockDate)
+    page = window.history
+    page.period.setCurrentIndex(page.period.findData('today'))
+    window.show_history()
+    settle(qt_app, window)
+    window.show_home()
+    assert not page.calendar_timer.isActive()
+    ClockDate.value = QDate(2026, 10, 5)
+    window.show_history()
+    settle(qt_app, window)
+    assert page.query['date_from'] == '2026-10-05'
+    ClockDate.value = QDate(2026, 10, 6)
+    page.search.click()
+    settle(qt_app, window)
+    assert page.query['date_from'] == '2026-10-06'
+    ClockDate.value = QDate(2026, 10, 7)
+    page.fetch(1)
+    settle(qt_app, window)
+    assert page.query['date_from'] == '2026-10-07' and page.page == 0
+    history_dates(page, '2026-09-01', '2026-09-02')
+    settle(qt_app, window)
+    generation = page.generation
+    ClockDate.value = QDate(2026, 11, 1)
+    page.calendar_timer.timeout.emit()
+    assert page.generation == generation and page.query['date_from'] == '2026-09-01'
+    page.stop_queries()
+    assert not page.calendar_timer.isActive()
+    page.resume_queries()
+    settle(qt_app, window)
+    assert page.calendar_timer.isActive()
+    assert not page.stopped
+
 
 def test_recent_copy_uses_window_toast(window, qt_app, gui_root, monkeypatch):
     from datetime import datetime
@@ -2734,7 +2804,9 @@ def test_recent_copy_uses_window_toast(window, qt_app, gui_root, monkeypatch):
     settle(qt_app, window)
     page = window.home.recent
     button = page.entries.itemAt(0).widget()
+    captions = [label.text() for label in button.findChildren(QLabel)]
     button.click()
+    assert [label.text() for label in button.findChildren(QLabel)] == captions
     settle(qt_app, window)
     clipboard.setText.assert_called_once_with('Synthetic one-click copy')
     toast = page.copy_toast
@@ -2770,7 +2842,6 @@ def test_recent_copy_failure_is_visible_beside_record(window, qt_app, gui_root, 
     clipboard.setText.assert_not_called()
     assert any(tr('gui.dashboard_failed') in label.text() for label in button.findChildren(QLabel))
     assert tr('gui.dashboard_copied') not in page.note.text()
-
 
 
 @pytest.mark.parametrize('locale', ['en', 'zh-CN'])
@@ -2827,6 +2898,54 @@ def test_overview_recent_layout(qt_app, locale, width):
         set_language(previous)
 
 
+def test_copy_toast_position_timeout_reuse_and_cleanup(window, qt_app, monkeypatch):
+    from unittest.mock import Mock
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    window.show_history()
+    settle(qt_app, window)
+    page = window.history
+    page.keyword.setFocus()
+    focus = QApplication.focusWidget()
+    from core.settings_gui.history_widgets import HistoryRow
+    row = HistoryRow({'day': '2026-09-28', 'time': '12:00:00', 'preview': 'Synthetic final'})
+    page.results.replace_rows([row])
+    page.show_entry({'text': 'Synthetic raw', 'stages': {'final': 'Synthetic final'}, 'truncated': False}, row)
+    history_view(page).copy_result()
+    toast = page.copy_toast
+    assert clipboard.setText.call_args.args == ('Synthetic final',)
+    assert toast.isVisible() and not toast.isWindow()
+    assert toast.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+    assert QApplication.focusWidget() is focus
+    for width, height in ((1100, 900), (960, 720)):
+        window.resize(width, height)
+        qt_app.processEvents()
+        assert abs(toast.geometry().center().x() - window.width() / 2) <= 2
+        assert abs(toast.geometry().center().y() - window.height() * 0.8) <= 2
+        assert window.rect().contains(toast.geometry())
+    toast.timer.setInterval(80)
+    QTest.qWait(45)
+    history_view(page).detail.setPlainText('Synthetic raw')
+    history_view(page).detail_note.setText('Keep truncation warning')
+    history_view(page).copy_entry()
+    assert page.copy_toast is toast and history_view(page).detail_note.text() == 'Keep truncation warning'
+    QTest.qWait(45)
+    assert toast.isVisible()
+    QTest.qWait(70)
+    assert not toast.isVisible() and not toast.timer.isActive()
+    history_view(page).copy_result()
+    window.show_home()
+    assert not toast.isVisible() and not toast.timer.isActive()
+    window.show_history()
+    settle(qt_app, window)
+    history_view(page).copy_result()
+    window.hide()
+    assert not toast.isVisible() and not toast.timer.isActive()
+
+
 
 def test_overview_toast_follows_window_and_stops_on_navigation(window, qt_app):
     from PySide6.QtWidgets import QApplication
@@ -2853,3 +2972,255 @@ def test_overview_toast_follows_window_and_stops_on_navigation(window, qt_app):
     window.navigate('general')
     assert not toast.isVisible() and not toast.timer.isActive()
     assert not page.timer.isActive()
+
+
+
+@pytest.mark.parametrize('locale', ['en', 'zh-CN'])
+@pytest.mark.parametrize('width', [600, 900])
+def test_history_results_panel_pagination_and_spacing(qt_app, locale, width):
+    from core.i18n import get_language, set_language, tr
+    from core.settings_gui.history_page import HistoryPage
+    from core.settings_gui.presentation import apply_theme
+    from PySide6.QtGui import QFont, QFontDatabase
+    from PySide6.QtCore import Qt
+    previous = get_language()
+    set_language(locale)
+    page = HistoryPage(lambda *args, **kwargs: False)
+    apply_theme(page)
+    families = QFontDatabase.applicationFontFamilies(QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc'))
+    if families:
+        page.setFont(QFont(families[0]))
+    try:
+        page.resize(width, 900)
+        page.show()
+        page.query = {'keyword': '', 'date_from': '2026-09-01', 'date_to': '2026-09-30'}
+        entries = [{'day': '2026-09-28', 'time': '12:00:00', 'preview': 'Synthetic long recognition words. ' * 4,
+                    'offset': i, 'length': 100, 'digest': 'a' * 64} for i in range(30)]
+        page.loaded({'entries': entries, 'page': 0, 'page_size': 30, 'total': 235,
+                     'limited': False, 'skipped': 0, 'saving_enabled': True})
+        for _ in range(5):
+            qt_app.processEvents()
+        assert '235' in page.total_label.text() and page.total_label.objectName() == 'historyTotal'
+        assert '2026-09-01' not in page.scope_label.text() and '2026-09-28' not in page.results.rows[0].header.accessibleName()
+        assert page.position_label.text() == tr('gui.history_showing', first=1, last=30, total=235)
+        assert page.page_number.maximum() == 8 and page.next.isEnabled() and not page.previous.isEnabled()
+        assert page.search_panel.objectName() == 'card'
+        for child in (page.keyword, page.results, page.pagination):
+            assert page.search_panel.isAncestorOf(child)
+        for child in (page.previous, page.page_number, page.next):
+            assert page.pagination.isAncestorOf(child)
+        assert page.results.verticalScrollBarPolicy() == Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+        assert page.results.verticalScrollBar().maximum() > 0
+        assert page.results.horizontalScrollBar().maximum() == 0
+        if not page.pagination.stacked:
+            assert page.pagination.navigation.x() - page.position_label.geometry().right() < 25
+        assert page.pagination.geometry().bottom() <= page.search_panel.height()
+        assert not page.summary.isVisible()
+    finally:
+        page.stop_queries()
+        page.close()
+        page.deleteLater()
+        qt_app.processEvents()
+        set_language(previous)
+
+
+def test_history_wheel_moves_pixels_and_stops_for_navigation(qt_app):
+    from PySide6.QtCore import QPoint, QPointF, Qt, QAbstractAnimation
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
+    from core.settings_gui.history_widgets import HistoryList, HistoryRow
+    view = HistoryList()
+    view.resize(280, 280)
+    view.replace_rows([HistoryRow({'day': '2026-09-28', 'time': '12:00:00', 'preview': 'Synthetic preview ' * 4})
+                       for _ in range(30)])
+    view.show()
+    for _ in range(5):
+        qt_app.processEvents()
+    bar = view.verticalScrollBar()
+    def wheel(delta, pixels=0):
+        event = QWheelEvent(QPointF(50, 50), QPointF(view.mapToGlobal(QPoint(50, 50))),
+                            QPoint(0, pixels), QPoint(0, delta), Qt.MouseButton.NoButton,
+                            Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        QApplication.sendEvent(view.viewport(), event)
+    try:
+        wheel(-120)
+        assert view.scroll_animation.state() == QAbstractAnimation.State.Running
+        target = view.scroll_animation.endValue()
+        view.scroll_animation.setCurrentTime(40)
+        assert 0 < bar.value() < target
+        wheel(-120)
+        assert view.scroll_animation.endValue() > target
+        view.scroll_animation.setCurrentTime(view.scroll_animation.duration())
+        assert bar.value() > target and bar.value() < view.rows[0].height() * 3
+        wheel(-120)
+        QTest.keyClick(view, Qt.Key.Key_Home)
+        assert view.scroll_animation.state() == QAbstractAnimation.State.Stopped
+        wheel(-120)
+        wheel(-10, pixels=-10)
+        assert view.scroll_animation.state() == QAbstractAnimation.State.Stopped
+        wheel(-120)
+        view.hide()
+        assert view.scroll_animation.state() == QAbstractAnimation.State.Stopped
+    finally:
+        view.close()
+        view.deleteLater()
+        qt_app.processEvents()
+
+
+def test_history_expansion_anchors_header_and_keeps_other_records_open(window, qt_app, gui_root, monkeypatch):
+    from PySide6.QtCore import QPoint
+    from unittest.mock import Mock
+    from PySide6.QtWidgets import QApplication
+    from core.settings_gui.history import day_path
+    path = day_path(gui_root / 'records/transcripts', '2026-09-28')
+    path.parent.mkdir(parents=True)
+    path.write_text(''.join(f'### 12:00:{i:02d}\n\nSynthetic result {i}\n\n' for i in range(45)), encoding='utf-8')
+    clipboard = Mock()
+    monkeypatch.setattr(QApplication, 'clipboard', lambda: clipboard)
+    page = window.history
+    history_dates(page)
+    window.resize(1100, 900)
+    window.show_history()
+    settle(qt_app, window)
+    for _ in range(5):
+        qt_app.processEvents()
+    footer_y = page.pagination.mapTo(page, QPoint()).y()
+    for index in (1, 2):
+        row = page.results.rows[index]
+        page.results.verticalScrollBar().setValue(max(0, row.y() - 100))
+        qt_app.processEvents()
+        before = row.header.mapTo(page.results.viewport(), QPoint()).y()
+        row.header.click()
+        settle(qt_app, window)
+        for _ in range(5):
+            qt_app.processEvents()
+        assert abs(row.header.mapTo(page.results.viewport(), QPoint()).y() - before) <= 2
+        assert page.pagination.mapTo(page, QPoint()).y() == footer_y
+        assert row.detail.tabs.currentIndex() == 0
+        assert row.detail.final_result.toPlainText() == f'Synthetic result {44 - index}'
+    assert page.results.rows[1].expanded and page.results.rows[2].expanded
+    history_view(page, 1).copy_final.click()
+    assert clipboard.setText.call_args.args == ('Synthetic result 43',)
+    history_view(page, 2).copy_final.click()
+    assert clipboard.setText.call_args.args == ('Synthetic result 42',)
+    view = history_view(page, 1)
+    page.results.rows[1].header.click()
+    page.results.rows[1].header.click()
+    assert history_view(page, 1) is view
+    page.next.click()
+    settle(qt_app, window)
+    assert len(page.results.rows) == 15
+    assert all(not row.expanded and row.detail is None for row in page.results.rows)
+    assert page.results.verticalScrollBar().value() == 0
+
+
+def test_history_pending_detail_is_discarded_after_new_query(window, qt_app, gui_root, monkeypatch):
+    import threading
+    from core.settings_gui.history import day_path
+    path = day_path(gui_root / 'records/transcripts', '2026-09-28')
+    path.parent.mkdir(parents=True)
+    path.write_text(''.join(f'### 12:00:0{i}\n\nResult {i}\n\n' for i in range(3)), encoding='utf-8')
+    page = window.history
+    history_dates(page)
+    window.show_history()
+    settle(qt_app, window)
+    release = threading.Event()
+    dispatch = window.backend.dispatch
+    calls = []
+    def delayed(method, params):
+        calls.append(method)
+        if method == 'history_read':
+            assert release.wait(3)
+        return dispatch(method, params)
+    monkeypatch.setattr(window.backend, 'dispatch', delayed)
+    try:
+        page.results.rows[0].header.click()
+        page.flush_request()
+        page.results.rows[1].header.click()
+        page.fetch(0, {'keyword': 'Result 0'})
+    finally:
+        release.set()
+    settle(qt_app, window)
+    assert calls == ['history_read', 'history_query']
+    assert len(page.results.rows) == 1 and history_view(page) is None
+    assert page.results.rows[0].entry['preview'] == 'Result 0'
+    assert not page.detail_queue and page.pending is None
+
+
+def test_history_collapsed_queue_error_retry_and_resume_ignore_late_callback(qt_app):
+    from core.settings_gui.history_page import HistoryPage
+    callbacks = []
+    def request(method, params, callback):
+        callbacks.append((method, callback))
+        return True
+    page = HistoryPage(request)
+    entry = {'day': '2026-09-28', 'time': '12:00:00', 'preview': 'Synthetic result',
+             'offset': 0, 'length': 100, 'digest': 'a' * 64}
+    detail = {'text': 'Synthetic record', 'stages': {'final': 'Synthetic result'}, 'truncated': False}
+    try:
+        page.fetch(0, {'keyword': ''})
+        callbacks.pop()[1]({'entries': [entry], 'page': 0, 'page_size': 30, 'total': 1,
+                           'limited': False, 'skipped': 0, 'saving_enabled': True})
+        row = page.results.rows[0]
+        row.header.click()
+        row.header.click()
+        page.flush_request()
+        assert not callbacks and not row.loading
+        row.header.click()
+        page.flush_request()
+        callbacks.pop()[1].on_error('Synthetic unavailable')
+        assert row.detail is None and 'Synthetic unavailable' in row.note.text()
+        row.header.click()
+        row.header.click()
+        page.flush_request()
+        stale_callback = callbacks.pop()[1]
+        page.stop_queries()
+        page.resume_queries()
+        page.flush_request()
+        current_callback = callbacks.pop()[1]
+        stale_callback(detail)
+        assert page.inflight and row.detail is None
+        current_callback(detail)
+        assert not page.inflight and row.detail.final_text == 'Synthetic result'
+    finally:
+        page.stop_queries()
+        page.close()
+        page.deleteLater()
+        qt_app.processEvents()
+
+
+@pytest.mark.parametrize('locale', ['en', 'zh-CN'])
+def test_history_large_page_numbers_fit_compact_window(qt_app, locale):
+    from core.i18n import get_language, set_language
+    from core.settings_gui.history_page import HistoryPage
+    from core.settings_gui.presentation import apply_theme
+    from PySide6.QtGui import QFont, QFontDatabase
+    previous = get_language()
+    set_language(locale)
+    page = HistoryPage(lambda *a, **k: False)
+    page.stop_queries()
+    apply_theme(page)
+    families = QFontDatabase.applicationFontFamilies(QFontDatabase.addApplicationFont('C:/Windows/Fonts/msyh.ttc'))
+    if families:
+        page.setFont(QFont(families[0]))
+    try:
+        page.query = {'keyword': ''}
+        page.resize(600, 800)
+        entries = [{'day': '2026-09-28', 'time': '12:00:00', 'preview': 'Synthetic result',
+                    'offset': i, 'length': 100, 'digest': 'a' * 64} for i in range(30)]
+        page.loaded({'entries': entries, 'page': 166, 'page_size': 30, 'total': 10000,
+                     'limited': False, 'skipped': 0, 'saving_enabled': True})
+        page.show()
+        for _ in range(8):
+            qt_app.processEvents()
+        assert page.width() == 600
+        assert page.page_number.value() == 167 and page.page_number.maximum() == 334
+        assert page.pagination.rect().contains(page.pagination.navigation.geometry())
+        assert page.pagination.rect().contains(page.position_label.geometry())
+    finally:
+        page.stop_queries()
+        page.close()
+        page.deleteLater()
+        qt_app.processEvents()
+        set_language(previous)

@@ -79,11 +79,11 @@ class RecentWords(QFrame):
         if self.note.text().startswith(tr('gui.dashboard_failed')):
             self.note.clear()
             self.note.hide()
-        self.show_copy_feedback(tr('gui.history_loading_detail'))
+        self.show_copy_feedback('')
         self.schedule('dashboard_copy', reference)
 
     def show_copy_feedback(self, message):
-        # Keep pending and failure feedback beside the clicked text.
+        # Keep failures beside the clicked text; pending reads leave the row unchanged.
         for index in range(self.entries.count()):
             button = self.entries.itemAt(index).widget()
             feedback = button.layout().itemAt(0).widget()
