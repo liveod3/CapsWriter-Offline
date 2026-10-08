@@ -178,6 +178,7 @@ logs/
 /.config_client.py.lock
 /.config_server.py.lock
 /.settings-*
+/LLM/.catalog.lock
 /LLM/providers.toml
 /LLM/costs.toml
 /llm-costs/
