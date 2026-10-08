@@ -148,7 +148,7 @@ def test_language_watcher_is_closed_with_server(monkeypatch):
     server.is_alive = False
     server.loop = asyncio.new_event_loop()
     server.process_manager = SimpleNamespace(start=Mock())
-    server.socket_manager = SimpleNamespace(prepare=Mock(), start=AsyncMock())
+    server.socket_manager = SimpleNamespace(prepare=Mock(), _check_port=Mock(return_value=True), start=AsyncMock())
     server.tray_manager = SimpleNamespace(start=Mock())
     server._cleanup = Mock()
     server._print_banner = Mock()

@@ -168,6 +168,9 @@ class CapsWriterServer:
         register_signal(self.stop)
 
         try:
+            # Reject unavailable endpoints before loading models or starting the tray.
+            if not self.socket_manager._check_port():
+                return
             self.tray_manager.start()
             self._print_banner()
             self.process_manager.start()

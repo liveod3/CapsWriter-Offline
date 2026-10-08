@@ -1476,6 +1476,8 @@ MESSAGES = {
     'diagnostic.server_manager.unauthenticated_websocket_connection_rejected_details': '拒绝未经认证的 WebSocket 连接: %s',
     'validation.server_manager.failed_to_load_tls_certificate_or_private_key': 'TLS 证书或私钥加载失败: {value0}',
     'diagnostic.server_manager.port_conflict_is_already_in_use_check_whether': '端口冲突：{value0}:{value1} 已被占用，请检查是否已有服务端正在运行。',
+    'diagnostic.server_manager.bind_permission_denied': '无法绑定 {value0}:{value1}：访问被拒绝（错误 {code}）。Windows 下可运行 netsh interface ipv4 show excludedportrange protocol=tcp 检查保留端口。请在客户端和服务端配置中设置相同的可用端口，然后重启两端。',
+    'diagnostic.server_manager.bind_failed': '无法绑定 {value0}:{value1}（错误 {code}），请检查配置的地址和端口。',
     'diagnostic.server_manager.recognition_channel_unavailable_restart_required': '识别通道不可用，需要重启：%s',
     'diagnostic.ws_recv.new_client_connected_id': '新客户端连接: {value0}, ID: {value1}',
     'diagnostic.ws_recv.client_resources_cleaned_up': '客户端资源已清理: {value0}',

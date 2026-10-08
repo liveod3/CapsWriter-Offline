@@ -9,6 +9,7 @@ liveness monitoring, and result delivery tasks.
 from core.i18n import Notice
 
 import asyncio
+import errno
 import ipaddress
 import math
 import secrets
@@ -216,9 +217,20 @@ class SocketManager:
             try:
                 s.bind((Config.addr, int(Config.port)))
                 return True
-            except socket.error:
-                logger.error(Notice('diagnostic.server_manager.port_conflict_is_already_in_use_check_whether', value0=Config.addr, value1=Config.port))
+            except OSError as exc:
+                self._report_bind_error(exc)
                 return False
+
+    def _report_bind_error(self, exc):
+        """Distinguish occupied ports from Windows exclusions and other bind errors."""
+        code = getattr(exc, 'winerror', None) or exc.errno
+        if code in (errno.EADDRINUSE, 10048):
+            key = 'diagnostic.server_manager.port_conflict_is_already_in_use_check_whether'
+        elif code in (errno.EACCES, errno.EPERM, 10013):
+            key = 'diagnostic.server_manager.bind_permission_denied'
+        else:
+            key = 'diagnostic.server_manager.bind_failed'
+        logger.error(Notice(key, value0=Config.addr, value1=Config.port, code=code))
 
     async def start(self):
         """
@@ -249,35 +261,41 @@ class SocketManager:
         if self._network_mode == 'lan' and not self._ssl_context:
             logger.warning(Notice('diagnostic.server_manager.tls_is_disabled_in_lan_mode_use_only'))
         
-        async with websockets.serve(
-            self._handle_connection,
-            Config.addr,
-            Config.port,
-            subprotocols=["binary"],
-            origins=[None],
-            process_request=self._build_auth_process_request(),
-            ssl=self._ssl_context,
-            max_size=self._max_message_size,
-            max_queue=self._max_queue,
-            close_timeout=5.0,
-        ) as server:
-            self._server = server  # Keep the server reference for external shutdown.
+        try:
+            async with websockets.serve(
+                self._handle_connection,
+                Config.addr,
+                Config.port,
+                subprotocols=["binary"],
+                origins=[None],
+                process_request=self._build_auth_process_request(),
+                ssl=self._ssl_context,
+                max_size=self._max_message_size,
+                max_queue=self._max_queue,
+                close_timeout=5.0,
+            ) as server:
+                self._server = server  # Keep the server reference for external shutdown.
 
-            # 4. Run result delivery as the main awaited task.
-            logger.info(Notice('diagnostic.server_manager.websocket_sender_ready'))
-            try:
-                await ws_send(self.app)
-            except ResultDeliveryError as exc:
-                self._delivery_failed = True
-                logger.critical(Notice('diagnostic.server_manager.recognition_channel_unavailable_restart_required'), str(exc))
-                server.close()
-                await asyncio.gather(*(
-                    _retire_connection(self.app.state, socket, 'Recognition channel unavailable')
-                    for socket in list(self.app.state.sockets.values())
-                ), return_exceptions=True)
-            
-        self._is_running = False
-        self._server = None
+                # 4. Run result delivery as the main awaited task.
+                logger.info(Notice('diagnostic.server_manager.websocket_sender_ready'))
+                try:
+                    await ws_send(self.app)
+                except ResultDeliveryError as exc:
+                    self._delivery_failed = True
+                    logger.critical(Notice('diagnostic.server_manager.recognition_channel_unavailable_restart_required'), str(exc))
+                    server.close()
+                    await asyncio.gather(*(
+                        _retire_connection(self.app.state, socket, 'Recognition channel unavailable')
+                        for socket in list(self.app.state.sockets.values())
+                    ), return_exceptions=True)
+        except OSError as exc:
+            if self._server is not None:
+                raise
+            # The endpoint may become unavailable after the early startup check.
+            self._report_bind_error(exc)
+        finally:
+            self._is_running = False
+            self._server = None
         logger.info(Notice('diagnostic.server_manager.socketmanager_websocket_service_exited'))
 
     def stop(self):

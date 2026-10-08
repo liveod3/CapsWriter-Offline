@@ -1498,6 +1498,8 @@ MESSAGES = {
     'diagnostic.server_manager.unauthenticated_websocket_connection_rejected_details': 'Unauthenticated WebSocket connection rejected: %s',
     'validation.server_manager.failed_to_load_tls_certificate_or_private_key': 'Failed to load TLS certificate or private key: {value0}',
     'diagnostic.server_manager.port_conflict_is_already_in_use_check_whether': 'Port conflict: {value0}:{value1} is already in use; check whether another server is running.',
+    'diagnostic.server_manager.bind_permission_denied': 'Cannot bind {value0}:{value1}: access denied (error {code}). On Windows, check reserved TCP ports with netsh interface ipv4 show excludedportrange protocol=tcp. Choose an available port in both client and server configurations, then restart both.',
+    'diagnostic.server_manager.bind_failed': 'Cannot bind {value0}:{value1} (error {code}). Check the configured address and port.',
     'diagnostic.server_manager.recognition_channel_unavailable_restart_required': 'Recognition channel unavailable; restart required: %s',
     'diagnostic.ws_recv.new_client_connected_id': 'New client connected: {value0}, ID={value1}',
     'diagnostic.ws_recv.client_resources_cleaned_up': 'Client resources cleaned up: {value0}',

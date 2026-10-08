@@ -324,7 +324,7 @@ def test_app_finally_stops_components_when_result_service_returns(monkeypatch):
     app.is_alive = False
     app.state = SimpleNamespace(queue_out=Mock(put_nowait=Mock(side_effect=OSError('synthetic'))))
     app.process_manager = SimpleNamespace(start=Mock(), stop=Mock())
-    app.socket_manager = SimpleNamespace(prepare=Mock(), start=AsyncMock(), stop=Mock())
+    app.socket_manager = SimpleNamespace(prepare=Mock(), _check_port=Mock(return_value=True), start=AsyncMock(), stop=Mock())
     app.tray_manager = SimpleNamespace(start=Mock(), stop=Mock())
     app._print_banner = Mock()
     app.loop = asyncio.new_event_loop()
@@ -344,7 +344,7 @@ def test_startup_runtime_error_is_not_silently_suppressed(monkeypatch):
     app.is_alive = False
     app.state = SimpleNamespace(queue_out=Mock())
     app.process_manager = SimpleNamespace(start=Mock(side_effect=RuntimeError('synthetic')), stop=Mock())
-    app.socket_manager = SimpleNamespace(prepare=Mock(), start=AsyncMock(), stop=Mock())
+    app.socket_manager = SimpleNamespace(prepare=Mock(), _check_port=Mock(return_value=True), start=AsyncMock(), stop=Mock())
     app.tray_manager = SimpleNamespace(start=Mock(), stop=Mock())
     app._print_banner = Mock()
     app.loop = Mock(is_running=Mock(return_value=False))

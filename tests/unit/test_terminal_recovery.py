@@ -324,7 +324,7 @@ def test_exit_during_startup_skips_network_and_cleans_once(monkeypatch, foreign)
         app.process_manager.stop.assert_not_called()
 
     app.process_manager = SimpleNamespace(start=startup, stop=Mock())
-    app.socket_manager = SimpleNamespace(prepare=Mock(), start=AsyncMock(), stop=Mock())
+    app.socket_manager = SimpleNamespace(prepare=Mock(), _check_port=Mock(return_value=True), start=AsyncMock(), stop=Mock())
     app.tray_manager = SimpleNamespace(start=Mock(), stop=Mock())
     app._print_banner = Mock()
     monkeypatch.setattr('core.server.app.register_signal', Mock())

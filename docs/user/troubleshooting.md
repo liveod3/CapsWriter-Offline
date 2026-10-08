@@ -11,6 +11,14 @@
 
 部分应用不兼容模拟 Unicode 输入，可在 `paste_apps` 中选择粘贴输出。字段说明见[客户端模板](../../config_templates/config_client_template.py)。
 
+## 服务端启动后立即退出或提示端口错误
+
+先查看 `logs/server/` 中对应启动时间的错误。`10048` 表示地址已被占用；`10013` 表示访问被拒绝，可能是 Windows 保留了该 TCP 端口，即使没有程序监听也无法绑定。旧版本会把这些错误都显示成“端口冲突”。
+
+在 PowerShell 中运行 `netsh interface ipv4 show excludedportrange protocol=tcp` 查看 IPv4 保留范围；若使用 IPv6，则将 `ipv4` 换为 `ipv6`。选择不在保留范围内且未被占用的端口，同时修改根目录 `config_server.py` 的 `ServerConfig.port` 和 `config_client.py` 的 `ClientConfig.port`，然后重启两端。保留范围可能变化，不能保证某个固定端口在所有机器上始终可用。无需删除系统保留范围。
+
+服务端会在加载模型前检查端口；如果端口在检查后才变得不可用，实际监听失败时也会记录具体错误并清理本次启动的资源。
+
 ## 无法打开麦克风或开头缺字
 
 检查 Windows 麦克风隐私设置是否允许桌面应用访问，确认默认输入设备可用，再从托盘重连麦克风。设备被独占时，检查设备属性与其他录音应用。
